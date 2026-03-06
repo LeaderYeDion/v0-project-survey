@@ -295,110 +295,123 @@ export function SurveyConfigPanel({
               </Accordion>
             </div>
 
-            {/* Respondent Configs */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-primary" />
-                  <Label className="text-muted-foreground">受访者配置</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="bg-primary/20 text-primary">
-                    共 {totalRespondents} 人
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={addRespondentConfig}
-                    className="text-primary hover:text-primary/80"
-                  >
-                    <UserPlus className="w-4 h-4 mr-1" />
-                    添加
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {config.respondentConfigs.map((respConfig, index) => (
-                  <div
-                    key={respConfig.id}
-                    className="p-3 rounded-lg bg-secondary/20 border border-border/30 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <Badge variant="outline" className="text-xs border-primary/30 text-primary">
-                        配置 {index + 1}
-                      </Badge>
+            {/* Respondent Configs - Collapsible */}
+            <Accordion type="single" collapsible defaultValue="respondent-configs">
+              <AccordionItem
+                value="respondent-configs"
+                className="border border-border/30 rounded-lg bg-secondary/10"
+              >
+                <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                  <div className="flex items-center justify-between w-full pr-2">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-primary" />
+                      <span className="font-medium text-foreground">受访者配置</span>
+                    </div>
+                    <Badge variant="secondary" className="bg-primary/20 text-primary">
+                      {config.respondentConfigs.length} 组 / 共 {totalRespondents} 人
+                    </Badge>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4">
+                  <div className="space-y-3">
+                    {/* Add button */}
+                    <div className="flex justify-end">
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => removeRespondentConfig(index)}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={addRespondentConfig}
+                        className="text-primary hover:text-primary/80"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <UserPlus className="w-4 h-4 mr-1" />
+                        添加配置组
                       </Button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-muted-foreground text-[10px]">性别</Label>
-                        <Input
-                          value={respConfig.gender}
-                          onChange={(e) => updateRespondentConfig(index, { gender: e.target.value })}
-                          placeholder="男/女/不限"
-                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-muted-foreground text-[10px]">年龄范围</Label>
-                        <Input
-                          value={respConfig.ageRange}
-                          onChange={(e) => updateRespondentConfig(index, { ageRange: e.target.value })}
-                          placeholder="如 25-35"
-                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-muted-foreground text-[10px]">职业</Label>
-                        <Input
-                          value={respConfig.occupation}
-                          onChange={(e) => updateRespondentConfig(index, { occupation: e.target.value })}
-                          placeholder="如 产品经理"
-                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-muted-foreground text-[10px]">工作城市</Label>
-                        <Input
-                          value={respConfig.city}
-                          onChange={(e) => updateRespondentConfig(index, { city: e.target.value })}
-                          placeholder="如 北京"
-                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-muted-foreground text-[10px]">收入</Label>
-                        <Input
-                          value={respConfig.income}
-                          onChange={(e) => updateRespondentConfig(index, { income: e.target.value })}
-                          placeholder="如 20-30万"
-                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-muted-foreground text-[10px]">生成人数</Label>
-                        <Input
-                          type="number"
-                          value={respConfig.count}
-                          onChange={(e) => updateRespondentConfig(index, { count: parseInt(e.target.value) || 1 })}
-                          min={1}
-                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
-                        />
-                      </div>
+                    {/* Scrollable config list */}
+                    <div className="max-h-[280px] overflow-y-auto pr-1 space-y-3 scrollbar-thin">
+                      {config.respondentConfigs.map((respConfig, index) => (
+                        <div
+                          key={respConfig.id}
+                          className="p-3 rounded-lg bg-secondary/20 border border-border/30 space-y-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+                              配置 {index + 1}
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeRespondentConfig(index)}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-[10px]">性别</Label>
+                              <Input
+                                value={respConfig.gender}
+                                onChange={(e) => updateRespondentConfig(index, { gender: e.target.value })}
+                                placeholder="男/女/不限"
+                                className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-[10px]">年龄范围</Label>
+                              <Input
+                                value={respConfig.ageRange}
+                                onChange={(e) => updateRespondentConfig(index, { ageRange: e.target.value })}
+                                placeholder="如 25-35"
+                                className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-[10px]">职业</Label>
+                              <Input
+                                value={respConfig.occupation}
+                                onChange={(e) => updateRespondentConfig(index, { occupation: e.target.value })}
+                                placeholder="如 产品经理"
+                                className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-[10px]">工作城市</Label>
+                              <Input
+                                value={respConfig.city}
+                                onChange={(e) => updateRespondentConfig(index, { city: e.target.value })}
+                                placeholder="如 北京"
+                                className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-[10px]">收入</Label>
+                              <Input
+                                value={respConfig.income}
+                                onChange={(e) => updateRespondentConfig(index, { income: e.target.value })}
+                                placeholder="如 20-30万"
+                                className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-[10px]">生成人数</Label>
+                              <Input
+                                type="number"
+                                value={respConfig.count}
+                                onChange={(e) => updateRespondentConfig(index, { count: parseInt(e.target.value) || 1 })}
+                                min={1}
+                                className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
         )}
       </ScrollArea>
