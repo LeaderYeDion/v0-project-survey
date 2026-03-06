@@ -1,11 +1,10 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { MessageSquare, Sparkles, User, MapPin, Briefcase, DollarSign, X, AlertCircle } from "lucide-react"
-import type { InterviewSession, RespondentProfile, DialogMessage } from "@/lib/mock-survey-service"
+import { MessageSquare, Sparkles, User, MapPin, Briefcase, DollarSign, AlertCircle } from "lucide-react"
+import type { InterviewSession, RespondentProfile } from "@/lib/mock-survey-service"
 import { cn } from "@/lib/utils"
 
 interface ChatSimulationPanelProps {
@@ -24,7 +23,6 @@ export function ChatSimulationPanel({
   onSelectRespondent
 }: ChatSimulationPanelProps) {
   const [selectedRespondentId, setSelectedRespondentId] = useState<string | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Auto-select the current respondent being interviewed
   useEffect(() => {
@@ -32,11 +30,6 @@ export function ChatSimulationPanel({
       setSelectedRespondentId(currentRespondentId)
     }
   }, [currentRespondentId, selectedRespondentId])
-
-  // Auto-scroll when new messages arrive for selected respondent
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [sessions, selectedRespondentId])
 
   const selectedRespondent = respondents.find(r => r.id === selectedRespondentId)
   const selectedSession = sessions.find(s => s.respondentId === selectedRespondentId)
@@ -106,7 +99,7 @@ export function ChatSimulationPanel({
           </p>
         </div>
 
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border/50 scrollbar-track-transparent hover:scrollbar-thumb-border">
           <div className="p-2 space-y-1">
             {respondents.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground text-sm">
@@ -166,7 +159,7 @@ export function ChatSimulationPanel({
               })
             )}
           </div>
-        </ScrollArea>
+        </div>
       </div>
 
       {/* Chat Area */}
@@ -232,7 +225,7 @@ export function ChatSimulationPanel({
             </div>
 
             {/* Dialog Messages */}
-            <ScrollArea className="flex-1 p-4">
+            <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-border/50 scrollbar-track-transparent hover:scrollbar-thumb-border">
               {!selectedSession || selectedSession.dialog.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center py-12">
                   <div className="w-16 h-16 rounded-full bg-secondary/50 flex items-center justify-center mb-4">
@@ -327,10 +320,9 @@ export function ChatSimulationPanel({
                     </div>
                   )}
 
-                  <div ref={messagesEndRef} />
-                </div>
+                  </div>
               )}
-            </ScrollArea>
+            </div>
 
             {/* Footer Stats */}
             <div className="px-4 py-3 border-t border-border/50 bg-secondary/20">
