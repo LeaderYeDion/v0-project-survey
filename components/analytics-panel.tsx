@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   PieChart,
   Pie,
@@ -11,7 +11,6 @@ import {
   YAxis,
   ResponsiveContainer,
   Tooltip,
-  Legend,
 } from "recharts"
 import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -26,9 +25,15 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
   ChartContainer,
   ChartTooltip,
-  ChartTooltipContent,
 } from "@/components/ui/chart"
 import {
   BarChart3,
@@ -41,6 +46,11 @@ import {
   AlertTriangle,
   PieChartIcon,
   Filter,
+  Save,
+  History,
+  ArrowLeft,
+  Clock,
+  Hash,
 } from "lucide-react"
 import type { 
   SurveyProgress, 
@@ -49,7 +59,13 @@ import type {
   RespondentProfile,
   QuestionAnalysis,
   DemographicAnalysis,
-  SurveyQuestion
+  SurveyQuestion,
+  SurveyHistoryRecord,
+  SurveyConfig,
+} from "@/lib/mock-survey-service"
+import {
+  saveSurveyToHistory,
+  fetchSurveyHistory,
 } from "@/lib/mock-survey-service"
 
 interface AnalyticsPanelProps {
@@ -60,8 +76,12 @@ interface AnalyticsPanelProps {
   questions: SurveyQuestion[]
   questionAnalysis: QuestionAnalysis[]
   demographicAnalysis: DemographicAnalysis[]
+  config: SurveyConfig
   onExport: (format: "json" | "csv") => void
   isRunning: boolean
+  onLoadHistory: (record: SurveyHistoryRecord) => void
+  onReturnToCurrent: () => void
+  viewingHistoryRecord: SurveyHistoryRecord | null
 }
 
 export function AnalyticsPanel({
@@ -72,11 +92,59 @@ export function AnalyticsPanel({
   questions,
   questionAnalysis,
   demographicAnalysis,
+  config,
   onExport,
-  isRunning
+  isRunning,
+  onLoadHistory,
+  onReturnToCurrent,
+  viewingHistoryRecord,
 }: AnalyticsPanelProps) {
   const [selectedQuestion, setSelectedQuestion] = useState<string>(questions[0]?.id || "")
   const [selectedDemographic, setSelectedDemographic] = useState<string>("city")
+  const [historyRecords, setHistoryRecords] = useState<SurveyHistoryRecord[]>([])
+  const [isSaving, setIsSaving] = useState(false)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false)
+
+  useEffect(() => {
+    if (questions.length > 0 && !selectedQuestion) {
+      setSelectedQuestion(questions[0].id)
+    }
+  }, [questions, selectedQuestion])
+
+  const loadHistoryList = async () => {
+    setIsLoadingHistory(true)
+    try {
+      const records = await fetchSurveyHistory()
+      setHistoryRecords(records)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
+
+  const handleSave = async () => {
+    if (sessions.length === 0) return
+    setIsSaving(true)
+    try {
+      await saveSurveyToHistory(
+        config,
+        sessions,
+        respondents,
+        progress,
+        sentiment,
+        questionAnalysis,
+        demographicAnalysis
+      )
+      await loadHistoryList()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleSelectHistory = (record: SurveyHistoryRecord) => {
+    onLoadHistory(record)
+    setHistoryDialogOpen(false)
+  }
 
   const sentimentData = [
     { name: "正面", value: sentiment.positive, fill: "#10b981" },
@@ -84,7 +152,6 @@ export function AnalyticsPanel({
     { name: "负面", value: sentiment.negative, fill: "#f43f5e" },
   ]
 
-  // Status distribution
   const statusData = [
     { 
       name: "已完成", 
@@ -113,10 +180,8 @@ export function AnalyticsPanel({
     },
   ].filter(d => d.value > 0)
 
-  // Get current question analysis
   const currentQuestionAnalysis = questionAnalysis.find(q => q.questionId === selectedQuestion)
 
-  // Prepare chart data for selected question
   const questionResponseData = currentQuestionAnalysis 
     ? Object.entries(currentQuestionAnalysis.responseDistribution).map(([key, value]) => ({
         answer: key.length > 8 ? key.substring(0, 8) + "..." : key,
@@ -125,7 +190,6 @@ export function AnalyticsPanel({
       }))
     : []
 
-  // Filter demographic analysis for selected question and type
   const getDemographicData = () => {
     const filtered = demographicAnalysis.filter(d => 
       d.questionId === selectedQuestion
@@ -146,36 +210,155 @@ export function AnalyticsPanel({
 
   const totalMessages = sessions.reduce((acc, s) => acc + s.dialog.length, 0)
 
+  const formatDate = (date: Date) => {
+    const d = new Date(date)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border/50">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-primary" />
-          <h2 className="font-semibold text-foreground">分析面板</h2>
+      <div className="flex flex-col p-4 border-b border-border/50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-primary" />
+            <h2 className="font-semibold text-foreground">分析面板</h2>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onExport("json")}
+              disabled={sessions.length === 0}
+              className="text-muted-foreground hover:text-foreground h-7 px-2"
+            >
+              <Download className="w-3 h-3 mr-1" />
+              JSON
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onExport("csv")}
+              disabled={sessions.length === 0}
+              className="text-muted-foreground hover:text-foreground h-7 px-2"
+            >
+              <Download className="w-3 h-3 mr-1" />
+              CSV
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+        
+        {/* History info when viewing historical data */}
+        {viewingHistoryRecord && (
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Clock className="w-3 h-3" />
+            <span>{formatDate(viewingHistoryRecord.savedAt)}</span>
+            <Hash className="w-3 h-3 ml-2" />
+            <span className="font-mono">{viewingHistoryRecord.id.slice(-8)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Action Buttons */}
+      <div className="px-4 py-2 border-b border-border/50 flex gap-2">
+        {viewingHistoryRecord ? (
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            onClick={() => onExport("json")}
-            disabled={sessions.length === 0}
-            className="text-muted-foreground hover:text-foreground h-7 px-2"
+            onClick={onReturnToCurrent}
+            className="flex-1 h-8 text-xs bg-secondary/30 border-border/50 hover:bg-secondary/50"
           >
-            <Download className="w-3 h-3 mr-1" />
-            JSON
+            <ArrowLeft className="w-3 h-3 mr-1" />
+            返回当前调研
           </Button>
+        ) : (
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            onClick={() => onExport("csv")}
-            disabled={sessions.length === 0}
-            className="text-muted-foreground hover:text-foreground h-7 px-2"
+            onClick={handleSave}
+            disabled={sessions.length === 0 || isSaving || isRunning}
+            className="flex-1 h-8 text-xs bg-primary/10 border-primary/30 hover:bg-primary/20 text-primary"
           >
-            <Download className="w-3 h-3 mr-1" />
-            CSV
+            {isSaving ? (
+              <div className="w-3 h-3 mr-1 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            ) : (
+              <Save className="w-3 h-3 mr-1" />
+            )}
+            保存本次调研
           </Button>
-        </div>
+        )}
+        
+        <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+          <DialogTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadHistoryList}
+              className="flex-1 h-8 text-xs bg-secondary/30 border-border/50 hover:bg-secondary/50"
+            >
+              <History className="w-3 h-3 mr-1" />
+              历史记录
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="bg-card border-border/50 max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-foreground flex items-center gap-2">
+                <History className="w-4 h-4 text-primary" />
+                调研历史记录
+              </DialogTitle>
+            </DialogHeader>
+            <div className="mt-4">
+              {isLoadingHistory ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                </div>
+              ) : historyRecords.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  暂无历史记录
+                </div>
+              ) : (
+                <ScrollArea className="h-[300px] pr-4">
+                  <div className="space-y-2">
+                    {historyRecords.map((record) => (
+                      <button
+                        key={record.id}
+                        onClick={() => handleSelectHistory(record)}
+                        className="w-full p-3 rounded-lg bg-secondary/30 border border-border/30 hover:border-primary/50 hover:bg-secondary/50 transition-all text-left"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-foreground">
+                            {record.config.title}
+                          </span>
+                          <Badge variant="outline" className="text-[10px]">
+                            {record.respondents.length} 人
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {formatDate(record.savedAt)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Hash className="w-3 h-3" />
+                            {record.id.slice(-8)}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                          <Badge className="text-[10px] bg-emerald-500/20 text-emerald-400 border-0">
+                            完成 {record.progress.completedRespondents}
+                          </Badge>
+                          <Badge className="text-[10px] bg-rose-500/20 text-rose-400 border-0">
+                            终止 {record.progress.terminatedRespondents}
+                          </Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <ScrollArea className="flex-1 p-4">
@@ -494,19 +677,24 @@ export function AnalyticsPanel({
             <div className="flex items-center gap-3">
               <div
                 className={`w-3 h-3 rounded-full ${
-                  isRunning ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"
+                  isRunning
+                    ? "bg-emerald-400 animate-pulse"
+                    : viewingHistoryRecord
+                    ? "bg-amber-400"
+                    : sessions.length > 0
+                    ? "bg-primary"
+                    : "bg-muted-foreground"
                 }`}
               />
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  {isRunning ? "模拟进行中" : "等待开始"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {isRunning
-                    ? `正在访谈第 ${progress.currentRespondentIndex + 1} 位受访者`
-                    : "配置参数后点击开始模拟"}
-                </p>
-              </div>
+              <span className="text-xs text-foreground">
+                {isRunning
+                  ? "正在进行调研..."
+                  : viewingHistoryRecord
+                  ? "正在查看历史记录"
+                  : sessions.length > 0
+                  ? "调研已完成"
+                  : "等待开始调研"}
+              </span>
             </div>
           </div>
         </div>

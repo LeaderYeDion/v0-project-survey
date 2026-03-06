@@ -6,8 +6,18 @@ export interface SurveyConfig {
   title: string
   description: string
   questions: SurveyQuestion[]
-  agentCount: number
   maxResponseTime: number
+  respondentConfigs: RespondentConfig[]
+}
+
+export interface RespondentConfig {
+  id: string
+  gender: string
+  ageRange: string
+  occupation: string
+  city: string
+  income: string
+  count: number
 }
 
 export interface SurveyQuestion {
@@ -25,13 +35,14 @@ export interface RespondentProfile {
   nickname: string
   avatar: string
   age: number
-  gender: "男" | "女"
+  gender: string
   occupation: string
   city: string
-  income: string  // 收入区间
+  income: string
   education: string
   maritalStatus: string
-  tags: string[]  // 额外标签
+  tags: string[]
+  configId: string // 关联的配置ID
 }
 
 export interface DialogMessage {
@@ -41,7 +52,7 @@ export interface DialogMessage {
   timestamp: Date
   questionId?: string
   sentiment?: "positive" | "neutral" | "negative"
-  answerValue?: string | number  // 用于统计的答案值
+  answerValue?: string | number
 }
 
 export interface InterviewSession {
@@ -69,151 +80,127 @@ export interface SentimentData {
   negative: number
 }
 
-// Mock respondent data - simulating backend response
-const mockRespondentProfiles: RespondentProfile[] = [
-  {
-    id: "resp-001",
-    name: "张伟",
-    nickname: "大伟",
-    avatar: "👨‍💼",
-    age: 32,
-    gender: "男",
-    occupation: "产品经理",
-    city: "北京",
-    income: "30-50万",
-    education: "本科",
-    maritalStatus: "已婚",
-    tags: ["科技爱好者", "职场精英", "理性消费"]
-  },
-  {
-    id: "resp-002",
-    name: "李娜",
-    nickname: "娜娜",
-    avatar: "👩‍💻",
-    age: 28,
-    gender: "女",
-    occupation: "软件工程师",
-    city: "上海",
-    income: "20-30万",
-    education: "硕士",
-    maritalStatus: "未婚",
-    tags: ["Z世代", "数码控", "独立女性"]
-  },
-  {
-    id: "resp-003",
-    name: "王芳",
-    nickname: "芳芳",
-    avatar: "👩‍🎨",
-    age: 35,
-    gender: "女",
-    occupation: "自由设计师",
-    city: "杭州",
-    income: "15-20万",
-    education: "本科",
-    maritalStatus: "已婚有孩",
-    tags: ["文艺青年", "品质生活", "育儿族"]
-  },
-  {
-    id: "resp-004",
-    name: "陈强",
-    nickname: "强哥",
-    avatar: "👨‍🔬",
-    age: 45,
-    gender: "男",
-    occupation: "企业高管",
-    city: "深圳",
-    income: "50万以上",
-    education: "MBA",
-    maritalStatus: "已婚有孩",
-    tags: ["商务精英", "高端消费", "投资理财"]
-  },
-  {
-    id: "resp-005",
-    name: "刘洋",
-    nickname: "小洋",
-    avatar: "👨‍🎤",
-    age: 24,
-    gender: "男",
-    occupation: "市场专员",
-    city: "成都",
-    income: "10-15万",
-    education: "本科",
-    maritalStatus: "未婚",
-    tags: ["Z世代", "潮流追随者", "社交达人"]
-  },
-  {
-    id: "resp-006",
-    name: "赵敏",
-    nickname: "敏敏",
-    avatar: "👩‍⚕️",
-    age: 38,
-    gender: "女",
-    occupation: "医生",
-    city: "广州",
-    income: "30-50万",
-    education: "博士",
-    maritalStatus: "已婚",
-    tags: ["健康养生", "专业人士", "稳健消费"]
-  },
-  {
-    id: "resp-007",
-    name: "孙磊",
-    nickname: "磊子",
-    avatar: "👨‍🍳",
-    age: 29,
-    gender: "男",
-    occupation: "创业者",
-    city: "南京",
-    income: "20-30万",
-    education: "本科",
-    maritalStatus: "未婚",
-    tags: ["创业精神", "风险偏好", "行动派"]
-  },
-  {
-    id: "resp-008",
-    name: "周琳",
-    nickname: "琳琳",
-    avatar: "👩‍🏫",
-    age: 42,
-    gender: "女",
-    occupation: "大学教师",
-    city: "武汉",
-    income: "15-20万",
-    education: "博士",
-    maritalStatus: "已婚有孩",
-    tags: ["知识分子", "教育关注", "理性消费"]
-  }
-]
-
-// Mock method: Fetch respondent list from backend
-export async function fetchRespondentList(count: number): Promise<RespondentProfile[]> {
-  // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 600))
-  
-  // Return requested number of respondents (循环使用mock数据)
-  const result: RespondentProfile[] = []
-  for (let i = 0; i < count; i++) {
-    const template = mockRespondentProfiles[i % mockRespondentProfiles.length]
-    result.push({
-      ...template,
-      id: `resp-${String(i + 1).padStart(3, '0')}`
-    })
-  }
-  return result
+// Survey history record
+export interface SurveyHistoryRecord {
+  id: string
+  savedAt: Date
+  config: SurveyConfig
+  sessions: InterviewSession[]
+  respondents: RespondentProfile[]
+  progress: SurveyProgress
+  sentiment: SentimentData
+  questionAnalysis: QuestionAnalysis[]
+  demographicAnalysis: DemographicAnalysis[]
 }
 
-// Mock method: Start interview with a respondent
-export async function startInterview(respondentId: string): Promise<InterviewSession> {
-  await new Promise(resolve => setTimeout(resolve, 300))
+// Mock storage for history records
+let mockHistoryStorage: SurveyHistoryRecord[] = []
+
+// Mock method: Save survey to history
+export async function saveSurveyToHistory(
+  config: SurveyConfig,
+  sessions: InterviewSession[],
+  respondents: RespondentProfile[],
+  progress: SurveyProgress,
+  sentiment: SentimentData,
+  questionAnalysis: QuestionAnalysis[],
+  demographicAnalysis: DemographicAnalysis[]
+): Promise<SurveyHistoryRecord> {
+  await new Promise(resolve => setTimeout(resolve, 500))
   
-  return {
-    respondentId,
-    status: "in_progress",
-    dialog: [],
-    completedQuestions: 0,
-    totalQuestions: 0,
-    startTime: new Date()
+  const record: SurveyHistoryRecord = {
+    id: `survey-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+    savedAt: new Date(),
+    config,
+    sessions: JSON.parse(JSON.stringify(sessions)),
+    respondents: JSON.parse(JSON.stringify(respondents)),
+    progress: { ...progress },
+    sentiment: { ...sentiment },
+    questionAnalysis: JSON.parse(JSON.stringify(questionAnalysis)),
+    demographicAnalysis: JSON.parse(JSON.stringify(demographicAnalysis)),
   }
+  
+  mockHistoryStorage.unshift(record)
+  return record
+}
+
+// Mock method: Fetch history list
+export async function fetchSurveyHistory(): Promise<SurveyHistoryRecord[]> {
+  await new Promise(resolve => setTimeout(resolve, 300))
+  return mockHistoryStorage
+}
+
+// Mock method: Fetch single history record
+export async function fetchSurveyHistoryById(id: string): Promise<SurveyHistoryRecord | null> {
+  await new Promise(resolve => setTimeout(resolve, 200))
+  return mockHistoryStorage.find(r => r.id === id) || null
+}
+
+// Name pools for generating respondents
+const maleNames = ["张伟", "王强", "李明", "陈军", "刘洋", "孙磊", "周杰", "吴刚", "郑浩", "赵鹏"]
+const femaleNames = ["李娜", "王芳", "张敏", "刘静", "陈丽", "杨雪", "赵敏", "周琳", "吴倩", "孙燕"]
+const nicknames = ["小王", "阿强", "大伟", "小李", "小刘", "阿杰", "小孙", "阿敏", "小芳", "娜娜"]
+const educations = ["高中", "大专", "本科", "硕士", "博士"]
+const maritalStatuses = ["未婚", "已婚", "已婚有孩"]
+const avatars = ["👨‍💼", "👩‍💻", "👨‍🔬", "👩‍🎨", "👨‍🎤", "👩‍⚕️", "👨‍🍳", "👩‍🏫", "👨‍💻", "👩‍🔬"]
+
+// Mock method: Generate respondent list based on configs
+export async function generateRespondentsFromConfig(
+  configs: RespondentConfig[]
+): Promise<RespondentProfile[]> {
+  await new Promise(resolve => setTimeout(resolve, 600))
+  
+  const result: RespondentProfile[] = []
+  let globalIndex = 0
+
+  configs.forEach(config => {
+    for (let i = 0; i < config.count; i++) {
+      globalIndex++
+      const isMale = config.gender === "男" || (config.gender === "不限" && Math.random() > 0.5)
+      const namePool = isMale ? maleNames : femaleNames
+      
+      // Parse age range
+      let age: number
+      const ageMatch = config.ageRange.match(/(\d+)[-~](\d+)/)
+      if (ageMatch) {
+        const minAge = parseInt(ageMatch[1])
+        const maxAge = parseInt(ageMatch[2])
+        age = Math.floor(Math.random() * (maxAge - minAge + 1)) + minAge
+      } else {
+        age = Math.floor(Math.random() * 30) + 20
+      }
+
+      const tags: string[] = []
+      if (age < 30) tags.push("Z世代")
+      else if (age < 40) tags.push("职场中坚")
+      else tags.push("资深人士")
+      
+      if (config.income.includes("50万以上") || config.income.includes("30-50")) tags.push("高端消费")
+      else if (config.income.includes("10-15") || config.income.includes("15-20")) tags.push("理性消费")
+      
+      if (config.occupation.includes("工程师") || config.occupation.includes("程序员")) tags.push("科技爱好者")
+      if (config.occupation.includes("设计")) tags.push("文艺青年")
+      if (config.occupation.includes("经理") || config.occupation.includes("总监")) tags.push("商务精英")
+
+      result.push({
+        id: `resp-${String(globalIndex).padStart(3, '0')}`,
+        name: namePool[Math.floor(Math.random() * namePool.length)],
+        nickname: nicknames[Math.floor(Math.random() * nicknames.length)],
+        avatar: avatars[Math.floor(Math.random() * avatars.length)],
+        age,
+        gender: isMale ? "男" : "女",
+        occupation: config.occupation || "自由职业",
+        city: config.city || "北京",
+        income: config.income || "10-15万",
+        education: educations[Math.floor(Math.random() * educations.length)],
+        maritalStatus: maritalStatuses[Math.floor(Math.random() * maritalStatuses.length)],
+        tags,
+        configId: config.id,
+      })
+    }
+  })
+
+  return result
 }
 
 // Interview response types
@@ -228,7 +215,6 @@ export async function askQuestion(
   question: SurveyQuestion,
   previousDialog: DialogMessage[]
 ): Promise<InterviewResponseResult> {
-  // Simulate thinking time
   await new Promise(resolve => setTimeout(resolve, Math.random() * 1500 + 800))
 
   // 10% chance respondent wants to terminate
@@ -254,10 +240,7 @@ export async function askQuestion(
     }
   }
 
-  // Generate response based on question type and respondent profile
   const response = generatePersonalizedResponse(respondent, question)
-  
-  // 15% chance of low quality response that might trigger interviewer termination
   const isLowQuality = Math.random() < 0.15 && previousDialog.length > 4
   
   return {
@@ -292,7 +275,6 @@ function generatePersonalizedResponse(
     case "scale": {
       const min = question.scale?.min || 1
       const max = question.scale?.max || 10
-      // Score influenced by sentiment
       let score: number
       if (sentiment === "positive") {
         score = Math.floor(Math.random() * 3) + (max - 2)
@@ -352,13 +334,12 @@ function generatePersonalizedResponse(
   }
 }
 
-// Mock method: Check if interviewer should terminate (based on response quality)
+// Mock method: Check if interviewer should terminate
 export function shouldInterviewerTerminate(
   dialog: DialogMessage[],
   lastResponse: InterviewResponseResult
 ): { shouldTerminate: boolean; reason?: string } {
   if (lastResponse.type === "low_quality_response") {
-    // 50% chance interviewer decides to terminate after low quality response
     if (Math.random() < 0.5) {
       return {
         shouldTerminate: true,
@@ -367,7 +348,6 @@ export function shouldInterviewerTerminate(
     }
   }
   
-  // Check for pattern of negative responses
   const recentMessages = dialog.slice(-4).filter(m => m.role === "respondent")
   const negativeCount = recentMessages.filter(m => m.sentiment === "negative").length
   if (negativeCount >= 3) {
@@ -465,14 +445,9 @@ export function analyzeByDemographics(
 ): DemographicAnalysis[] {
   const result: DemographicAnalysis[] = []
   
-  // Group by city
   const cities = [...new Set(respondents.map(r => r.city))]
-  // Group by age range
-  const ageRanges = ["20-30岁", "30-40岁", "40-50岁"]
-  // Group by income
   const incomes = [...new Set(respondents.map(r => r.income))]
 
-  // Analyze by city for each question
   questions.forEach(q => {
     cities.forEach(city => {
       const cityRespondents = respondents.filter(r => r.city === city)
@@ -503,7 +478,6 @@ export function analyzeByDemographics(
       }
     })
 
-    // Analyze by income
     incomes.forEach(income => {
       const incomeRespondents = respondents.filter(r => r.income === income)
       const distribution: Record<string, number> = {}
@@ -563,7 +537,6 @@ export async function exportSurveyResults(
     return new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
   }
 
-  // CSV format
   const rows = ["respondentId,name,city,status,completedQuestions,terminationReason"]
   sessions.forEach(s => {
     const respondent = respondents.find(r => r.id === s.respondentId)
@@ -573,12 +546,43 @@ export async function exportSurveyResults(
   return new Blob([rows.join("\n")], { type: "text/csv" })
 }
 
+// Default respondent configs
+export const defaultRespondentConfigs: RespondentConfig[] = [
+  {
+    id: "config-1",
+    gender: "男",
+    ageRange: "25-35",
+    occupation: "产品经理",
+    city: "北京",
+    income: "20-30万",
+    count: 3
+  },
+  {
+    id: "config-2",
+    gender: "女",
+    ageRange: "22-30",
+    occupation: "软件工程师",
+    city: "上海",
+    income: "15-25万",
+    count: 2
+  },
+  {
+    id: "config-3",
+    gender: "不限",
+    ageRange: "30-45",
+    occupation: "企业高管",
+    city: "深圳",
+    income: "50万以上",
+    count: 2
+  }
+]
+
 // Default survey config
 export const defaultSurveyConfig: SurveyConfig = {
   title: "用户体验调研",
   description: "了解用户对产品的使用体验和改进建议",
-  agentCount: 8,
   maxResponseTime: 30,
+  respondentConfigs: defaultRespondentConfigs,
   questions: [
     {
       id: "q1",

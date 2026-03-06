@@ -78,8 +78,9 @@ export function ChatSimulationPanel({
     }
   }
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString("zh-CN", {
+  const formatTime = (date: Date | string) => {
+    const d = typeof date === "string" ? new Date(date) : date
+    return d.toLocaleTimeString("zh-CN", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit"

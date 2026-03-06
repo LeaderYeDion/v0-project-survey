@@ -21,8 +21,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Play, Plus, Trash2, FileJson, Settings2, Users } from "lucide-react"
-import type { SurveyConfig, SurveyQuestion } from "@/lib/mock-survey-service"
+import { Play, Plus, Trash2, FileJson, Settings2, UserPlus, Users } from "lucide-react"
+import type { SurveyConfig, SurveyQuestion, RespondentConfig } from "@/lib/mock-survey-service"
 
 interface SurveyConfigPanelProps {
   config: SurveyConfig
@@ -59,6 +59,35 @@ export function SurveyConfigPanel({
     const newQuestions = config.questions.filter((_, i) => i !== index)
     onConfigChange({ ...config, questions: newQuestions })
   }
+
+  const updateRespondentConfig = (index: number, updates: Partial<RespondentConfig>) => {
+    const newConfigs = [...config.respondentConfigs]
+    newConfigs[index] = { ...newConfigs[index], ...updates }
+    onConfigChange({ ...config, respondentConfigs: newConfigs })
+  }
+
+  const addRespondentConfig = () => {
+    const newConfig: RespondentConfig = {
+      id: `config-${Date.now()}`,
+      gender: "不限",
+      ageRange: "25-35",
+      occupation: "",
+      city: "",
+      income: "",
+      count: 1
+    }
+    onConfigChange({ 
+      ...config, 
+      respondentConfigs: [...config.respondentConfigs, newConfig] 
+    })
+  }
+
+  const removeRespondentConfig = (index: number) => {
+    const newConfigs = config.respondentConfigs.filter((_, i) => i !== index)
+    onConfigChange({ ...config, respondentConfigs: newConfigs })
+  }
+
+  const totalRespondents = config.respondentConfigs.reduce((sum, c) => sum + c.count, 0)
 
   const handleJsonChange = (value: string) => {
     try {
@@ -128,44 +157,22 @@ export function SurveyConfigPanel({
               </div>
             </div>
 
-            {/* Agent Settings */}
-            <div className="p-4 rounded-lg bg-secondary/30 border border-border/30 space-y-4">
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium text-foreground">虚拟代理设置</span>
+            {/* Response Time Setting */}
+            <div className="p-4 rounded-lg bg-secondary/30 border border-border/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-muted-foreground">最大响应时间(秒)</Label>
+                <Badge variant="secondary" className="bg-accent/20 text-accent">
+                  {config.maxResponseTime}s
+                </Badge>
               </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-muted-foreground">代理数量</Label>
-                  <Badge variant="secondary" className="bg-primary/20 text-primary">
-                    {config.agentCount}
-                  </Badge>
-                </div>
-                <Slider
-                  value={[config.agentCount]}
-                  onValueChange={([value]) => onConfigChange({ ...config, agentCount: value })}
-                  max={20}
-                  min={1}
-                  step={1}
-                  className="w-full"
-                />
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-muted-foreground">最大响应时间(秒)</Label>
-                  <Badge variant="secondary" className="bg-accent/20 text-accent">
-                    {config.maxResponseTime}s
-                  </Badge>
-                </div>
-                <Slider
-                  value={[config.maxResponseTime]}
-                  onValueChange={([value]) => onConfigChange({ ...config, maxResponseTime: value })}
-                  max={120}
-                  min={5}
-                  step={5}
-                  className="w-full"
-                />
-              </div>
+              <Slider
+                value={[config.maxResponseTime]}
+                onValueChange={([value]) => onConfigChange({ ...config, maxResponseTime: value })}
+                max={120}
+                min={5}
+                step={5}
+                className="w-full"
+              />
             </div>
 
             {/* Questions */}
@@ -287,6 +294,111 @@ export function SurveyConfigPanel({
                 ))}
               </Accordion>
             </div>
+
+            {/* Respondent Configs */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary" />
+                  <Label className="text-muted-foreground">受访者配置</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="bg-primary/20 text-primary">
+                    共 {totalRespondents} 人
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={addRespondentConfig}
+                    className="text-primary hover:text-primary/80"
+                  >
+                    <UserPlus className="w-4 h-4 mr-1" />
+                    添加
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {config.respondentConfigs.map((respConfig, index) => (
+                  <div
+                    key={respConfig.id}
+                    className="p-3 rounded-lg bg-secondary/20 border border-border/30 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+                        配置 {index + 1}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeRespondentConfig(index)}
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-[10px]">性别</Label>
+                        <Input
+                          value={respConfig.gender}
+                          onChange={(e) => updateRespondentConfig(index, { gender: e.target.value })}
+                          placeholder="男/女/不限"
+                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-[10px]">年龄范围</Label>
+                        <Input
+                          value={respConfig.ageRange}
+                          onChange={(e) => updateRespondentConfig(index, { ageRange: e.target.value })}
+                          placeholder="如 25-35"
+                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-[10px]">职业</Label>
+                        <Input
+                          value={respConfig.occupation}
+                          onChange={(e) => updateRespondentConfig(index, { occupation: e.target.value })}
+                          placeholder="如 产品经理"
+                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-[10px]">工作城市</Label>
+                        <Input
+                          value={respConfig.city}
+                          onChange={(e) => updateRespondentConfig(index, { city: e.target.value })}
+                          placeholder="如 北京"
+                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-[10px]">收入</Label>
+                        <Input
+                          value={respConfig.income}
+                          onChange={(e) => updateRespondentConfig(index, { income: e.target.value })}
+                          placeholder="如 20-30万"
+                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-[10px]">生成人数</Label>
+                        <Input
+                          type="number"
+                          value={respConfig.count}
+                          onChange={(e) => updateRespondentConfig(index, { count: parseInt(e.target.value) || 1 })}
+                          min={1}
+                          className="h-8 text-xs bg-background/50 border-border/50 text-foreground"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </ScrollArea>
@@ -296,7 +408,7 @@ export function SurveyConfigPanel({
         <Button
           className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
           onClick={onStartSimulation}
-          disabled={isRunning || config.questions.length === 0}
+          disabled={isRunning || config.questions.length === 0 || totalRespondents === 0}
         >
           {isRunning ? (
             <>

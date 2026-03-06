@@ -7,7 +7,7 @@ import { AnalyticsPanel } from "@/components/analytics-panel"
 import { Sparkles, Cpu } from "lucide-react"
 import {
   defaultSurveyConfig,
-  fetchRespondentList,
+  generateRespondentsFromConfig,
   askQuestion,
   shouldInterviewerTerminate,
   analyzeSentiment,
@@ -22,44 +22,65 @@ import {
   type DialogMessage,
   type QuestionAnalysis,
   type DemographicAnalysis,
+  type SurveyHistoryRecord,
 } from "@/lib/mock-survey-service"
 
 export default function ResearcherDashboard() {
   const [config, setConfig] = useState<SurveyConfig>(defaultSurveyConfig)
   const [isRunning, setIsRunning] = useState(false)
-  const [sessions, setSessions] = useState<InterviewSession[]>([])
-  const [respondents, setRespondents] = useState<RespondentProfile[]>([])
-  const [currentRespondentId, setCurrentRespondentId] = useState<string | null>(null)
-  const [progress, setProgress] = useState<SurveyProgress>({
+  
+  // Current survey state
+  const [currentSessions, setCurrentSessions] = useState<InterviewSession[]>([])
+  const [currentRespondents, setCurrentRespondents] = useState<RespondentProfile[]>([])
+  const [currentProgress, setCurrentProgress] = useState<SurveyProgress>({
     totalRespondents: 0,
     completedRespondents: 0,
     inProgressRespondents: 0,
     terminatedRespondents: 0,
     currentRespondentIndex: 0,
   })
-  const [sentiment, setSentiment] = useState<SentimentData>({
+  const [currentSentiment, setCurrentSentiment] = useState<SentimentData>({
     positive: 0,
     neutral: 0,
     negative: 0,
   })
-  const [questionAnalysis, setQuestionAnalysis] = useState<QuestionAnalysis[]>([])
-  const [demographicAnalysis, setDemographicAnalysis] = useState<DemographicAnalysis[]>([])
+  const [currentQuestionAnalysis, setCurrentQuestionAnalysis] = useState<QuestionAnalysis[]>([])
+  const [currentDemographicAnalysis, setCurrentDemographicAnalysis] = useState<DemographicAnalysis[]>([])
+  
+  // For tracking active respondent during simulation
+  const [activeRespondentId, setActiveRespondentId] = useState<string | null>(null)
+  
+  // History viewing state
+  const [viewingHistoryRecord, setViewingHistoryRecord] = useState<SurveyHistoryRecord | null>(null)
 
   const abortRef = useRef(false)
+
+  // Determine which data to display based on whether viewing history
+  const displaySessions = viewingHistoryRecord ? viewingHistoryRecord.sessions : currentSessions
+  const displayRespondents = viewingHistoryRecord ? viewingHistoryRecord.respondents : currentRespondents
+  const displayProgress = viewingHistoryRecord ? viewingHistoryRecord.progress : currentProgress
+  const displaySentiment = viewingHistoryRecord ? viewingHistoryRecord.sentiment : currentSentiment
+  const displayQuestionAnalysis = viewingHistoryRecord ? viewingHistoryRecord.questionAnalysis : currentQuestionAnalysis
+  const displayDemographicAnalysis = viewingHistoryRecord ? viewingHistoryRecord.demographicAnalysis : currentDemographicAnalysis
+  const displayQuestions = viewingHistoryRecord ? viewingHistoryRecord.config.questions : config.questions
+  const displayConfig = viewingHistoryRecord ? viewingHistoryRecord.config : config
 
   const runSimulation = useCallback(async () => {
     if (isRunning) return
 
+    // Exit history view when starting new simulation
+    setViewingHistoryRecord(null)
+    
     setIsRunning(true)
-    setSessions([])
-    setQuestionAnalysis([])
-    setDemographicAnalysis([])
+    setCurrentSessions([])
+    setCurrentQuestionAnalysis([])
+    setCurrentDemographicAnalysis([])
     abortRef.current = false
 
     try {
-      // Fetch respondent list from "backend"
-      const fetchedRespondents = await fetchRespondentList(config.agentCount)
-      setRespondents(fetchedRespondents)
+      // Generate respondents based on configs
+      const fetchedRespondents = await generateRespondentsFromConfig(config.respondentConfigs)
+      setCurrentRespondents(fetchedRespondents)
 
       // Initialize sessions for all respondents
       const initialSessions: InterviewSession[] = fetchedRespondents.map(r => ({
@@ -69,9 +90,9 @@ export default function ResearcherDashboard() {
         completedQuestions: 0,
         totalQuestions: config.questions.length,
       }))
-      setSessions(initialSessions)
+      setCurrentSessions(initialSessions)
 
-      setProgress({
+      setCurrentProgress({
         totalRespondents: fetchedRespondents.length,
         completedRespondents: 0,
         inProgressRespondents: 0,
@@ -84,16 +105,16 @@ export default function ResearcherDashboard() {
         if (abortRef.current) break
 
         const respondent = fetchedRespondents[rIndex]
-        setCurrentRespondentId(respondent.id)
+        setActiveRespondentId(respondent.id)
 
         // Update session status to in_progress
-        setSessions(prev => prev.map(s => 
+        setCurrentSessions(prev => prev.map(s => 
           s.respondentId === respondent.id 
             ? { ...s, status: "in_progress", startTime: new Date() }
             : s
         ))
 
-        setProgress(prev => ({
+        setCurrentProgress(prev => ({
           ...prev,
           currentRespondentIndex: rIndex,
           inProgressRespondents: 1,
@@ -120,7 +141,7 @@ export default function ResearcherDashboard() {
           dialog.push(questionMessage)
 
           // Update session with new message
-          setSessions(prev => prev.map(s => 
+          setCurrentSessions(prev => prev.map(s => 
             s.respondentId === respondent.id 
               ? { ...s, dialog: [...dialog] }
               : s
@@ -134,7 +155,7 @@ export default function ResearcherDashboard() {
           dialog.push(response.message)
 
           // Update session with response
-          setSessions(prev => {
+          setCurrentSessions(prev => {
             const updated = prev.map(s => 
               s.respondentId === respondent.id 
                 ? { 
@@ -145,9 +166,9 @@ export default function ResearcherDashboard() {
                 : s
             )
             // Update analytics
-            setSentiment(analyzeSentiment(updated))
-            setQuestionAnalysis(analyzeQuestionResponses(updated, config.questions))
-            setDemographicAnalysis(analyzeByDemographics(updated, fetchedRespondents, config.questions))
+            setCurrentSentiment(analyzeSentiment(updated))
+            setCurrentQuestionAnalysis(analyzeQuestionResponses(updated, config.questions))
+            setCurrentDemographicAnalysis(analyzeByDemographics(updated, fetchedRespondents, config.questions))
             return updated
           })
 
@@ -172,7 +193,7 @@ export default function ResearcherDashboard() {
           ? (terminationReason?.includes("受访者") ? "terminated_by_respondent" : "terminated_by_interviewer")
           : "completed"
 
-        setSessions(prev => {
+        setCurrentSessions(prev => {
           const updated = prev.map(s => 
             s.respondentId === respondent.id 
               ? { 
@@ -184,14 +205,14 @@ export default function ResearcherDashboard() {
               : s
           )
           // Final analytics update for this respondent
-          setSentiment(analyzeSentiment(updated))
-          setQuestionAnalysis(analyzeQuestionResponses(updated, config.questions))
-          setDemographicAnalysis(analyzeByDemographics(updated, fetchedRespondents, config.questions))
+          setCurrentSentiment(analyzeSentiment(updated))
+          setCurrentQuestionAnalysis(analyzeQuestionResponses(updated, config.questions))
+          setCurrentDemographicAnalysis(analyzeByDemographics(updated, fetchedRespondents, config.questions))
           return updated
         })
 
         // Update progress
-        setProgress(prev => ({
+        setCurrentProgress(prev => ({
           ...prev,
           completedRespondents: terminated ? prev.completedRespondents : prev.completedRespondents + 1,
           terminatedRespondents: terminated ? prev.terminatedRespondents + 1 : prev.terminatedRespondents,
@@ -200,17 +221,17 @@ export default function ResearcherDashboard() {
       }
 
     } catch (error) {
-      console.error("[v0] Simulation error:", error)
+      console.error("Simulation error:", error)
     } finally {
       setIsRunning(false)
-      setCurrentRespondentId(null)
+      setActiveRespondentId(null)
     }
   }, [config, isRunning])
 
   const handleExport = useCallback(
     async (format: "json" | "csv") => {
       try {
-        const blob = await exportSurveyResults(sessions, respondents, format)
+        const blob = await exportSurveyResults(displaySessions, displayRespondents, format)
         const url = URL.createObjectURL(blob)
         const a = document.createElement("a")
         a.href = url
@@ -218,14 +239,22 @@ export default function ResearcherDashboard() {
         a.click()
         URL.revokeObjectURL(url)
       } catch (error) {
-        console.error("[v0] Export error:", error)
+        console.error("Export error:", error)
       }
     },
-    [sessions, respondents]
+    [displaySessions, displayRespondents]
   )
 
   const handleSelectRespondent = useCallback((id: string) => {
-    // This could be used for additional actions when selecting a respondent
+    // Could be used for additional actions
+  }, [])
+
+  const handleLoadHistory = useCallback((record: SurveyHistoryRecord) => {
+    setViewingHistoryRecord(record)
+  }, [])
+
+  const handleReturnToCurrent = useCallback(() => {
+    setViewingHistoryRecord(null)
   }, [])
 
   return (
@@ -259,11 +288,15 @@ export default function ResearcherDashboard() {
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/50 border border-border/50">
                 <div
                   className={`w-2 h-2 rounded-full ${
-                    isRunning ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"
+                    isRunning 
+                      ? "bg-emerald-400 animate-pulse" 
+                      : viewingHistoryRecord 
+                      ? "bg-amber-400"
+                      : "bg-muted-foreground"
                   }`}
                 />
                 <span className="text-xs text-muted-foreground">
-                  {isRunning ? "运行中" : "待机"}
+                  {isRunning ? "运行中" : viewingHistoryRecord ? "查看历史" : "待机"}
                 </span>
               </div>
             </div>
@@ -286,10 +319,10 @@ export default function ResearcherDashboard() {
         {/* Middle Column - Chat Simulation */}
         <div className="flex-1 bg-gradient-to-b from-background to-card/20 backdrop-blur-xl">
           <ChatSimulationPanel
-            sessions={sessions}
-            respondents={respondents}
+            sessions={displaySessions}
+            respondents={displayRespondents}
             isRunning={isRunning}
-            currentRespondentId={currentRespondentId}
+            currentRespondentId={activeRespondentId}
             onSelectRespondent={handleSelectRespondent}
           />
         </div>
@@ -297,15 +330,19 @@ export default function ResearcherDashboard() {
         {/* Right Column - Analytics */}
         <div className="w-[340px] flex-shrink-0 border-l border-border/50 bg-card/30 backdrop-blur-xl">
           <AnalyticsPanel
-            progress={progress}
-            sentiment={sentiment}
-            sessions={sessions}
-            respondents={respondents}
-            questions={config.questions}
-            questionAnalysis={questionAnalysis}
-            demographicAnalysis={demographicAnalysis}
+            progress={displayProgress}
+            sentiment={displaySentiment}
+            sessions={displaySessions}
+            respondents={displayRespondents}
+            questions={displayQuestions}
+            questionAnalysis={displayQuestionAnalysis}
+            demographicAnalysis={displayDemographicAnalysis}
+            config={displayConfig}
             onExport={handleExport}
             isRunning={isRunning}
+            onLoadHistory={handleLoadHistory}
+            onReturnToCurrent={handleReturnToCurrent}
+            viewingHistoryRecord={viewingHistoryRecord}
           />
         </div>
       </main>
