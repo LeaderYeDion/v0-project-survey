@@ -7,35 +7,43 @@ import { AnalyticsPanel } from "@/components/analytics-panel"
 import { Sparkles, Cpu } from "lucide-react"
 import {
   defaultSurveyConfig,
-  startSurveySimulation,
-  generateAgentResponse,
+  fetchRespondentList,
+  askQuestion,
+  shouldInterviewerTerminate,
   analyzeSentiment,
+  analyzeQuestionResponses,
+  analyzeByDemographics,
   exportSurveyResults,
   type SurveyConfig,
-  type ChatMessage,
-  type VirtualAgent,
+  type InterviewSession,
+  type RespondentProfile,
   type SurveyProgress,
   type SentimentData,
+  type DialogMessage,
+  type QuestionAnalysis,
+  type DemographicAnalysis,
 } from "@/lib/mock-survey-service"
 
 export default function ResearcherDashboard() {
   const [config, setConfig] = useState<SurveyConfig>(defaultSurveyConfig)
   const [isRunning, setIsRunning] = useState(false)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [agents, setAgents] = useState<VirtualAgent[]>([])
-  const [currentQuestion, setCurrentQuestion] = useState("")
+  const [sessions, setSessions] = useState<InterviewSession[]>([])
+  const [respondents, setRespondents] = useState<RespondentProfile[]>([])
+  const [currentRespondentId, setCurrentRespondentId] = useState<string | null>(null)
   const [progress, setProgress] = useState<SurveyProgress>({
-    totalAgents: 0,
-    completedAgents: 0,
-    currentQuestion: 0,
-    totalQuestions: 0,
-    estimatedTimeRemaining: 0,
+    totalRespondents: 0,
+    completedRespondents: 0,
+    inProgressRespondents: 0,
+    terminatedRespondents: 0,
+    currentRespondentIndex: 0,
   })
   const [sentiment, setSentiment] = useState<SentimentData>({
     positive: 0,
     neutral: 0,
     negative: 0,
   })
+  const [questionAnalysis, setQuestionAnalysis] = useState<QuestionAnalysis[]>([])
+  const [demographicAnalysis, setDemographicAnalysis] = useState<DemographicAnalysis[]>([])
 
   const abortRef = useRef(false)
 
@@ -43,84 +51,166 @@ export default function ResearcherDashboard() {
     if (isRunning) return
 
     setIsRunning(true)
-    setMessages([])
+    setSessions([])
+    setQuestionAnalysis([])
+    setDemographicAnalysis([])
     abortRef.current = false
 
     try {
-      // Start simulation and get agents
-      const { agents: simulationAgents } = await startSurveySimulation(config)
-      setAgents(simulationAgents)
+      // Fetch respondent list from "backend"
+      const fetchedRespondents = await fetchRespondentList(config.agentCount)
+      setRespondents(fetchedRespondents)
+
+      // Initialize sessions for all respondents
+      const initialSessions: InterviewSession[] = fetchedRespondents.map(r => ({
+        respondentId: r.id,
+        status: "pending",
+        dialog: [],
+        completedQuestions: 0,
+        totalQuestions: config.questions.length,
+      }))
+      setSessions(initialSessions)
 
       setProgress({
-        totalAgents: simulationAgents.length,
-        completedAgents: 0,
-        currentQuestion: 0,
-        totalQuestions: config.questions.length,
-        estimatedTimeRemaining: config.questions.length * simulationAgents.length * 2,
+        totalRespondents: fetchedRespondents.length,
+        completedRespondents: 0,
+        inProgressRespondents: 0,
+        terminatedRespondents: 0,
+        currentRespondentIndex: 0,
       })
 
-      const allMessages: ChatMessage[] = []
-
-      // Process each question
-      for (let qIndex = 0; qIndex < config.questions.length; qIndex++) {
+      // Process each respondent one by one
+      for (let rIndex = 0; rIndex < fetchedRespondents.length; rIndex++) {
         if (abortRef.current) break
 
-        const question = config.questions[qIndex]
-        setCurrentQuestion(question.question)
-        setProgress((prev) => ({
+        const respondent = fetchedRespondents[rIndex]
+        setCurrentRespondentId(respondent.id)
+
+        // Update session status to in_progress
+        setSessions(prev => prev.map(s => 
+          s.respondentId === respondent.id 
+            ? { ...s, status: "in_progress", startTime: new Date() }
+            : s
+        ))
+
+        setProgress(prev => ({
           ...prev,
-          currentQuestion: qIndex + 1,
-          estimatedTimeRemaining: (config.questions.length - qIndex) * simulationAgents.length * 2,
+          currentRespondentIndex: rIndex,
+          inProgressRespondents: 1,
         }))
 
-        // Collect responses from each agent (with some randomization in order)
-        const shuffledAgents = [...simulationAgents].sort(() => Math.random() - 0.5)
+        const dialog: DialogMessage[] = []
+        let terminated = false
+        let terminationReason: string | undefined
 
-        for (let aIndex = 0; aIndex < shuffledAgents.length; aIndex++) {
-          if (abortRef.current) break
+        // Ask each question
+        for (let qIndex = 0; qIndex < config.questions.length; qIndex++) {
+          if (abortRef.current || terminated) break
 
-          const agent = shuffledAgents[aIndex]
+          const question = config.questions[qIndex]
 
-          // Generate response
-          const response = await generateAgentResponse(agent, question)
-          allMessages.push(response)
+          // Add interviewer's question to dialog
+          const questionMessage: DialogMessage = {
+            id: `q-${Date.now()}-${question.id}`,
+            role: "interviewer",
+            content: question.question,
+            timestamp: new Date(),
+            questionId: question.id,
+          }
+          dialog.push(questionMessage)
 
-          setMessages([...allMessages])
-          setSentiment(analyzeSentiment(allMessages))
+          // Update session with new message
+          setSessions(prev => prev.map(s => 
+            s.respondentId === respondent.id 
+              ? { ...s, dialog: [...dialog] }
+              : s
+          ))
 
-          setProgress((prev) => ({
-            ...prev,
-            completedAgents: Math.floor(
-              ((qIndex * simulationAgents.length + aIndex + 1) /
-                (config.questions.length * simulationAgents.length)) *
-                simulationAgents.length
-            ),
-            estimatedTimeRemaining: Math.max(
-              0,
-              prev.estimatedTimeRemaining - 2
-            ),
-          }))
+          // Small delay before response
+          await new Promise(resolve => setTimeout(resolve, 300))
+
+          // Get respondent's response
+          const response = await askQuestion(respondent, question, dialog)
+          dialog.push(response.message)
+
+          // Update session with response
+          setSessions(prev => {
+            const updated = prev.map(s => 
+              s.respondentId === respondent.id 
+                ? { 
+                    ...s, 
+                    dialog: [...dialog],
+                    completedQuestions: qIndex + 1,
+                  }
+                : s
+            )
+            // Update analytics
+            setSentiment(analyzeSentiment(updated))
+            setQuestionAnalysis(analyzeQuestionResponses(updated, config.questions))
+            setDemographicAnalysis(analyzeByDemographics(updated, fetchedRespondents, config.questions))
+            return updated
+          })
+
+          // Check if respondent terminated
+          if (response.shouldTerminate) {
+            terminated = true
+            terminationReason = response.reason
+            break
+          }
+
+          // Check if interviewer should terminate
+          const interviewerDecision = shouldInterviewerTerminate(dialog, response)
+          if (interviewerDecision.shouldTerminate) {
+            terminated = true
+            terminationReason = interviewerDecision.reason
+            break
+          }
         }
+
+        // Finalize session
+        const finalStatus = terminated 
+          ? (terminationReason?.includes("受访者") ? "terminated_by_respondent" : "terminated_by_interviewer")
+          : "completed"
+
+        setSessions(prev => {
+          const updated = prev.map(s => 
+            s.respondentId === respondent.id 
+              ? { 
+                  ...s, 
+                  status: finalStatus,
+                  terminationReason,
+                  endTime: new Date(),
+                }
+              : s
+          )
+          // Final analytics update for this respondent
+          setSentiment(analyzeSentiment(updated))
+          setQuestionAnalysis(analyzeQuestionResponses(updated, config.questions))
+          setDemographicAnalysis(analyzeByDemographics(updated, fetchedRespondents, config.questions))
+          return updated
+        })
+
+        // Update progress
+        setProgress(prev => ({
+          ...prev,
+          completedRespondents: terminated ? prev.completedRespondents : prev.completedRespondents + 1,
+          terminatedRespondents: terminated ? prev.terminatedRespondents + 1 : prev.terminatedRespondents,
+          inProgressRespondents: 0,
+        }))
       }
 
-      setProgress((prev) => ({
-        ...prev,
-        completedAgents: simulationAgents.length,
-        currentQuestion: config.questions.length,
-        estimatedTimeRemaining: 0,
-      }))
     } catch (error) {
       console.error("[v0] Simulation error:", error)
     } finally {
       setIsRunning(false)
-      setCurrentQuestion("")
+      setCurrentRespondentId(null)
     }
   }, [config, isRunning])
 
   const handleExport = useCallback(
     async (format: "json" | "csv") => {
       try {
-        const blob = await exportSurveyResults("current-session", format)
+        const blob = await exportSurveyResults(sessions, respondents, format)
         const url = URL.createObjectURL(blob)
         const a = document.createElement("a")
         a.href = url
@@ -131,8 +221,12 @@ export default function ResearcherDashboard() {
         console.error("[v0] Export error:", error)
       }
     },
-    []
+    [sessions, respondents]
   )
+
+  const handleSelectRespondent = useCallback((id: string) => {
+    // This could be used for additional actions when selecting a respondent
+  }, [])
 
   return (
     <div className="min-h-screen bg-background">
@@ -192,19 +286,24 @@ export default function ResearcherDashboard() {
         {/* Middle Column - Chat Simulation */}
         <div className="flex-1 bg-gradient-to-b from-background to-card/20 backdrop-blur-xl">
           <ChatSimulationPanel
-            messages={messages}
-            agents={agents}
+            sessions={sessions}
+            respondents={respondents}
             isRunning={isRunning}
-            currentQuestion={currentQuestion}
+            currentRespondentId={currentRespondentId}
+            onSelectRespondent={handleSelectRespondent}
           />
         </div>
 
         {/* Right Column - Analytics */}
-        <div className="w-[320px] flex-shrink-0 border-l border-border/50 bg-card/30 backdrop-blur-xl">
+        <div className="w-[340px] flex-shrink-0 border-l border-border/50 bg-card/30 backdrop-blur-xl">
           <AnalyticsPanel
             progress={progress}
             sentiment={sentiment}
-            messages={messages}
+            sessions={sessions}
+            respondents={respondents}
+            questions={config.questions}
+            questionAnalysis={questionAnalysis}
+            demographicAnalysis={demographicAnalysis}
             onExport={handleExport}
             isRunning={isRunning}
           />
