@@ -62,11 +62,11 @@ import type {
   SurveyQuestion,
   SurveyHistoryRecord,
   SurveyConfig,
-} from "@/lib/mock-survey-service"
+} from "@/lib/survey-api"
 import {
-  saveSurveyToHistory,
-  fetchSurveyHistory,
-} from "@/lib/mock-survey-service"
+  apiSaveSurveyToHistory,
+  apiFetchSurveyHistory,
+} from "@/lib/survey-api"
 
 interface AnalyticsPanelProps {
   progress: SurveyProgress
@@ -115,7 +115,7 @@ export function AnalyticsPanel({
   const loadHistoryList = async () => {
     setIsLoadingHistory(true)
     try {
-      const records = await fetchSurveyHistory()
+      const records = await apiFetchSurveyHistory()
       setHistoryRecords(records)
     } finally {
       setIsLoadingHistory(false)
@@ -126,15 +126,15 @@ export function AnalyticsPanel({
     if (sessions.length === 0) return
     setIsSaving(true)
     try {
-      await saveSurveyToHistory(
+      await apiSaveSurveyToHistory({
         config,
         sessions,
         respondents,
         progress,
         sentiment,
         questionAnalysis,
-        demographicAnalysis
-      )
+        demographicAnalysis,
+      })
       await loadHistoryList()
     } finally {
       setIsSaving(false)
@@ -561,7 +561,7 @@ export function AnalyticsPanel({
                   ) : (
                     <ChartContainer
                       config={{
-                        count: { label: "回答数", color: "hsl(var(--primary))" },
+                        count: { label: "回答数", color: "#38bdf8" },
                       }}
                       className="h-36"
                     >
@@ -590,7 +590,7 @@ export function AnalyticsPanel({
                           />
                           <Bar
                             dataKey="count"
-                            fill="hsl(var(--primary))"
+                            fill="#38bdf8"
                             radius={[0, 4, 4, 0]}
                           />
                         </BarChart>

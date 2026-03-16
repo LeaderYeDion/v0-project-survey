@@ -4,16 +4,10 @@ import { useState, useCallback, useRef } from "react"
 import { SurveyConfigPanel } from "@/components/survey-config-panel"
 import { ChatSimulationPanel } from "@/components/chat-simulation-panel"
 import { AnalyticsPanel } from "@/components/analytics-panel"
+import { BulkSurveyPanel } from "@/components/bulk-survey-panel"
 import { Sparkles, Cpu } from "lucide-react"
 import {
   defaultSurveyConfig,
-  generateRespondentsFromConfig,
-  askQuestion,
-  shouldInterviewerTerminate,
-  analyzeSentiment,
-  analyzeQuestionResponses,
-  analyzeByDemographics,
-  exportSurveyResults,
   type SurveyConfig,
   type InterviewSession,
   type RespondentProfile,
@@ -23,11 +17,26 @@ import {
   type QuestionAnalysis,
   type DemographicAnalysis,
   type SurveyHistoryRecord,
-} from "@/lib/mock-survey-service"
+  analyzeSentiment,
+  analyzeQuestionResponses,
+  analyzeByDemographics,
+  askQuestion,
+  shouldInterviewerTerminate,
+  type SurveyResponse,
+} from "@/lib/survey-api"
+import {
+  apiGenerateRespondentsFromConfig,
+  apiExportSurveyResults,
+  apiBuildSurveyResponses,
+} from "@/lib/survey-api"
+
+type SimulationMode = "interview" | "survey"
 
 export default function ResearcherDashboard() {
   const [config, setConfig] = useState<SurveyConfig>(defaultSurveyConfig)
   const [isRunning, setIsRunning] = useState(false)
+  const [mode, setMode] = useState<SimulationMode>("survey")
+  const [modeSelected, setModeSelected] = useState(false)
   
   // Current survey state
   const [currentSessions, setCurrentSessions] = useState<InterviewSession[]>([])
@@ -46,6 +55,7 @@ export default function ResearcherDashboard() {
   })
   const [currentQuestionAnalysis, setCurrentQuestionAnalysis] = useState<QuestionAnalysis[]>([])
   const [currentDemographicAnalysis, setCurrentDemographicAnalysis] = useState<DemographicAnalysis[]>([])
+  const [currentResponses, setCurrentResponses] = useState<SurveyResponse[]>([])
   
   // For tracking active respondent during simulation
   const [activeRespondentId, setActiveRespondentId] = useState<string | null>(null)
@@ -64,6 +74,13 @@ export default function ResearcherDashboard() {
   const displayDemographicAnalysis = viewingHistoryRecord ? viewingHistoryRecord.demographicAnalysis : currentDemographicAnalysis
   const displayQuestions = viewingHistoryRecord ? viewingHistoryRecord.config.questions : config.questions
   const displayConfig = viewingHistoryRecord ? viewingHistoryRecord.config : config
+  const displayResponses =
+    viewingHistoryRecord
+      ? apiBuildSurveyResponses(
+          viewingHistoryRecord.sessions,
+          viewingHistoryRecord.config.title,
+        )
+      : currentResponses
 
   const runSimulation = useCallback(async () => {
     if (isRunning) return
@@ -75,11 +92,14 @@ export default function ResearcherDashboard() {
     setCurrentSessions([])
     setCurrentQuestionAnalysis([])
     setCurrentDemographicAnalysis([])
+    setCurrentResponses([])
     abortRef.current = false
 
     try {
       // Generate respondents based on configs
-      const fetchedRespondents = await generateRespondentsFromConfig(config.respondentConfigs)
+      const fetchedRespondents = await apiGenerateRespondentsFromConfig(
+        config.respondentConfigs,
+      )
       setCurrentRespondents(fetchedRespondents)
 
       // Initialize sessions for all respondents
@@ -165,10 +185,11 @@ export default function ResearcherDashboard() {
                   }
                 : s
             )
-            // Update analytics
+            // Update analytics & structured responses
             setCurrentSentiment(analyzeSentiment(updated))
             setCurrentQuestionAnalysis(analyzeQuestionResponses(updated, config.questions))
             setCurrentDemographicAnalysis(analyzeByDemographics(updated, fetchedRespondents, config.questions))
+            setCurrentResponses(apiBuildSurveyResponses(updated, config.title))
             return updated
           })
 
@@ -204,10 +225,11 @@ export default function ResearcherDashboard() {
                 }
               : s
           )
-          // Final analytics update for this respondent
+          // Final analytics & responses update for this respondent
           setCurrentSentiment(analyzeSentiment(updated))
           setCurrentQuestionAnalysis(analyzeQuestionResponses(updated, config.questions))
           setCurrentDemographicAnalysis(analyzeByDemographics(updated, fetchedRespondents, config.questions))
+          setCurrentResponses(apiBuildSurveyResponses(updated, config.title))
           return updated
         })
 
@@ -231,7 +253,11 @@ export default function ResearcherDashboard() {
   const handleExport = useCallback(
     async (format: "json" | "csv") => {
       try {
-        const blob = await exportSurveyResults(displaySessions, displayRespondents, format)
+        const blob = await apiExportSurveyResults(
+          displaySessions,
+          displayRespondents,
+          format,
+        )
         const url = URL.createObjectURL(blob)
         const a = document.createElement("a")
         a.href = url
@@ -247,6 +273,11 @@ export default function ResearcherDashboard() {
 
   const handleSelectRespondent = useCallback((id: string) => {
     // Could be used for additional actions
+  }, [])
+
+  const handleModeSelection = useCallback((selection: SimulationMode) => {
+    setMode(selection)
+    setModeSelected(true)
   }, [])
 
   const handleLoadHistory = useCallback((record: SurveyHistoryRecord) => {
@@ -280,11 +311,37 @@ export default function ResearcherDashboard() {
                   <Sparkles className="w-4 h-4 text-primary" />
                 </h1>
                 <p className="text-xs text-muted-foreground">
-                  AI 驱动的虚拟调研代理模拟平台
+                  {mode === "interview"
+                    ? "AI 驱动的虚拟访谈模拟平台"
+                    : "AI 驱动的大规模问卷调研模拟平台"}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-4">
+              <div className="flex items-center text-xs rounded-full bg-secondary/40 border border-border/60 p-0.5">
+                <button
+                  type="button"
+                  className={`px-3 py-1 rounded-full transition text-[11px] ${
+                    mode === "interview"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground"
+                  }`}
+                  onClick={() => setMode("interview")}
+                >
+                  访谈模式
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1 rounded-full transition text-[11px] ${
+                    mode === "survey"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground"
+                  }`}
+                  onClick={() => setMode("survey")}
+                >
+                  问卷模式
+                </button>
+              </div>
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/50 border border-border/50">
                 <div
                   className={`w-2 h-2 rounded-full ${
@@ -313,18 +370,31 @@ export default function ResearcherDashboard() {
             onConfigChange={setConfig}
             onStartSimulation={runSimulation}
             isRunning={isRunning}
+            mode={mode}
           />
         </div>
 
-        {/* Middle Column - Chat Simulation */}
+        {/* Middle Column - Simulation / Bulk Survey */}
         <div className="flex-1 bg-gradient-to-b from-background to-card/20 backdrop-blur-xl">
-          <ChatSimulationPanel
-            sessions={displaySessions}
-            respondents={displayRespondents}
-            isRunning={isRunning}
-            currentRespondentId={activeRespondentId}
-            onSelectRespondent={handleSelectRespondent}
-          />
+          {mode === "interview" ? (
+            <ChatSimulationPanel
+              sessions={displaySessions}
+              respondents={displayRespondents}
+              isRunning={isRunning}
+              currentRespondentId={activeRespondentId}
+              onSelectRespondent={handleSelectRespondent}
+            />
+          ) : (
+            <BulkSurveyPanel
+              sessions={displaySessions}
+              respondents={displayRespondents}
+              progress={displayProgress}
+              questions={displayQuestions}
+              questionAnalysis={displayQuestionAnalysis}
+              responses={displayResponses}
+              isRunning={isRunning && !viewingHistoryRecord}
+            />
+          )}
         </div>
 
         {/* Right Column - Analytics */}
@@ -346,6 +416,41 @@ export default function ResearcherDashboard() {
           />
         </div>
       </main>
+
+      {!modeSelected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-xl">
+          <div className="w-[380px] rounded-2xl border border-border/70 bg-card/90 p-6 shadow-2xl">
+            <h2 className="text-lg font-semibold text-foreground mb-3">
+              请选择启动模式
+            </h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              新访谈/问卷环节开始前请选择一种模式，选定后即可继续。
+            </p>
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={() => handleModeSelection("survey")}
+                className="w-full rounded-xl border border-border/60 bg-secondary/40 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
+              >
+                <span className="text-base font-semibold">问卷模式</span>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  一次性向大批量虚拟受访者分发问卷并获取统计结果
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleModeSelection("interview")}
+                className="w-full rounded-xl border border-border/60 bg-background/80 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
+              >
+                <span className="text-base font-semibold">访谈模式</span>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  模拟逐个受访者的深度访谈流程
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

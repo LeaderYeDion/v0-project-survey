@@ -21,21 +21,23 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Play, Plus, Trash2, FileJson, Settings2, UserPlus, Users } from "lucide-react"
-import type { SurveyConfig, SurveyQuestion, RespondentConfig } from "@/lib/mock-survey-service"
+import { Play, Plus, Trash2, FileJson, Settings2, UserPlus, Users, ClipboardList } from "lucide-react"
+import type { SurveyConfig, SurveyQuestion, RespondentConfig } from "@/lib/survey-api"
 
 interface SurveyConfigPanelProps {
   config: SurveyConfig
   onConfigChange: (config: SurveyConfig) => void
   onStartSimulation: () => void
   isRunning: boolean
+  mode: "interview" | "survey"
 }
 
 export function SurveyConfigPanel({
   config,
   onConfigChange,
   onStartSimulation,
-  isRunning
+  isRunning,
+  mode,
 }: SurveyConfigPanelProps) {
   const [jsonMode, setJsonMode] = useState(false)
   const [jsonError, setJsonError] = useState<string | null>(null)
@@ -104,8 +106,21 @@ export function SurveyConfigPanel({
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border/50">
         <div className="flex items-center gap-2">
-          <Settings2 className="w-5 h-5 text-primary" />
-          <h2 className="font-semibold text-foreground">调研配置</h2>
+          {mode === "interview" ? (
+            <Settings2 className="w-5 h-5 text-primary" />
+          ) : (
+            <ClipboardList className="w-5 h-5 text-primary" />
+          )}
+          <div className="flex flex-col">
+            <h2 className="font-semibold text-foreground">
+              {mode === "interview" ? "访谈调研配置" : "问卷调研配置"}
+            </h2>
+            <span className="text-[11px] text-muted-foreground">
+              {mode === "interview"
+                ? "逐个受访者的深度访谈流程"
+                : "一次性向大批量虚拟受访者分发问卷"}
+            </span>
+          </div>
         </div>
         <Button
           variant="ghost"
@@ -426,12 +441,12 @@ export function SurveyConfigPanel({
           {isRunning ? (
             <>
               <div className="w-4 h-4 mr-2 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-              运行中...
+              {mode === "interview" ? "访谈进行中..." : "问卷派发中..."}
             </>
           ) : (
             <>
               <Play className="w-4 h-4 mr-2" />
-              开始模拟
+              {mode === "interview" ? "开始访谈模拟" : "开始问卷模拟"}
             </>
           )}
         </Button>

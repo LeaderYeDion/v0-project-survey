@@ -28,6 +28,12 @@ export interface SurveyQuestion {
   scale?: { min: number; max: number }
 }
 
+// Structured answer value for a single question in a questionnaire
+export type AnswerValue =
+  | { type: "text"; value: string }
+  | { type: "choice"; value: string } // 单选，value 为选项文本
+  | { type: "scale"; value: number }
+
 // Extended respondent profile with detailed demographics
 export interface RespondentProfile {
   id: string
@@ -64,6 +70,17 @@ export interface InterviewSession {
   totalQuestions: number
   startTime?: Date
   endTime?: Date
+}
+
+// Structured view of a single respondent's questionnaire response
+export interface SurveyResponse {
+  id: string
+  surveyId: string
+  respondentId: string
+  answers: Record<string, AnswerValue> // key = questionId
+  status: "completed" | "partial" | "terminated_by_respondent" | "terminated_by_interviewer"
+  startedAt?: Date
+  finishedAt?: Date
 }
 
 export interface SurveyProgress {
@@ -134,6 +151,48 @@ export async function fetchSurveyHistory(): Promise<SurveyHistoryRecord[]> {
 export async function fetchSurveyHistoryById(id: string): Promise<SurveyHistoryRecord | null> {
   await new Promise(resolve => setTimeout(resolve, 200))
   return mockHistoryStorage.find(r => r.id === id) || null
+}
+
+// Helper: build structured survey responses from interview sessions
+export function buildSurveyResponses(
+  sessions: InterviewSession[],
+  surveyId: string,
+): SurveyResponse[] {
+  return sessions.map(session => {
+    const answers: Record<string, AnswerValue> = {}
+
+    session.dialog.forEach(msg => {
+      if (msg.role === "respondent" && msg.questionId && msg.answerValue !== undefined) {
+        const qId = msg.questionId
+        if (typeof msg.answerValue === "number") {
+          answers[qId] = { type: "scale", value: msg.answerValue }
+        } else if (typeof msg.answerValue === "string") {
+          // 目前文本与选项文本都为 string，这里简单归类：
+          // scale 上面已经处理，剩余 string 根据内容区分 text/choice 会比较牵强，
+          // 先统一当作 choice/text 的混合，前端再结合题目类型解释。
+          answers[qId] = { type: "choice", value: msg.answerValue }
+        }
+      }
+    })
+
+    const startedAt = session.startTime
+    const finishedAt = session.endTime
+
+    const status =
+      session.status === "pending" || session.status === "in_progress"
+        ? "partial"
+        : session.status
+
+    return {
+      id: `resp-${session.respondentId}`,
+      surveyId,
+      respondentId: session.respondentId,
+      answers,
+      status,
+      startedAt,
+      finishedAt,
+    }
+  })
 }
 
 // Name pools for generating respondents
