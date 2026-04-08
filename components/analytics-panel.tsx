@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import {
   PieChart,
   Pie,
@@ -64,9 +64,103 @@ import type {
   SurveyConfig,
 } from "@/lib/survey-api"
 import {
+  analyzeQuestionResponses,
   apiSaveSurveyToHistory,
   apiFetchSurveyHistory,
+  filterRespondentsByDimensions,
+  getDimensionMetadata,
+  groupRespondentsByDimensions,
+  type DimensionFilters,
+  type DimensionMetadata,
+  type RespondentDimensionKey,
 } from "@/lib/survey-api"
+
+type ResponseDistributionEntry = {
+  answer: string
+  fullAnswer: string
+  count: number
+}
+
+const AXIS_TICK_STYLE = {
+  fill: "hsl(var(--muted-foreground))",
+  fontSize: 9,
+} as const
+
+function calculateChartHeight(optionCount: number) {
+  const rows = Math.max(optionCount, 1)
+  const height = rows * 34 + 70
+  return Math.min(700, Math.max(260, height))
+}
+
+function mapResponseDistributionEntries(
+  distribution: Record<string, number>,
+): ResponseDistributionEntry[] {
+  return Object.entries(distribution).map(([key, value]) => ({
+    answer: key.length > 8 ? `${key.substring(0, 8)}...` : key,
+    fullAnswer: key,
+    count: value,
+  }))
+}
+
+function renderResponseTooltipContent(payload?: any[]) {
+  const entry = payload?.[0]
+  const data = entry?.payload
+  if (!data) {
+    return null
+  }
+  return (
+    <div className="bg-card border border-border rounded-lg p-2 shadow-lg">
+      <p className="text-xs text-foreground break-words">{data.fullAnswer}</p>
+      <p className="text-xs text-muted-foreground">数量: {data.count}</p>
+    </div>
+  )
+}
+
+function renderQuestionBarChart(data: ResponseDistributionEntry[], color: string) {
+  const height = calculateChartHeight(data.length)
+  return (
+    <ChartContainer
+      config={{
+        count: {
+          label: "回答数",
+          color,
+        },
+      }}
+      className="w-full"
+      style={{ height, paddingBottom: 36, aspectRatio: "auto" }}
+    >
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} layout="vertical" margin={{ left: 0, right: 16, top: 6, bottom: 6 }}>
+          <XAxis
+            type="number"
+            domain={[0, "dataMax"]}
+            allowDecimals={false}
+            tick={AXIS_TICK_STYLE}
+            tickFormatter={value => {
+              const normalized = typeof value === "number" ? value : Number(value)
+              return Number.isFinite(normalized) ? normalized.toString() : ""
+            }}
+            label={{
+              value: "回答数",
+              position: "bottom",
+              offset: 10,
+              fill: "hsl(var(--muted-foreground))",
+              fontSize: 10,
+            }}
+          />
+          <YAxis
+            dataKey="answer"
+            type="category"
+            width={66}
+            tick={AXIS_TICK_STYLE}
+          />
+          <ChartTooltip content={({ payload }) => renderResponseTooltipContent(payload)} />
+          <Bar dataKey="count" fill={color} radius={[0, 4, 4, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </ChartContainer>
+  )
+}
 
 interface AnalyticsPanelProps {
   progress: SurveyProgress
@@ -105,6 +199,112 @@ export function AnalyticsPanel({
   const [isSaving, setIsSaving] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false)
+  const [dimensionFilters, setDimensionFilters] = useState<DimensionFilters>({})
+  const [groupByDimensions, setGroupByDimensions] = useState<RespondentDimensionKey[]>([])
+
+  const dimensionMetadata = useMemo(
+    () => getDimensionMetadata(respondents, config.respondentConfigs),
+    [respondents, config.respondentConfigs],
+  )
+  const dimensionMetadataMap = useMemo(() => {
+    const map = new Map<RespondentDimensionKey, DimensionMetadata>()
+    dimensionMetadata.forEach(meta => map.set(meta.key, meta))
+    return map
+  }, [dimensionMetadata])
+
+  useEffect(() => {
+    setDimensionFilters({})
+    setGroupByDimensions([])
+  }, [respondents, config.respondentConfigs])
+
+  const CLEAR_DIMENSION_VALUE = "__ALL__"
+
+  const handleDimensionFilterChange = useCallback(
+    (key: RespondentDimensionKey, value: string) => {
+      setDimensionFilters(prev => {
+        const next = { ...prev }
+        if (value && value !== CLEAR_DIMENSION_VALUE) {
+          next[key] = value
+        } else {
+          delete next[key]
+        }
+        return next
+      })
+    },
+    [],
+  )
+
+  const toggleGroupByDimension = useCallback((key: RespondentDimensionKey) => {
+    setGroupByDimensions(prev =>
+      prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key],
+    )
+  }, [])
+
+  const filteredRespondents = useMemo(
+    () =>
+      filterRespondentsByDimensions(respondents, config.respondentConfigs, dimensionFilters),
+    [respondents, config.respondentConfigs, dimensionFilters],
+  )
+
+  const filteredSessions = useMemo(() => {
+    const respondentIds = new Set(filteredRespondents.map(r => r.id))
+    return sessions.filter(session => respondentIds.has(session.respondentId))
+  }, [sessions, filteredRespondents])
+
+  const filteredQuestionAnalysis = useMemo(
+    () => analyzeQuestionResponses(filteredSessions, questions),
+    [filteredSessions, questions],
+  )
+  const filteredQuestionAnalysisForSelected = filteredQuestionAnalysis.find(
+    q => q.questionId === selectedQuestion,
+  )
+
+  const groupedRespondents = useMemo(
+    () =>
+      groupRespondentsByDimensions(filteredRespondents, config.respondentConfigs, groupByDimensions),
+    [filteredRespondents, config.respondentConfigs, groupByDimensions],
+  )
+
+  const groupedQuestionSummaries = useMemo(() => {
+    if (groupByDimensions.length === 0) {
+      return []
+    }
+
+    return groupedRespondents.map(group => {
+      const respondentSet = new Set(group.respondentIds)
+      const groupSessions = filteredSessions.filter(session =>
+        respondentSet.has(session.respondentId),
+      )
+      const groupAnalysis = analyzeQuestionResponses(groupSessions, questions).find(
+        q => q.questionId === selectedQuestion,
+      )
+      const responseData = groupAnalysis
+        ? mapResponseDistributionEntries(groupAnalysis.responseDistribution)
+        : []
+
+      return {
+        label: group.label,
+        respondentCount: group.respondentIds.length,
+        totalResponses: groupAnalysis?.totalResponses ?? 0,
+        responseData,
+      }
+    })
+  }, [
+    groupByDimensions,
+    groupedRespondents,
+    filteredSessions,
+    questions,
+    selectedQuestion,
+  ])
+
+  const hasActiveFilters = Object.values(dimensionFilters).some(value => !!value)
+  const activeFilterEntries = (Object.entries(dimensionFilters) as [
+    RespondentDimensionKey,
+    string,
+  ][]).filter(([, value]) => !!value)
+  const groupByDescription = groupByDimensions
+    .map(key => dimensionMetadataMap.get(key)?.label ?? key)
+    .join(" • ")
 
   useEffect(() => {
     if (questions.length > 0 && !selectedQuestion) {
@@ -180,14 +380,14 @@ export function AnalyticsPanel({
     },
   ].filter(d => d.value > 0)
 
-  const currentQuestionAnalysis = questionAnalysis.find(q => q.questionId === selectedQuestion)
+  const globalQuestionAnalysis = questionAnalysis.find(q => q.questionId === selectedQuestion)
 
-  const questionResponseData = currentQuestionAnalysis 
-    ? Object.entries(currentQuestionAnalysis.responseDistribution).map(([key, value]) => ({
-        answer: key.length > 8 ? key.substring(0, 8) + "..." : key,
-        fullAnswer: key,
-        count: value
-      }))
+  const globalQuestionResponseData = globalQuestionAnalysis
+    ? mapResponseDistributionEntries(globalQuestionAnalysis.responseDistribution)
+    : []
+
+  const filteredResponseData = filteredQuestionAnalysisForSelected
+    ? mapResponseDistributionEntries(filteredQuestionAnalysisForSelected.responseDistribution)
     : []
 
   const getDemographicData = () => {
@@ -535,70 +735,168 @@ export function AnalyticsPanel({
                   ))}
                 </SelectContent>
               </Select>
-
-              {currentQuestionAnalysis && (
-                <div className="p-3 rounded-xl bg-secondary/20 border border-border/30">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-xs font-medium text-foreground">回答分布</h3>
-                    <Badge variant="outline" className="text-[10px]">
-                      {currentQuestionAnalysis.totalResponses} 条回答
-                    </Badge>
+              <div className="space-y-4">
+                <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {dimensionMetadata.map(meta => (
+                      <div key={meta.key} className="space-y-1 text-[11px]">
+                        <span className="text-muted-foreground">{meta.label}</span>
+                        <Select
+                          value={dimensionFilters[meta.key] ?? CLEAR_DIMENSION_VALUE}
+                          onValueChange={value => handleDimensionFilterChange(meta.key, value)}
+                        >
+                          <SelectTrigger className="h-9 text-xs bg-background/50 border-border/50">
+                            <SelectValue placeholder="All" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={CLEAR_DIMENSION_VALUE} className="text-xs">
+                              全部
+                            </SelectItem>
+                            {meta.values.map(option => (
+                              <SelectItem key={option} value={option} className="text-xs">
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
                   </div>
-
-                  {currentQuestionAnalysis.averageScore !== undefined && (
-                    <div className="mb-3 p-2 rounded-lg bg-primary/10 border border-primary/20">
-                      <span className="text-xs text-muted-foreground">平均分: </span>
-                      <span className="text-sm font-bold text-primary">
-                        {currentQuestionAnalysis.averageScore.toFixed(1)}
-                      </span>
-                    </div>
-                  )}
-                  
-                  {questionResponseData.length === 0 ? (
-                    <div className="flex items-center justify-center h-24 text-muted-foreground text-xs">
-                      暂无回答数据
-                    </div>
-                  ) : (
-                    <ChartContainer
-                      config={{
-                        count: { label: "回答数", color: "#38bdf8" },
-                      }}
-                      className="h-36"
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] text-muted-foreground">
+                      展示 {filteredRespondents.length} / {respondents.length} 位受访者
+                    </span>
+                    {activeFilterEntries.map(([key, value]) => (
+                      <Badge key={`${key}-${value}`} variant="outline" className="text-[10px]">
+                        {dimensionMetadataMap.get(key)?.label ?? key}: {value}
+                      </Badge>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      className="text-[11px]"
+                      onClick={() => setDimensionFilters({})}
+                      disabled={!hasActiveFilters}
                     >
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={questionResponseData} layout="vertical">
-                          <XAxis type="number" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 9 }} />
-                          <YAxis 
-                            dataKey="answer" 
-                            type="category" 
-                            width={60}
-                            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 9 }}
-                          />
-                          <ChartTooltip 
-                            content={({ payload }) => {
-                              if (payload && payload[0]) {
-                                const data = payload[0].payload
-                                return (
-                                  <div className="bg-card border border-border rounded-lg p-2 shadow-lg">
-                                    <p className="text-xs text-foreground">{data.fullAnswer}</p>
-                                    <p className="text-xs text-muted-foreground">数量: {data.count}</p>
-                                  </div>
-                                )
-                              }
-                              return null
-                            }}
-                          />
-                          <Bar
-                            dataKey="count"
-                            fill="#38bdf8"
-                            radius={[0, 4, 4, 0]}
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
-                  )}
+                      清除筛选
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {dimensionMetadata.map(meta => {
+                      const isActive = groupByDimensions.includes(meta.key)
+                      return (
+                        <Button
+                          key={meta.key}
+                          size="xs"
+                          variant={isActive ? "secondary" : "ghost"}
+                          onClick={() => toggleGroupByDimension(meta.key)}
+                          className="text-[11px]"
+                        >
+                          {isActive ? `取消按 ${meta.label} 分组` : `按 ${meta.label} 分组`}
+                        </Button>
+                      )
+                    })}
+                  </div>
                 </div>
-              )}
+
+                {globalQuestionAnalysis ? (
+                  <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-medium text-foreground">回答分布</h3>
+                      <Badge variant="outline" className="text-[10px]">
+                        {globalQuestionAnalysis.totalResponses} 条回答
+                      </Badge>
+                    </div>
+
+                    {globalQuestionAnalysis.averageScore !== undefined && (
+                      <div className="p-2 rounded-lg bg-primary/10 border border-primary/20 text-[11px] text-muted-foreground">
+                        平均分{" "}
+                        <span className="text-sm font-bold text-primary">
+                          {globalQuestionAnalysis.averageScore.toFixed(1)}
+                        </span>
+                      </div>
+                    )}
+
+                    {globalQuestionResponseData.length === 0 ? (
+                      <div className="flex items-center justify-center h-24 text-muted-foreground text-xs">
+                        暂无回答
+                      </div>
+                    ) : (
+                      <>
+                        {renderQuestionBarChart(globalQuestionResponseData, "#38bdf8")}
+                        <p className="text-[10px] text-muted-foreground">
+                          横轴：回答数；纵轴：选项内容
+                        </p>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 text-xs text-muted-foreground">
+                    暂无问题数据
+                  </div>
+                )}
+
+                {hasActiveFilters && (
+                  <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-medium text-foreground">筛选洞察</h3>
+                      <Badge variant="outline" className="text-[10px]">
+                        {filteredRespondents.length} 位受访者
+                      </Badge>
+                    </div>
+                    {filteredResponseData.length > 0 ? (
+                      <>
+                        {renderQuestionBarChart(filteredResponseData, "#f97316")}
+                        <p className="text-[10px] text-muted-foreground">
+                          横轴：回答数；纵轴：选项内容
+                        </p>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-center h-20 text-muted-foreground text-xs">
+                        当前筛选下暂无回答
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {groupedQuestionSummaries.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>
+                        按 {groupByDescription || "所选维度"} 分组
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {groupedQuestionSummaries.length} 个分组
+                      </Badge>
+                    </div>
+                    <div className="space-y-3">
+                      {groupedQuestionSummaries.map((group, idx) => (
+                        <div
+                          key={group.label + "-" + idx}
+                          className="p-3 rounded-xl bg-secondary/20 border border-border/30 space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-foreground">{group.label}</span>
+                            <Badge variant="outline" className="text-[10px]">
+                              {group.respondentCount} 位
+                            </Badge>
+                          </div>
+                           {group.responseData.length === 0 ? (
+                             <div className="text-[11px] text-muted-foreground">
+                               当前维度组合暂无回答
+                             </div>
+                           ) : (
+                             renderQuestionBarChart(group.responseData, "#a855f7")
+                           )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  组合图表同样遵循横轴为回答数、纵轴为选项的约定。
+                </p>
+              </div>
             </TabsContent>
 
             {/* Demographic Tab */}

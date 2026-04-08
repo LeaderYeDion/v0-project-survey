@@ -673,3 +673,174 @@ export const defaultSurveyConfig: SurveyConfig = {
     }
   ]
 }
+
+export const respondentDimensionKeys = [
+  "gender",
+  "ageRange",
+  "occupation",
+  "city",
+  "income",
+] as const
+
+export type RespondentDimensionKey = (typeof respondentDimensionKeys)[number]
+
+const dimensionLabels: Record<RespondentDimensionKey, string> = {
+  gender: "性别",
+  ageRange: "年龄段",
+  occupation: "职业",
+  city: "工作城市",
+  income: "收入区间",
+}
+
+type RespondentConfigMap = Record<string, RespondentConfig>
+
+function buildConfigMap(configs: RespondentConfig[]): RespondentConfigMap {
+  return configs.reduce((map, config) => {
+    map[config.id] = config
+    return map
+  }, {} as RespondentConfigMap)
+}
+
+function getRespondentDimensionValue(
+  respondent: RespondentProfile,
+  configs: RespondentConfig[],
+  key: RespondentDimensionKey,
+): string {
+  const configMap = buildConfigMap(configs)
+  const config = configMap[respondent.configId]
+
+  switch (key) {
+    case "gender":
+      return respondent.gender || config?.gender || "Unknown"
+    case "ageRange":
+      return config?.ageRange || "Unknown"
+    case "occupation":
+      return respondent.occupation || config?.occupation || "Unknown"
+    case "city":
+      return respondent.city || config?.city || "Unknown"
+    case "income":
+      return respondent.income || config?.income || "Unknown"
+  }
+}
+
+export interface DimensionMetadata {
+  key: RespondentDimensionKey
+  label: string
+  values: string[]
+}
+
+export function getDimensionMetadata(
+  respondents: RespondentProfile[],
+  configs: RespondentConfig[],
+): DimensionMetadata[] {
+  const valueSets: Record<RespondentDimensionKey, Set<string>> = respondentDimensionKeys.reduce(
+    (acc, key) => {
+      acc[key] = new Set<string>()
+      return acc
+    },
+    {} as Record<RespondentDimensionKey, Set<string>>,
+  )
+
+  configs.forEach(config => {
+    respondentDimensionKeys.forEach(key => {
+      let value = "Unknown"
+      switch (key) {
+        case "gender":
+          value = config.gender || "Unknown"
+          break
+        case "ageRange":
+          value = config.ageRange || "Unknown"
+          break
+        case "occupation":
+          value = config.occupation || "Unknown"
+          break
+        case "city":
+          value = config.city || "Unknown"
+          break
+        case "income":
+          value = config.income || "Unknown"
+          break
+      }
+      valueSets[key].add(value)
+    })
+  })
+
+  respondents.forEach(respondent => {
+    respondentDimensionKeys.forEach(key => {
+      const value = getRespondentDimensionValue(respondent, configs, key)
+      valueSets[key].add(value || "Unknown")
+    })
+  })
+
+  return respondentDimensionKeys.map(key => ({
+    key,
+    label: dimensionLabels[key],
+    values: Array.from(valueSets[key]).filter(Boolean),
+  }))
+}
+
+export type DimensionFilters = Partial<Record<RespondentDimensionKey, string>>
+
+export function filterRespondentsByDimensions(
+  respondents: RespondentProfile[],
+  configs: RespondentConfig[],
+  filters: DimensionFilters,
+): RespondentProfile[] {
+  if (!filters || Object.keys(filters).length === 0) {
+    return respondents
+  }
+
+  return respondents.filter(respondent => {
+    return Object.entries(filters).every(([key, value]) => {
+      if (!value) return true
+      const dimensionKey = key as RespondentDimensionKey
+      const dimensionValue = getRespondentDimensionValue(respondent, configs, dimensionKey)
+      return dimensionValue === value
+    })
+  })
+}
+
+export interface DimensionGroup {
+  groupKey: string
+  label: string
+  respondentIds: string[]
+  dimensionValues: Record<RespondentDimensionKey, string>
+}
+
+export function groupRespondentsByDimensions(
+  respondents: RespondentProfile[],
+  configs: RespondentConfig[],
+  groupBy: RespondentDimensionKey[],
+): DimensionGroup[] {
+  if (groupBy.length === 0) {
+    return []
+  }
+
+  const bucketMap: Record<string, DimensionGroup> = {}
+
+  respondents.forEach(respondent => {
+    const dimensionValues: Record<RespondentDimensionKey, string> = groupBy.reduce(
+      (acc, key) => {
+        acc[key] = getRespondentDimensionValue(respondent, configs, key)
+        return acc
+      },
+      {} as Record<RespondentDimensionKey, string>,
+    )
+
+    const keyParts = groupBy.map(key => key + ": " + dimensionValues[key]).join("|")
+    if (!bucketMap[keyParts]) {
+      bucketMap[keyParts] = {
+        groupKey: keyParts,
+        label: groupBy
+          .map(key => dimensionLabels[key] + ": " + dimensionValues[key])
+          .join(" / "),
+        respondentIds: [],
+        dimensionValues,
+      }
+    }
+
+    bucketMap[keyParts].respondentIds.push(respondent.id)
+  })
+
+  return Object.values(bucketMap)
+}
