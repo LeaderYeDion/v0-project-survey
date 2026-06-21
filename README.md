@@ -2,15 +2,21 @@
 
 一个面向产品与研究团队的 AI 模拟调研平台，用于在真正后端上线之前快速探索访谈话术、应答逻辑、情绪趋势与人群分布。每次提交会触发 v0 部署，因此在本地调试即是 Live Preview。
 
+## 当前阶段
+
+本项目目前是使用 mock 服务与前端内存状态驱动的可交互原型，适合验证“配置—运行—个体结果—聚合分析—导出”的产品流程和界面设计。它尚未接入真实 AI 调研后端、持久化数据库或项目/研究轮次/配置版本体系，因此当前结果只应用于演示、探索、预实验和假设生成，不能替代具有代表性的真实调查。
+
+完整现状、问题池、路线图与逐轮记录见 [项目迭代文档](./docs/PROJECT_ITERATION.md)。
+
 ## 业务逻辑
 - **配置驱动的模拟**：通过左侧配置面板调整问卷名称、描述、响应预算和问题库（文本/选择/量表），还可以定义性别、年龄段、职业、城市、收入及人数等受访者片段。配置支持切换到 JSON 编辑模式，便于导入导出整套设定。
-- **AI 访谈模拟**：`app/page.tsx` 负责重置状态、调用 `apiGenerateRespondentsFromConfig`（通过 `lib/mock-survey-service.ts` 的 mock 实现）生成受访者群，再依序调用 `askQuestion`、`shouldInterviewerTerminate` 等函数模拟问答过程。每位受访者的对话、情绪、完成状态与终止原因都会被记录。
+- **AI 调研流程模拟**：`app/page.tsx` 负责重置状态、调用 `apiGenerateRespondentsFromConfig`（通过 `lib/mock-survey-service.ts` 的 mock 实现）生成受访者群，再依序调用 `askQuestion`、`shouldInterviewerTerminate` 等函数模拟问答过程。每位受访者的对话、情绪、完成状态与终止原因都会被记录；当前回答并非由真实模型生成。
 - **多维分析与导出**：分析面板实时汇总进度、情绪饼图、问题答复分布、受访者画像和维度聚合。问题分析支持按照性别/年龄/职业/城市/收入等维度筛选组合（例如“性别 = 男、收入 20-30 万、城市 = 北京”），也支持多维 group by（如同时分组性别 + 收入 + 城市）。历史记录可以保存、回放，数据可导出为 JSON/CSV 供进一步分析。
 
 ## 架构概览
 - **Next.js App Router + 统一布局**：`app/layout.tsx` 加载字体与全局样式（`app/globals.css`），`components/theme-provider.tsx` 强制暗黑主题，整体采用三栏布局（配置/模拟/分析）并通过 `app/page.tsx` 编排。
 - **`app/page.tsx`：前端大脑**：此 client 组件持有大量状态（session、respondents、analytics、mode 选择、历史记录等），对外暴露 `runSimulation`、`handleExport`、`handleLoadHistory`、`handleModeSelection` 等回调，并根据模式渲染 chat 或 bulk 面板。
-- **数据层与服务封装**：`lib/survey-api.ts` 仅暴露 API 接口；真实逻辑在 `lib/mock-survey-service.ts` 中，包括 respondent 生成、对话扇区、分析函数（`analyzeQuestionResponses`、`analyzeByDemographics`、`filterRespondentsByDimensions`、`groupRespondentsByDimensions`）及历史存储/导出工具。`lib/utils.ts` 提供类名拼接等通用辅助。
+- **数据层与服务封装**：`lib/survey-api.ts` 作为统一接口层代理 `lib/mock-survey-service.ts`，后者包含 respondent 生成、对话模拟、分析函数（`analyzeQuestionResponses`、`analyzeByDemographics`、`filterRespondentsByDimensions`、`groupRespondentsByDimensions`）及历史/导出工具。历史记录当前只保存在模块内存中，刷新页面后不会保留；`lib/utils.ts` 提供类名拼接等通用辅助。
 
 ## 核心组件
 - **`SurveyConfigPanel`（左侧）**：管理元数据、响应时间滑块、可折叠问题列表及其选项、受访者片段（性别/年龄/职业/城市/收入/人数），统计结果实时呈现，运行按钮会在配置不完整或正在模拟时禁用。
@@ -25,21 +31,31 @@
 4. **检视分析**：右侧分析面板实时更新：概览卡片、情绪/状态图、问题答复分布（支持多维筛选、group by、提示轴标签）、城市/收入画像、导出/保存/历史等操作。
 5. **沉淀与复用**：成功模拟后可保存历史记录，稍后通过历史列表回放；也可导出 JSON/CSV，在其他平台继续分析或归档。
 
+> 注意：历史记录目前仅在当前页面生命周期内有效，尚未持久化。导出的 JSON/CSV 文件由浏览器直接生成和下载。
+
+## 当前迭代重点
+
+1. **响应式布局与滚动模型（下一轮实施目标）**：解决 390 px 移动端约 491 px 横向溢出、桌面端整页与栏内滚动混用，以及窄桌面访谈区拥挤的问题。
+2. **研究轮次、配置快照与持久化**：建立“项目—研究轮次—配置版本”模型，使每次运行可保存、重新打开和复现，并补齐保存/导出的明确反馈。
+3. **分析口径与异常解释**：明确区分总体、当前筛选和分组比较，始终展示有效样本数，并支持终止/失败原因汇总与下钻。
+
+详细范围、优先级依据、完成定义和 P0/P1/P2 路线图见 [项目迭代文档](./docs/PROJECT_ITERATION.md)。
+
+## 文档维护约定
+
+- 每次功能、修复或架构迭代必须在同一变更中更新 `docs/PROJECT_ITERATION.md`，记录目标、完成内容、验证、遗留问题和下一步；
+- 当项目定位、核心能力、架构、运行命令或最高优先级变化时，同时更新本 README；
+- `docs/AI问卷调研系统用户体验评价与迭代建议.md` 与 `LAYOUT_EVALUATION_REPORT.md` 作为历史评估依据保留，不承担实时状态维护职责；
+- 规划中的能力不得写成已实现能力，状态更新以代码、构建结果和浏览器验证为准。
+
 ## 运行方式
 ```bash
 npm install
 npm run dev
 ```
-或使用 pnpm/yarn：  
-```bash
-pnpm install
-pnpm dev
-```
-```bash
-yarn install
-yarn dev
-```
 浏览器访问 [http://localhost:3000](http://localhost:3000) 即可本地体验。
+
+仓库当前以 `package-lock.json` 和 npm 命令作为默认基准。如团队改用 pnpm 或 yarn，应统一包管理器并只维护对应的唯一锁文件，避免依赖解析结果漂移。
 
 ## 构建于 v0
 本仓库已连接至 [v0](https://v0.app) 项目，推送至 `main` 会自动触发部署。
