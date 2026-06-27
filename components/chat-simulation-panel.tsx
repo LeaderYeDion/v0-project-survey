@@ -15,6 +15,8 @@ interface ChatSimulationPanelProps {
   onSelectRespondent: (id: string) => void
 }
 
+type MobileInterviewView = "respondents" | "conversation"
+
 export function ChatSimulationPanel({
   sessions,
   respondents,
@@ -23,11 +25,14 @@ export function ChatSimulationPanel({
   onSelectRespondent
 }: ChatSimulationPanelProps) {
   const [selectedRespondentId, setSelectedRespondentId] = useState<string | null>(null)
+  const [mobileView, setMobileView] =
+    useState<MobileInterviewView>("respondents")
 
   // Auto-select the current respondent being interviewed
   useEffect(() => {
     if (currentRespondentId && !selectedRespondentId) {
       setSelectedRespondentId(currentRespondentId)
+      setMobileView("conversation")
     }
   }, [currentRespondentId, selectedRespondentId])
 
@@ -82,13 +87,49 @@ export function ChatSimulationPanel({
 
   const handleSelectRespondent = (id: string) => {
     setSelectedRespondentId(id)
+    setMobileView("conversation")
     onSelectRespondent(id)
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden md:flex-row">
+      <nav
+        aria-label="访谈内容导航"
+        className="grid shrink-0 grid-cols-2 gap-1 border-b border-border/30 bg-card/50 p-1 md:hidden"
+      >
+        <button
+          type="button"
+          aria-pressed={mobileView === "respondents"}
+          onClick={() => setMobileView("respondents")}
+          className={
+            mobileView === "respondents"
+              ? "h-8 rounded-md bg-primary/15 text-xs font-medium text-primary"
+              : "h-8 rounded-md text-xs text-muted-foreground"
+          }
+        >
+          受访者
+        </button>
+        <button
+          type="button"
+          aria-pressed={mobileView === "conversation"}
+          onClick={() => setMobileView("conversation")}
+          className={
+            mobileView === "conversation"
+              ? "h-8 rounded-md bg-primary/15 text-xs font-medium text-primary"
+              : "h-8 rounded-md text-xs text-muted-foreground"
+          }
+        >
+          对话
+        </button>
+      </nav>
+
       {/* Respondent List Sidebar */}
-      <div className="w-64 flex-shrink-0 border-r border-border/30 flex flex-col">
+      <div
+        className={cn(
+          "min-h-0 min-w-0 flex-col border-border/30 md:flex md:w-64 md:shrink-0 md:border-r",
+          mobileView === "respondents" ? "flex flex-1" : "hidden",
+        )}
+      >
         <div className="p-3 border-b border-border/30">
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-primary" />
@@ -163,7 +204,12 @@ export function ChatSimulationPanel({
       </div>
 
       {/* Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div
+        className={cn(
+          "min-h-0 min-w-0 flex-1 flex-col",
+          mobileView === "conversation" ? "flex" : "hidden md:flex",
+        )}
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border/50">
           <div className="flex items-center gap-2">
@@ -183,14 +229,14 @@ export function ChatSimulationPanel({
         {/* Selected Respondent Info */}
         {selectedRespondent ? (
           <>
-            <div className="px-4 py-3 bg-secondary/20 border-b border-border/30">
+            <div className="border-b border-border/30 bg-secondary/20 px-3 py-3 sm:px-4">
               <div className="flex items-center gap-3">
                 <Avatar className="w-12 h-12">
                   <AvatarFallback className="bg-gradient-to-br from-primary/30 to-accent/30 text-lg">
                     {selectedRespondent.avatar}
                   </AvatarFallback>
                 </Avatar>
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-foreground">{selectedRespondent.name}</span>
                     <span className="text-sm text-muted-foreground">({selectedRespondent.nickname})</span>
@@ -225,7 +271,7 @@ export function ChatSimulationPanel({
             </div>
 
             {/* Dialog Messages */}
-            <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-border/50 scrollbar-track-transparent hover:scrollbar-thumb-border">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 scrollbar-thin scrollbar-thumb-border/50 scrollbar-track-transparent hover:scrollbar-thumb-border sm:p-4">
               {!selectedSession || selectedSession.dialog.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center py-12">
                   <div className="w-16 h-16 rounded-full bg-secondary/50 flex items-center justify-center mb-4">
@@ -244,7 +290,9 @@ export function ChatSimulationPanel({
                       key={message.id}
                       className={cn(
                         "animate-in fade-in-0 slide-in-from-bottom-2 duration-300",
-                        message.role === "interviewer" ? "pr-12" : "pl-12"
+                        message.role === "interviewer"
+                          ? "sm:pr-12"
+                          : "sm:pl-12"
                       )}
                       style={{ animationDelay: `${index * 30}ms` }}
                     >
@@ -285,7 +333,7 @@ export function ChatSimulationPanel({
                                 : "rounded-tr-sm bg-secondary/50 border border-border/30"
                             )}>
                               <p className={cn(
-                                "text-sm text-foreground leading-relaxed",
+                                "break-words text-sm leading-relaxed text-foreground [overflow-wrap:anywhere]",
                                 message.role === "respondent" && "text-left"
                               )}>
                                 {message.content}
