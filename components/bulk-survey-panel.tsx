@@ -178,9 +178,9 @@ export function BulkSurveyPanel({
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="border-b border-border/50 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-3 sm:px-6 sm:py-4">
+        <div className="flex min-w-0 items-center gap-2">
           <ClipboardList className="w-5 h-5 text-primary" />
           <div className="flex flex-col">
             <h2 className="font-semibold text-foreground text-sm">
@@ -204,9 +204,9 @@ export function BulkSurveyPanel({
         </Badge>
       </div>
 
-      <div className="flex-1 p-4 flex flex-col gap-4 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden p-3 sm:gap-4 sm:p-4">
         {/* Top summary cards */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid shrink-0 grid-cols-1 gap-2 min-[480px]:grid-cols-3 sm:gap-3">
           <div className="p-3 rounded-xl bg-secondary/30 border border-border/40">
             <div className="flex items-center gap-2 mb-1.5">
               <Users className="w-4 h-4 text-primary" />
@@ -258,10 +258,10 @@ export function BulkSurveyPanel({
               showQuestionStats ? "flex-1 min-h-0" : "flex-none"
             }`}
           >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
+            <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-primary" />
-                <span className="text-xs font-medium text-foreground">
+                <span className="min-w-0 break-words text-xs font-medium text-foreground">
                   按问题的结果统计
                 </span>
               </div>
@@ -304,8 +304,8 @@ export function BulkSurveyPanel({
                           key={baseKey}
                           className="p-2.5 rounded-lg bg-background/50 border border-border/40"
                         >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-xs font-medium text-foreground">
+                          <div className="mb-1.5 flex min-w-0 items-start justify-between gap-2">
+                            <span className="min-w-0 flex-1 break-words text-xs font-medium text-foreground">
                               {qa.questionText}
                             </span>
                             <Badge
@@ -569,4 +569,3 @@ export function BulkSurveyPanel({
     </div>
   )
 }
-

@@ -416,11 +416,11 @@ export function AnalyticsPanel({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col p-4 border-b border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+      <div className="flex shrink-0 flex-col border-b border-border/50 p-3 sm:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <BarChart3 className="w-5 h-5 text-primary" />
             <h2 className="font-semibold text-foreground">分析面板</h2>
           </div>
@@ -460,7 +460,7 @@ export function AnalyticsPanel({
       </div>
 
       {/* Action Buttons */}
-      <div className="px-4 py-2 border-b border-border/50 flex gap-2">
+      <div className="flex shrink-0 flex-wrap gap-2 border-b border-border/50 px-3 py-2 sm:px-4">
         {viewingHistoryRecord ? (
           <Button
             variant="outline"
@@ -561,7 +561,7 @@ export function AnalyticsPanel({
         </Dialog>
       </div>
 
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="min-h-0 flex-1 p-3 sm:p-4">
         <div className="space-y-5">
           {/* Quick Stats Cards */}
           <div className="grid grid-cols-2 gap-2.5">

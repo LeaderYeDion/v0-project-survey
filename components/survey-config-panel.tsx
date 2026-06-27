@@ -102,20 +102,20 @@ export function SurveyConfigPanel({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border/50">
-        <div className="flex items-center gap-2">
+      <div className="flex min-w-0 shrink-0 items-center justify-between gap-2 border-b border-border/50 p-3 sm:p-4">
+        <div className="flex min-w-0 items-center gap-2">
           {mode === "interview" ? (
             <Settings2 className="w-5 h-5 text-primary" />
           ) : (
             <ClipboardList className="w-5 h-5 text-primary" />
           )}
-          <div className="flex flex-col">
-            <h2 className="font-semibold text-foreground">
+          <div className="flex min-w-0 flex-col">
+            <h2 className="truncate font-semibold text-foreground">
               {mode === "interview" ? "访谈调研配置" : "问卷调研配置"}
             </h2>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="truncate text-[11px] text-muted-foreground">
               {mode === "interview"
                 ? "逐个受访者的深度访谈流程"
                 : "一次性向大批量虚拟受访者分发问卷"}
@@ -134,7 +134,7 @@ export function SurveyConfigPanel({
       </div>
 
       {/* Content */}
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="min-h-0 flex-1 p-3 sm:p-4">
         {jsonMode ? (
           <div className="space-y-3">
             <Label className="text-muted-foreground">调研配置 JSON</Label>
@@ -213,11 +213,11 @@ export function SurveyConfigPanel({
                     className="border border-border/30 rounded-lg bg-secondary/20 px-4"
                   >
                     <AccordionTrigger className="hover:no-underline py-3">
-                      <div className="flex items-center gap-3 text-left">
+                      <div className="flex min-w-0 flex-1 items-center gap-3 text-left">
                         <Badge variant="outline" className="text-xs border-border/50 text-muted-foreground">
                           Q{index + 1}
                         </Badge>
-                        <span className="text-sm text-foreground truncate max-w-[180px]">
+                        <span className="min-w-0 flex-1 truncate text-sm text-foreground">
                           {question.question || "未设置问题"}
                         </span>
                       </div>
@@ -363,7 +363,7 @@ export function SurveyConfigPanel({
                             </Button>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 gap-2 min-[430px]:grid-cols-2">
                             <div className="space-y-1">
                               <Label className="text-muted-foreground text-[10px]">性别</Label>
                               <Input
@@ -432,7 +432,7 @@ export function SurveyConfigPanel({
       </ScrollArea>
 
       {/* Footer */}
-      <div className="p-4 border-t border-border/50">
+      <div className="shrink-0 border-t border-border/50 bg-card/95 p-3 backdrop-blur sm:p-4">
         <Button
           className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
           onClick={onStartSimulation}
