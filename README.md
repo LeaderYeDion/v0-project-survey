@@ -14,14 +14,14 @@
 - **多维分析与导出**：分析面板实时汇总进度、情绪饼图、问题答复分布、受访者画像和维度聚合。问题分析支持按照性别/年龄/职业/城市/收入等维度筛选组合（例如“性别 = 男、收入 20-30 万、城市 = 北京”），也支持多维 group by（如同时分组性别 + 收入 + 城市）。历史记录可以保存、回放，数据可导出为 JSON/CSV 供进一步分析。
 
 ## 架构概览
-- **Next.js App Router + 统一布局**：`app/layout.tsx` 加载字体与全局样式（`app/globals.css`），`components/theme-provider.tsx` 强制暗黑主题，整体采用三栏布局（配置/模拟/分析）并通过 `app/page.tsx` 编排。
-- **`app/page.tsx`：前端大脑**：此 client 组件持有大量状态（session、respondents、analytics、mode 选择、历史记录等），对外暴露 `runSimulation`、`handleExport`、`handleLoadHistory`、`handleModeSelection` 等回调，并根据模式渲染 chat 或 bulk 面板。
+- **Next.js App Router + 响应式工作区**：`app/layout.tsx` 加载字体与全局样式（`app/globals.css`），`components/theme-provider.tsx` 强制暗黑主题。`app/page.tsx` 按三段式断点编排工作区：小于 768 px 使用“配置/结果/分析”顶部 Tabs，768–1199 px 使用结果中心与配置/分析 Sheet，1200 px 以上使用三栏桌面工作台。
+- **`app/page.tsx`：前端大脑**：此 client 组件持有 session、respondents、analytics、模式、历史和当前工作区等状态，对外暴露 `runSimulation`、`handleExport`、`handleLoadHistory`、`handleModeSelection` 等回调；移动端启动模拟后自动切到结果工作区。
 - **数据层与服务封装**：`lib/survey-api.ts` 作为统一接口层代理 `lib/mock-survey-service.ts`，后者包含 respondent 生成、对话模拟、分析函数（`analyzeQuestionResponses`、`analyzeByDemographics`、`filterRespondentsByDimensions`、`groupRespondentsByDimensions`）及历史/导出工具。历史记录当前只保存在模块内存中，刷新页面后不会保留；`lib/utils.ts` 提供类名拼接等通用辅助。
 
 ## 核心组件
-- **`SurveyConfigPanel`（左侧）**：管理元数据、响应时间滑块、可折叠问题列表及其选项、受访者片段（性别/年龄/职业/城市/收入/人数），统计结果实时呈现，运行按钮会在配置不完整或正在模拟时禁用。
-- **`ChatSimulationPanel` 与 `BulkSurveyPanel`（中间）**：前者展示逐条访谈对话、受访者侧边栏、状态气泡；后者以卡片和图表形式展示批量完成情况、问题指标、问卷细节。
-- **`AnalyticsPanel`（右侧）**：分为概览、问题分析、画像三页，包含快速统计卡片、完成率进度条、情绪饼图、问题答题分布、维度筛选与分组、城市/收入画像、导出/保存/历史按钮。问题分析对任何选择问题都自动读取维度，并允许多维过滤、任意组合的 group by 分析。
+- **`SurveyConfigPanel`（配置工作区）**：管理元数据、响应时间滑块、可折叠问题列表及其选项、受访者片段（性别/年龄/职业/城市/收入/人数）；内容独立滚动，运行按钮固定在面板底部。
+- **`ChatSimulationPanel` 与 `BulkSurveyPanel`（结果工作区）**：前者展示逐条访谈对话、受访者列表和状态气泡，并在移动端提供“受访者/对话”局部切换；后者以响应式卡片和图表展示批量完成情况、问题指标、问卷细节。
+- **`AnalyticsPanel`（分析工作区）**：分为概览、问题分析、画像三页，包含快速统计卡片、完成率、情绪/状态分布、维度筛选与分组、导出/保存/历史按钮；桌面端常驻右栏，平板端通过 Sheet 打开，移动端通过顶部 Tabs 到达。
 - **共享 UI**：`components/ui`（由 ShadCN 生成）提供按钮、徽章、选择框、标签页、滑块、对话框、表格、图表容器等原语，图表部分基于 Recharts，对轴标签与提示信息进行了本地化。
 
 ## 交互流程
@@ -35,8 +35,8 @@
 
 ## 当前迭代重点
 
-1. **响应式布局与滚动模型（下一轮实施目标）**：解决 390 px 移动端约 491 px 横向溢出、桌面端整页与栏内滚动混用，以及窄桌面访谈区拥挤的问题。
-2. **研究轮次、配置快照与持久化**：建立“项目—研究轮次—配置版本”模型，使每次运行可保存、重新打开和复现，并补齐保存/导出的明确反馈。
+1. **研究轮次、配置快照与持久化（下一轮实施目标）**：建立“项目—研究轮次—配置版本”模型，使每次运行可保存、重新打开和复现，并补齐保存/导出的明确反馈。
+2. **响应式布局与滚动模型（P0-A 已完成）**：五个目标视口已无页面级横纵溢出；移动端、平板和桌面分别使用 Tabs、Sheet 和三栏工作台。
 3. **分析口径与异常解释**：明确区分总体、当前筛选和分组比较，始终展示有效样本数，并支持终止/失败原因汇总与下钻。
 
 详细范围、优先级依据、完成定义和 P0/P1/P2 路线图见 [项目迭代文档](./docs/PROJECT_ITERATION.md)。
