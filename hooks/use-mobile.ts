@@ -1,19 +1,38 @@
 import * as React from 'react'
 
-const MOBILE_BREAKPOINT = 768
+import {
+  DESKTOP_BREAKPOINT,
+  MOBILE_BREAKPOINT,
+  getResponsiveLayout,
+} from '@/lib/responsive-layout.mjs'
 
-export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
+export type ResponsiveLayout = 'mobile' | 'tablet' | 'desktop'
+
+export function useResponsiveLayout(): ResponsiveLayout {
+  const [layout, setLayout] = React.useState<ResponsiveLayout>('desktop')
 
   React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
+    const updateLayout = () => setLayout(getResponsiveLayout(window.innerWidth))
+    const mobileQuery = window.matchMedia(
+      `(max-width: ${MOBILE_BREAKPOINT - 1}px)`,
+    )
+    const desktopQuery = window.matchMedia(
+      `(min-width: ${DESKTOP_BREAKPOINT}px)`,
+    )
+
+    mobileQuery.addEventListener('change', updateLayout)
+    desktopQuery.addEventListener('change', updateLayout)
+    updateLayout()
+
+    return () => {
+      mobileQuery.removeEventListener('change', updateLayout)
+      desktopQuery.removeEventListener('change', updateLayout)
     }
-    mql.addEventListener('change', onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    return () => mql.removeEventListener('change', onChange)
   }, [])
 
-  return !!isMobile
+  return layout
+}
+
+export function useIsMobile() {
+  return useResponsiveLayout() === 'mobile'
 }
