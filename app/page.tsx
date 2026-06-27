@@ -5,7 +5,25 @@ import { SurveyConfigPanel } from "@/components/survey-config-panel"
 import { ChatSimulationPanel } from "@/components/chat-simulation-panel"
 import { AnalyticsPanel } from "@/components/analytics-panel"
 import { BulkSurveyPanel } from "@/components/bulk-survey-panel"
-import { Sparkles, Cpu } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import { useResponsiveLayout } from "@/hooks/use-mobile"
+import {
+  BarChart3,
+  ClipboardList,
+  Cpu,
+  MessageSquare,
+  PanelLeftOpen,
+  PanelRightOpen,
+  Settings2,
+  Sparkles,
+} from "lucide-react"
 import {
   defaultSurveyConfig,
   type SurveyConfig,
@@ -31,12 +49,17 @@ import {
 } from "@/lib/survey-api"
 
 type SimulationMode = "interview" | "survey"
+type Workspace = "config" | "results" | "analytics"
 
 export default function ResearcherDashboard() {
+  const layout = useResponsiveLayout()
   const [config, setConfig] = useState<SurveyConfig>(defaultSurveyConfig)
   const [isRunning, setIsRunning] = useState(false)
   const [mode, setMode] = useState<SimulationMode>("survey")
   const [modeSelected, setModeSelected] = useState(false)
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>("config")
+  const [configSheetOpen, setConfigSheetOpen] = useState(false)
+  const [analyticsSheetOpen, setAnalyticsSheetOpen] = useState(false)
   
   // Current survey state
   const [currentSessions, setCurrentSessions] = useState<InterviewSession[]>([])
@@ -84,6 +107,9 @@ export default function ResearcherDashboard() {
 
   const runSimulation = useCallback(async () => {
     if (isRunning) return
+
+    setActiveWorkspace("results")
+    setConfigSheetOpen(false)
 
     // Exit history view when starting new simulation
     setViewingHistoryRecord(null)
@@ -288,8 +314,67 @@ export default function ResearcherDashboard() {
     setViewingHistoryRecord(null)
   }, [])
 
+  const configPanel = (
+    <SurveyConfigPanel
+      config={config}
+      onConfigChange={setConfig}
+      onStartSimulation={runSimulation}
+      isRunning={isRunning}
+      mode={mode}
+    />
+  )
+
+  const resultsPanel =
+    mode === "interview" ? (
+      <ChatSimulationPanel
+        sessions={displaySessions}
+        respondents={displayRespondents}
+        isRunning={isRunning}
+        currentRespondentId={activeRespondentId}
+        onSelectRespondent={handleSelectRespondent}
+      />
+    ) : (
+      <BulkSurveyPanel
+        sessions={displaySessions}
+        respondents={displayRespondents}
+        progress={displayProgress}
+        questions={displayQuestions}
+        questionAnalysis={displayQuestionAnalysis}
+        responses={displayResponses}
+        isRunning={isRunning && !viewingHistoryRecord}
+      />
+    )
+
+  const analyticsPanel = (
+    <AnalyticsPanel
+      progress={displayProgress}
+      sentiment={displaySentiment}
+      sessions={displaySessions}
+      respondents={displayRespondents}
+      questions={displayQuestions}
+      questionAnalysis={displayQuestionAnalysis}
+      demographicAnalysis={displayDemographicAnalysis}
+      config={displayConfig}
+      onExport={handleExport}
+      isRunning={isRunning}
+      onLoadHistory={handleLoadHistory}
+      onReturnToCurrent={handleReturnToCurrent}
+      viewingHistoryRecord={viewingHistoryRecord}
+    />
+  )
+
+  const workspaceItems = [
+    { value: "config" as const, label: "配置", icon: Settings2 },
+    {
+      value: "results" as const,
+      label: mode === "interview" ? "访谈" : "结果",
+      icon: mode === "interview" ? MessageSquare : ClipboardList,
+    },
+    { value: "analytics" as const, label: "分析", icon: BarChart3 },
+  ]
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background">
       {/* Background Effects */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
@@ -298,30 +383,30 @@ export default function ResearcherDashboard() {
       </div>
 
       {/* Header */}
-      <header className="relative z-10 border-b border-border/50 backdrop-blur-xl bg-background/80">
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+      <header className="relative z-10 shrink-0 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+        <div className="px-3 py-3 sm:px-4 xl:px-6 xl:py-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent">
                 <Cpu className="w-5 h-5 text-primary-foreground" />
               </div>
-              <div>
-                <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <div className="min-w-0">
+                <h1 className="flex items-center gap-2 text-base font-semibold leading-tight text-foreground sm:text-lg">
                   Survey Agent Simulator
-                  <Sparkles className="w-4 h-4 text-primary" />
+                  <Sparkles className="h-4 w-4 shrink-0 text-primary" />
                 </h1>
-                <p className="text-xs text-muted-foreground">
+                <p className="mt-1 hidden text-xs text-muted-foreground min-[430px]:block">
                   {mode === "interview"
                     ? "AI 驱动的虚拟访谈模拟平台"
                     : "AI 驱动的大规模问卷调研模拟平台"}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center text-xs rounded-full bg-secondary/40 border border-border/60 p-0.5">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+              <div className="flex min-w-0 flex-1 items-center rounded-full border border-border/60 bg-secondary/40 p-0.5 text-xs md:flex-none">
                 <button
                   type="button"
-                  className={`px-3 py-1 rounded-full transition text-[11px] ${
+                  className={`flex-1 rounded-full px-3 py-1 text-[11px] transition md:flex-none ${
                     mode === "interview"
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground"
@@ -332,7 +417,7 @@ export default function ResearcherDashboard() {
                 </button>
                 <button
                   type="button"
-                  className={`px-3 py-1 rounded-full transition text-[11px] ${
+                  className={`flex-1 rounded-full px-3 py-1 text-[11px] transition md:flex-none ${
                     mode === "survey"
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground"
@@ -342,7 +427,7 @@ export default function ResearcherDashboard() {
                   问卷模式
                 </button>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/50 border border-border/50">
+              <div className="flex shrink-0 items-center gap-2 rounded-full border border-border/50 bg-secondary/50 px-3 py-1.5">
                 <div
                   className={`w-2 h-2 rounded-full ${
                     isRunning 
@@ -359,67 +444,129 @@ export default function ResearcherDashboard() {
             </div>
           </div>
         </div>
+        {layout === "mobile" && (
+          <nav
+            aria-label="工作区导航"
+            className="grid grid-cols-3 border-t border-border/50 bg-background/90 p-1"
+          >
+            {workspaceItems.map(item => {
+              const Icon = item.icon
+              const isActive = activeWorkspace === item.value
+
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => setActiveWorkspace(item.value)}
+                  className={
+                    isActive
+                      ? "flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary/15 text-xs font-medium text-primary"
+                      : "flex h-9 items-center justify-center gap-1.5 rounded-md text-xs text-muted-foreground transition hover:bg-secondary/40 hover:text-foreground"
+                  }
+                >
+                  <Icon className="size-4" />
+                  {item.label}
+                </button>
+              )
+            })}
+          </nav>
+        )}
       </header>
 
-      {/* Main Content - 3 Column Layout */}
-      <main className="relative z-10 flex h-[calc(100vh-73px)]">
-        {/* Left Column - Config Panel */}
-        <div className="w-[340px] flex-shrink-0 border-r border-border/50 bg-card/30 backdrop-blur-xl">
-          <SurveyConfigPanel
-            config={config}
-            onConfigChange={setConfig}
-            onStartSimulation={runSimulation}
-            isRunning={isRunning}
-            mode={mode}
-          />
-        </div>
+      <main className="relative z-10 min-h-0 min-w-0 flex-1 overflow-hidden">
+        {layout === "mobile" && (
+          <section className="h-full min-h-0 min-w-0 overflow-hidden">
+            {activeWorkspace === "config" && configPanel}
+            {activeWorkspace === "results" && resultsPanel}
+            {activeWorkspace === "analytics" && analyticsPanel}
+          </section>
+        )}
 
-        {/* Middle Column - Simulation / Bulk Survey */}
-        <div className="flex-1 bg-gradient-to-b from-background to-card/20 backdrop-blur-xl">
-          {mode === "interview" ? (
-            <ChatSimulationPanel
-              sessions={displaySessions}
-              respondents={displayRespondents}
-              isRunning={isRunning}
-              currentRespondentId={activeRespondentId}
-              onSelectRespondent={handleSelectRespondent}
-            />
-          ) : (
-            <BulkSurveyPanel
-              sessions={displaySessions}
-              respondents={displayRespondents}
-              progress={displayProgress}
-              questions={displayQuestions}
-              questionAnalysis={displayQuestionAnalysis}
-              responses={displayResponses}
-              isRunning={isRunning && !viewingHistoryRecord}
-            />
-          )}
-        </div>
+        {layout === "tablet" && (
+          <>
+            <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+              <div className="flex shrink-0 items-center justify-between border-b border-border/50 bg-card/40 px-3 py-2 backdrop-blur-xl">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConfigSheetOpen(true)}
+                >
+                  <PanelLeftOpen className="size-4" />
+                  配置
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  {mode === "interview" ? "访谈工作区" : "问卷结果工作区"}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAnalyticsSheetOpen(true)}
+                >
+                  分析
+                  <PanelRightOpen className="size-4" />
+                </Button>
+              </div>
+              <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-gradient-to-b from-background to-card/20">
+                {resultsPanel}
+              </section>
+            </div>
 
-        {/* Right Column - Analytics */}
-        <div className="w-[340px] flex-shrink-0 border-l border-border/50 bg-card/30 backdrop-blur-xl">
-          <AnalyticsPanel
-            progress={displayProgress}
-            sentiment={displaySentiment}
-            sessions={displaySessions}
-            respondents={displayRespondents}
-            questions={displayQuestions}
-            questionAnalysis={displayQuestionAnalysis}
-            demographicAnalysis={displayDemographicAnalysis}
-            config={displayConfig}
-            onExport={handleExport}
-            isRunning={isRunning}
-            onLoadHistory={handleLoadHistory}
-            onReturnToCurrent={handleReturnToCurrent}
-            viewingHistoryRecord={viewingHistoryRecord}
-          />
-        </div>
+            <Sheet open={configSheetOpen} onOpenChange={setConfigSheetOpen}>
+              <SheetContent
+                side="left"
+                className="w-[min(92vw,420px)] max-w-none gap-0 p-0"
+              >
+                <SheetHeader className="sr-only">
+                  <SheetTitle>调研配置</SheetTitle>
+                  <SheetDescription>编辑调研问题和受访者配置</SheetDescription>
+                </SheetHeader>
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  {configPanel}
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            <Sheet
+              open={analyticsSheetOpen}
+              onOpenChange={setAnalyticsSheetOpen}
+            >
+              <SheetContent
+                side="right"
+                className="w-[min(92vw,420px)] max-w-none gap-0 p-0"
+              >
+                <SheetHeader className="sr-only">
+                  <SheetTitle>调研分析</SheetTitle>
+                  <SheetDescription>查看调研进度与分析结果</SheetDescription>
+                </SheetHeader>
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  {analyticsPanel}
+                </div>
+              </SheetContent>
+            </Sheet>
+          </>
+        )}
+
+        {layout === "desktop" && (
+          <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
+            <aside className="w-[340px] min-h-0 min-w-0 shrink-0 overflow-hidden border-r border-border/50 bg-card/30 backdrop-blur-xl">
+              {configPanel}
+            </aside>
+            <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-gradient-to-b from-background to-card/20 backdrop-blur-xl">
+              {resultsPanel}
+            </section>
+            <aside className="w-[340px] min-h-0 min-w-0 shrink-0 overflow-hidden border-l border-border/50 bg-card/30 backdrop-blur-xl">
+              {analyticsPanel}
+            </aside>
+          </div>
+        )}
       </main>
 
       {!modeSelected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-xl">
-          <div className="w-[380px] rounded-2xl border border-border/70 bg-card/90 p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 p-4 backdrop-blur-xl">
+          <div className="w-full max-w-[380px] rounded-2xl border border-border/70 bg-card/90 p-5 shadow-2xl sm:p-6">
             <h2 className="text-lg font-semibold text-foreground mb-3">
               请选择启动模式
             </h2>
