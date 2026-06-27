@@ -8,3 +8,9 @@ node_modules/
 .next/
 .env*.local
 .DS_Store
+
+# Local Cloudflare deployment secrets and runtime state
+deploy/config/deploy.env
+deploy/config/allowed-emails.txt
+deploy/runtime/
+deploy/**/*.credentials.json

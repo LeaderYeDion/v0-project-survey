@@ -1,0 +1,7 @@
+tunnel: <TUNNEL_UUID>
+credentials-file: <HOME>/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: survey.example.com
+    service: http://127.0.0.1:3000
+  - service: http_status:404
