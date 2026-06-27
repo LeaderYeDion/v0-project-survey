@@ -773,8 +773,8 @@ export function AnalyticsPanel({
                     ))}
                     <Button
                       variant="outline"
-                      size="xs"
-                      className="text-[11px]"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
                       onClick={() => setDimensionFilters({})}
                       disabled={!hasActiveFilters}
                     >
@@ -787,10 +787,10 @@ export function AnalyticsPanel({
                       return (
                         <Button
                           key={meta.key}
-                          size="xs"
+                          size="sm"
                           variant={isActive ? "secondary" : "ghost"}
                           onClick={() => toggleGroupByDimension(meta.key)}
-                          className="text-[11px]"
+                          className="h-7 px-2 text-[11px]"
                         >
                           {isActive ? `取消按 ${meta.label} 分组` : `按 ${meta.label} 分组`}
                         </Button>

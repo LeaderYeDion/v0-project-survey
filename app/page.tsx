@@ -210,7 +210,7 @@ export default function ResearcherDashboard() {
         }
 
         // Finalize session
-        const finalStatus = terminated 
+        const finalStatus: InterviewSession["status"] = terminated
           ? (terminationReason?.includes("受访者") ? "terminated_by_respondent" : "terminated_by_interviewer")
           : "completed"
 
