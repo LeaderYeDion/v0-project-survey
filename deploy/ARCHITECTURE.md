@@ -4,7 +4,7 @@
 
 ```text
 公网浏览器
-   │ HTTPS + Basic Auth
+   │ HTTPS + 登录页 / 签名 Cookie
    ▼
 随机 *.trycloudflare.com 地址
    │
@@ -40,12 +40,17 @@ next start -H 127.0.0.1 -p 3000
 DEPLOY_AUTH_ENABLED=true
 ```
 
-Next.js 16 `proxy.ts` 在路由和静态文件之前执行：
+Next.js 16 `proxy.ts` 在应用路由之前执行：
 
 - 缺少部署凭据配置：`503`；
-- 缺少、非法或错误账号密码：`401`；
-- 正确账号密码：继续处理请求；
+- 未认证的 HTML 页面导航：重定向到 `/login`；
+- 登录接口使用常量时间比较验证共享账号密码，成功后签发 12 小时 `HttpOnly`、`SameSite=Strict` 签名 Cookie；
+- 有效 Cookie：继续处理请求；
+- 未认证的非 HTML 请求：返回不含 `WWW-Authenticate` 的 `401`，避免浏览器弹出原生认证框；
+- 部署健康检查携带正确 Basic Authorization 时继续处理请求；
 - 响应禁用认证错误缓存。
+
+`/login`、登录接口和登录页所需的 Next.js 静态资源允许匿名读取，以保证登录页能够渲染；调研页面、结果和 API 仍受保护。密码轮换会使旧 Cookie 立即失效。
 
 未授权请求仍会到达本机 Next.js 的 Proxy 层，因此认证不能消除应用运行期间的全部攻击面。它的作用是阻止未授权用户读取或调用应用内容。
 

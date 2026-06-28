@@ -7,7 +7,8 @@
 - Next.js 只监听 `127.0.0.1:3000`；
 - cloudflared 仅建立出站连接；
 - Cloudflare 每次启动分配一个随机 HTTPS `trycloudflare.com` 地址；
-- Next.js 全局 Proxy 对页面、API 和静态资源执行 Basic Auth；
+- Next.js 全局 Proxy 对应用页面和 API 执行认证，浏览器使用独立登录页与 12 小时签名 Cookie 会话；
+- 部署脚本的本地与公网健康检查继续使用 Basic Authorization，不改变一键启停契约；
 - 本地账号密码保存在 Git 忽略且权限为 `600` 的配置文件；
 - cloudflared 不安装为系统服务；
 - `npm stop` 先关闭 Tunnel，再关闭 Next.js，并验证进程、临时网址和端口全部消失。
@@ -40,7 +41,7 @@ npm run deploy:start
 https://random-words.trycloudflare.com
 ```
 
-把该地址发给使用者。浏览器会显示原生账号密码对话框；使用 `deploy.env` 中的 `DEPLOY_USERNAME` 和 `DEPLOY_PASSWORD` 登录。
+把该地址发给使用者。浏览器会进入项目自己的登录页；使用 `deploy.env` 中的 `DEPLOY_USERNAME` 和 `DEPLOY_PASSWORD` 登录。普通页面访问不会再显示浏览器原生账号密码对话框。
 
 ## 日常命令
 

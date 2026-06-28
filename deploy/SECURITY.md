@@ -7,7 +7,8 @@
 - Next.js 只监听 `127.0.0.1:3000`；
 - 不开放路由器或主机入站端口；
 - cloudflared 只连接该 loopback origin；
-- 页面、API 和静态资源统一要求 Basic Auth；
+- 应用页面和 API 要求有效签名 Cookie，未登录的浏览器导航只进入独立登录页；
+- 登录页使用 12 小时 `HttpOnly`、`SameSite=Strict` 会话，部署健康检查兼容 Basic Authorization；
 - 缺少认证配置时 fail-closed 返回 503；
 - `npm stop` 先关 Tunnel，再关应用；
 - 停止成功只在进程、临时网址和端口验证全部通过后报告。
@@ -33,7 +34,7 @@
 - 每次人员变化后先停止服务、轮换密码、再重新启动；
 - 怀疑泄漏时立即执行 `npm stop`。
 
-Basic Auth 依赖 Quick Tunnel 提供的 HTTPS。不要把同一账号密码用于其他网站。
+登录提交与 Cookie 依赖 Quick Tunnel 提供的 HTTPS。不要把同一账号密码用于其他网站。登录页所需的 Next.js 静态资源可匿名读取，但不包含调研配置或结果数据。
 
 ## kill 不同进程的结果
 

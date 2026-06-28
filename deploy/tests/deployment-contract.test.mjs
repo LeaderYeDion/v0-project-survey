@@ -86,3 +86,22 @@ test("allows Quick Tunnel DNS to warm up before public verification", async () =
   assert.ok(warmup >= 0)
   assert.ok(verification > warmup)
 })
+
+test("provides a branded login page backed by a secure session route", async () => {
+  const route = await read("app/api/auth/login/route.ts")
+  const page = await read("app/login/page.tsx")
+  const form = await read("app/login/login-form.tsx")
+
+  assert.match(route, /validateDeploymentCredentials/)
+  assert.match(route, /createDeploymentSession/)
+  assert.match(route, /getSafeRedirectPath/)
+  assert.match(route, /httpOnly:\s*true/)
+  assert.match(route, /sameSite:\s*"strict"/)
+  assert.match(route, /DEPLOY_SESSION_MAX_AGE_SECONDS/)
+  assert.match(route, /用户名或密码不正确/)
+  assert.match(page, /Survey Agent Simulator/)
+  assert.match(page, /LoginForm/)
+  assert.match(form, /用户名/)
+  assert.match(form, /密码/)
+  assert.match(form, /api\/auth\/login/)
+})

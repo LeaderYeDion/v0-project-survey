@@ -7,6 +7,11 @@ import { AnalyticsPanel } from "@/components/analytics-panel"
 import { BulkSurveyPanel } from "@/components/bulk-survey-panel"
 import { Button } from "@/components/ui/button"
 import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable"
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -42,6 +47,7 @@ import {
   shouldInterviewerTerminate,
   type SurveyResponse,
 } from "@/lib/survey-api"
+import { DESKTOP_WORKSPACE_LAYOUT } from "@/lib/workspace-layout.mjs"
 import {
   apiGenerateRespondentsFromConfig,
   apiExportSurveyResults,
@@ -550,17 +556,49 @@ export default function ResearcherDashboard() {
         )}
 
         {layout === "desktop" && (
-          <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
-            <aside className="w-[340px] min-h-0 min-w-0 shrink-0 overflow-hidden border-r border-border/50 bg-card/30 backdrop-blur-xl">
+          <ResizablePanelGroup
+            direction="horizontal"
+            autoSaveId="survey-desktop-workspace-layout"
+            className="h-full min-h-0 min-w-0 overflow-hidden"
+          >
+            <ResizablePanel
+              id="survey-config-workspace"
+              order={1}
+              defaultSize={DESKTOP_WORKSPACE_LAYOUT.defaults.config}
+              minSize={DESKTOP_WORKSPACE_LAYOUT.config.min}
+              maxSize={DESKTOP_WORKSPACE_LAYOUT.config.max}
+              className="min-h-0 min-w-0 overflow-hidden bg-card/30 backdrop-blur-xl"
+            >
               {configPanel}
-            </aside>
-            <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-gradient-to-b from-background to-card/20 backdrop-blur-xl">
+            </ResizablePanel>
+            <ResizableHandle
+              withHandle
+              aria-label="调整配置与结果区域宽度"
+            />
+            <ResizablePanel
+              id="survey-results-workspace"
+              order={2}
+              defaultSize={DESKTOP_WORKSPACE_LAYOUT.defaults.results}
+              minSize={DESKTOP_WORKSPACE_LAYOUT.results.min}
+              className="min-h-0 min-w-0 overflow-hidden bg-gradient-to-b from-background to-card/20 backdrop-blur-xl"
+            >
               {resultsPanel}
-            </section>
-            <aside className="w-[340px] min-h-0 min-w-0 shrink-0 overflow-hidden border-l border-border/50 bg-card/30 backdrop-blur-xl">
+            </ResizablePanel>
+            <ResizableHandle
+              withHandle
+              aria-label="调整结果与分析区域宽度"
+            />
+            <ResizablePanel
+              id="survey-analytics-workspace"
+              order={3}
+              defaultSize={DESKTOP_WORKSPACE_LAYOUT.defaults.analytics}
+              minSize={DESKTOP_WORKSPACE_LAYOUT.analytics.min}
+              maxSize={DESKTOP_WORKSPACE_LAYOUT.analytics.max}
+              className="min-h-0 min-w-0 overflow-hidden bg-card/30 backdrop-blur-xl"
+            >
               {analyticsPanel}
-            </aside>
-          </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
         )}
       </main>
 

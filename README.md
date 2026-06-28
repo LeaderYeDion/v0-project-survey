@@ -14,7 +14,7 @@
 - **多维分析与导出**：分析面板实时汇总进度、情绪饼图、问题答复分布、受访者画像和维度聚合。问题分析支持按照性别/年龄/职业/城市/收入等维度筛选组合（例如“性别 = 男、收入 20-30 万、城市 = 北京”），也支持多维 group by（如同时分组性别 + 收入 + 城市）。历史记录可以保存、回放，数据可导出为 JSON/CSV 供进一步分析。
 
 ## 架构概览
-- **Next.js App Router + 响应式工作区**：`app/layout.tsx` 加载字体与全局样式（`app/globals.css`），`components/theme-provider.tsx` 强制暗黑主题。`app/page.tsx` 按三段式断点编排工作区：小于 768 px 使用“配置/结果/分析”顶部 Tabs，768–1199 px 使用结果中心与配置/分析 Sheet，1200 px 以上使用三栏桌面工作台。
+- **Next.js App Router + 响应式工作区**：`app/layout.tsx` 加载字体与全局样式（`app/globals.css`），`components/theme-provider.tsx` 强制暗黑主题。`app/page.tsx` 按三段式断点编排工作区：小于 768 px 使用“配置/结果/分析”顶部 Tabs，768–1199 px 使用结果中心与配置/分析 Sheet，1200 px 以上使用可拖拽并记忆栏宽的三栏桌面工作台。
 - **`app/page.tsx`：前端大脑**：此 client 组件持有 session、respondents、analytics、模式、历史和当前工作区等状态，对外暴露 `runSimulation`、`handleExport`、`handleLoadHistory`、`handleModeSelection` 等回调；移动端启动模拟后自动切到结果工作区。
 - **数据层与服务封装**：`lib/survey-api.ts` 作为统一接口层代理 `lib/mock-survey-service.ts`，后者包含 respondent 生成、对话模拟、分析函数（`analyzeQuestionResponses`、`analyzeByDemographics`、`filterRespondentsByDimensions`、`groupRespondentsByDimensions`）及历史/导出工具。历史记录当前只保存在模块内存中，刷新页面后不会保留；`lib/utils.ts` 提供类名拼接等通用辅助。
 
@@ -55,7 +55,8 @@
 - Next.js 仅监听 `127.0.0.1:3000`；
 - 不需要域名、Cloudflare 账号、API Token、DNS 或端口转发；
 - 每次启动获得一个随机 HTTPS `trycloudflare.com` 地址；
-- 浏览器使用本地维护的共享账号密码登录，所有应用请求统一认证；
+- 浏览器通过独立登录页输入本地维护的共享账号密码，成功后使用 12 小时签名 Cookie 会话访问应用；
+- 部署健康检查仍兼容 Basic Authorization，普通页面访问不再触发浏览器原生认证弹窗；
 - `npm run deploy:start` 一键构建并启动应用与 Tunnel，失败自动回滚；
 - `npm stop` 先关闭 Tunnel、再关闭应用，并验证 PID、临时网址与端口全部消失；
 - 本地密码、PID、临时网址和日志均不会提交到 Git。
