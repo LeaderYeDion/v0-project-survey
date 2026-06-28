@@ -39,6 +39,7 @@
 | 分析能力 | 支持性别、年龄、职业、城市、收入等维度筛选，以及多维 group by |
 | 保存与回放 | 可把当前结果保存到模块内存，并在当前页面生命周期内打开历史记录 |
 | 导出 | 可在浏览器中下载 JSON 或 CSV 文件 |
+| 本地公网部署工具 | 提供零费用 Quick Tunnel、全局 Basic Auth、loopback 绑定和 fail-closed 一键启停；无需域名、Cloudflare 账号、DNS 或端口转发 |
 | 技术栈 | Next.js 16.1.6、React 19.2.4、TypeScript、Tailwind CSS、ShadCN/Radix UI、Recharts |
 
 ### 实测基线与当前结果
@@ -56,7 +57,7 @@
 - `lib/survey-api.ts` 目前只是 mock 服务的统一代理层，没有真实 AI 模型或后端 API；
 - 历史记录保存在 `mockHistoryStorage` 模块内存中，刷新页面或重启进程后丢失；
 - 没有“项目—研究轮次—配置版本”的数据模型，也没有不可变运行快照；
-- 没有登录、权限、协作、服务端任务队列或后台运行通知；
+- 产品内没有多用户登录、角色权限、协作、服务端任务队列或后台运行通知；临时公网部署只有单个共享 Basic Auth 账号；
 - 运行过程没有完整的暂停、继续、取消、仅重试失败样本和预计剩余时间能力；
 - 受访者字段固定，尚不支持自定义政策属性、字段类型、基础配额或交叉配额；
 - 没有运行前的问卷/访谈设计检查、样本覆盖检查或试跑到正式轮次的流程；
@@ -174,6 +175,26 @@
 
 ## 迭代记录
 
+### 2026-06-28：切换为零费用 Quick Tunnel + Basic Auth
+
+- **类型**：功能 / 安全 / 文档治理
+- **版本/提交**：分支 `2026_06_codex`
+- **目标**：在不购买域名、不开放公网 IP 或路由器端口的前提下，让普通公网浏览器临时访问本机应用，并由部署者维护一个共享账号密码。
+- **完成内容**：用匿名 Quick Tunnel 替换 Named Tunnel、DNS、Access OTP 和邮箱白名单；新增 Next.js 16 全局 Basic Auth Proxy、随机强密码初始化、临时公网网址提取、DNS 预热、Next 16 进程身份识别、失败回滚和 Tunnel 优先关闭；重写 `deploy/` 全部实时手册。
+- **验证**：自动化测试 14/14 通过；shell 语法、TypeScript 和生产构建通过；真实 Quick Tunnel 成功生成公网 HTTPS 地址，启动脚本验证本地与公网无凭据均为 401、正确凭据均为 200；启动失败回滚及停止后的 PID、网址和端口关闭验证通过。
+- **遗留问题**：Quick Tunnel 每次启动更换地址，没有 SLA，最多 200 个并发中的请求且不支持 SSE；Basic Auth 只有一个共享账号，不提供用户审计、速率限制或密码找回；生产构建仍有既有 Babel 警告并跳过内置类型验证，已用独立 `tsc` 补验。
+- **下一步**：日常使用按 `deploy/RUNBOOK.md` 执行；产品迭代继续 P0-B 研究轮次、不可变配置快照与持久化。
+
+### 2026-06-27：Named Tunnel 部署方案（已被零费用方案替代）
+
+- **类型**：功能 / 文档治理
+- **版本/提交**：分支 `2026_06_codex`
+- **目标**：通过固定域名和 OTP 邮箱白名单访问本机服务，并用一键脚本控制公网入口的完整启停。
+- **完成内容**：新增 `deploy/` 部署手册、Named Tunnel 配置模板、独立本地邮箱白名单、Access Policy renderer/API 同步、loopback-only Next.js 启动、启动失败回滚、Tunnel 优先停止、PID 身份校验和关闭后端口验证。
+- **验证**：部署与响应式自动化测试 10/10 通过；shell 语法、TypeScript、secrets ignore 和缺配置/非预期端口占用的 fail-closed 路径通过；脚本不会终止非本部署管理的 3000 端口进程。
+- **遗留问题**：该方案要求部署者拥有付费获得或既有的域名，未满足本项目“完全零费用”的新增约束。
+- **下一步**：本方案未上线，已由 2026-06-28 的 Quick Tunnel + Basic Auth 方案替代；历史设计仅用于决策追溯。
+
 ### 2026-06-27：完成 P0-A 响应式布局与滚动模型
 
 - **类型**：功能 / 修复
@@ -221,3 +242,8 @@
 - [实施计划](./superpowers/plans/2026-06-21-project-iteration-docs.md)
 - [P0-A 响应式工作区设计](./superpowers/specs/2026-06-27-responsive-workspace-design.md)
 - [P0-A 响应式工作区实施计划](./superpowers/plans/2026-06-27-responsive-workspace.md)
+- [Cloudflare 本地部署手册](../deploy/README.md)
+- [Cloudflare 本地部署设计](./superpowers/specs/2026-06-27-cloudflare-local-deployment-design.md)
+- [Cloudflare 本地部署实施计划](./superpowers/plans/2026-06-27-cloudflare-local-deployment.md)
+- [零费用 Quick Tunnel 设计](./superpowers/specs/2026-06-28-zero-cost-quick-tunnel-design.md)
+- [零费用 Quick Tunnel 实施计划](./superpowers/plans/2026-06-28-zero-cost-quick-tunnel.md)

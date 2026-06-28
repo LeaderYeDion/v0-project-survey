@@ -2,16 +2,17 @@
   "name": "my-project",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "deploy:init": "bash deploy/scripts/init-config.sh",
     "deploy:check": "bash deploy/scripts/check-prerequisites.sh",
     "deploy:start": "bash deploy/scripts/start.sh",
     "deploy:status": "bash deploy/scripts/status.sh",
     "deploy:verify-stopped": "bash deploy/scripts/verify-shutdown.sh",
-    "deploy:sync-access": "bash deploy/scripts/sync-access-policy.sh",
     "stop": "bash deploy/scripts/stop.sh"
   },
   "dependencies": {

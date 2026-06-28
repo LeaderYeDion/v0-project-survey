@@ -48,6 +48,20 @@
 - `docs/AI问卷调研系统用户体验评价与迭代建议.md` 与 `LAYOUT_EVALUATION_REPORT.md` 作为历史评估依据保留，不承担实时状态维护职责；
 - 规划中的能力不得写成已实现能力，状态更新以代码、构建结果和浏览器验证为准。
 
+## 安全本地公网部署
+
+项目提供零费用 Cloudflare Quick Tunnel 部署工具：
+
+- Next.js 仅监听 `127.0.0.1:3000`；
+- 不需要域名、Cloudflare 账号、API Token、DNS 或端口转发；
+- 每次启动获得一个随机 HTTPS `trycloudflare.com` 地址；
+- 浏览器使用本地维护的共享账号密码登录，所有应用请求统一认证；
+- `npm run deploy:start` 一键构建并启动应用与 Tunnel，失败自动回滚；
+- `npm stop` 先关闭 Tunnel、再关闭应用，并验证 PID、临时网址与端口全部消失；
+- 本地密码、PID、临时网址和日志均不会提交到 Git。
+
+首次配置、日常操作与安全边界见 [deploy 部署手册](./deploy/README.md)。Quick Tunnel 地址每次启动都会变化，只适合个人使用、测试和演示，不作为正式生产部署。
+
 ## 运行方式
 ```bash
 npm install

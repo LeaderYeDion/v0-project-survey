@@ -7,19 +7,42 @@ source "$SCRIPT_DIR/common.sh"
 
 STARTED_NEXT=0
 STARTED_TUNNEL=0
+STARTUP_COMPLETE=0
+HEALTH_CONFIG=""
 
 rollback() {
-  trap - ERR INT TERM
+  trap - ERR INT TERM EXIT
   info "Startup failed; rolling back deployment processes"
   if [ "$STARTED_TUNNEL" -eq 1 ]; then
     stop_role "cloudflared" || true
   fi
+  remove_public_url
   if [ "$STARTED_NEXT" -eq 1 ]; then
     stop_role "next" || true
   fi
+  [ -z "$HEALTH_CONFIG" ] || rm -f "$HEALTH_CONFIG"
   release_lock
 }
-trap rollback ERR INT TERM
+
+handle_signal() {
+  local exit_code="$1"
+  rollback
+  exit "$exit_code"
+}
+
+cleanup_on_exit() {
+  local exit_code=$?
+  trap - EXIT
+  if [ "$STARTUP_COMPLETE" -eq 0 ] && [ "$exit_code" -ne 0 ]; then
+    rollback
+  fi
+  exit "$exit_code"
+}
+
+trap rollback ERR
+trap 'handle_signal 130' INT
+trap 'handle_signal 143' TERM
+trap cleanup_on_exit EXIT
 
 load_deploy_env
 [ "$LOCAL_HOST" = "127.0.0.1" ] ||
@@ -32,8 +55,12 @@ for role in next cloudflared; do
     die "Found $role PID file; run npm stop before starting"
 done
 
+[ ! -e "$(public_url_file)" ] ||
+  die "Found a stale public URL; run npm stop before starting"
 [ -z "$(matching_tunnel_processes)" ] ||
-  die "A matching cloudflared process is already running"
+  die "A matching Quick Tunnel process is already running"
+[ -z "$(matching_next_processes)" ] ||
+  die "A matching Next.js production process is already running"
 [ -z "$(port_listener)" ] ||
   die "Port $LOCAL_PORT is already in use; refusing to start or kill its owner"
 
@@ -51,43 +78,122 @@ next_pid=$!
 printf '%s\n' "$next_pid" >"$(pid_file_for_role next)"
 STARTED_NEXT=1
 
+basic_token="$(
+  printf '%s' "$DEPLOY_USERNAME:$DEPLOY_PASSWORD" |
+    openssl base64 -A
+)"
+HEALTH_CONFIG="$(mktemp "$RUNTIME_DIR/curl-health.XXXXXX")"
+chmod 600 "$HEALTH_CONFIG"
+{
+  printf 'silent\n'
+  printf 'show-error\n'
+  printf 'connect-timeout = 3\n'
+  printf 'max-time = 5\n'
+  printf 'header = "Authorization: Basic %s"\n' "$basic_token"
+} >"$HEALTH_CONFIG"
+unset basic_token
+
+local_url="$(origin_url)/"
 next_ready=0
-for attempt in $(seq 1 60); do
+for attempt in $(seq 1 80); do
   if ! kill -0 "$next_pid" 2>/dev/null; then
     die "Next.js exited during startup; inspect $next_log"
   fi
-  if curl --fail --silent --show-error \
-    "http://$LOCAL_HOST:$LOCAL_PORT" >/dev/null 2>&1; then
+  authenticated_status="$(
+    curl --config "$HEALTH_CONFIG" \
+      --output /dev/null \
+      --write-out '%{http_code}' \
+      "$local_url" 2>/dev/null || true
+  )"
+  if [ "$authenticated_status" = "200" ]; then
     next_ready=1
     break
   fi
   sleep 0.25
 done
 [ "$next_ready" -eq 1 ] ||
-  die "Next.js did not become ready; inspect $next_log"
+  die "Authenticated local health check failed; inspect $next_log"
+
+unauthenticated_status="$(
+  curl --silent \
+    --output /dev/null \
+    --write-out '%{http_code}' \
+    --max-time 5 \
+    "$local_url" 2>/dev/null || true
+)"
+[ "$unauthenticated_status" = "401" ] ||
+  die "Unauthenticated local request was not rejected"
 pid_matches_role next "$next_pid" ||
   die "Next.js PID identity check failed"
 assert_loopback_listener
 
-info "Starting Cloudflare Tunnel $TUNNEL_NAME"
+info "Starting zero-cost Cloudflare Quick Tunnel"
 nohup cloudflared tunnel \
-  --config "$TUNNEL_CONFIG_PATH" \
-  run "$TUNNEL_NAME" >"$cloudflared_log" 2>&1 &
+  --url "$(origin_url)" >"$cloudflared_log" 2>&1 &
 cloudflared_pid=$!
 printf '%s\n' "$cloudflared_pid" >"$(pid_file_for_role cloudflared)"
 STARTED_TUNNEL=1
 
-sleep 2
-kill -0 "$cloudflared_pid" 2>/dev/null ||
-  die "cloudflared exited during startup; inspect $cloudflared_log"
+public_url=""
+for attempt in $(seq 1 120); do
+  if ! kill -0 "$cloudflared_pid" 2>/dev/null; then
+    die "cloudflared exited during startup; inspect $cloudflared_log"
+  fi
+  public_url="$(
+    grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' \
+      "$cloudflared_log" |
+      tail -n 1 || true
+  )"
+  if is_valid_quick_tunnel_url "$public_url"; then
+    break
+  fi
+  sleep 0.25
+done
+is_valid_quick_tunnel_url "$public_url" ||
+  die "Quick Tunnel did not provide a valid public URL; inspect $cloudflared_log"
+printf '%s\n' "$public_url" >"$(public_url_file)"
+
 pid_matches_role cloudflared "$cloudflared_pid" ||
   die "cloudflared PID identity check failed"
 
-trap - ERR INT TERM
+info "Waiting for Quick Tunnel DNS and edge warm-up"
+sleep 15
+kill -0 "$cloudflared_pid" 2>/dev/null ||
+  die "cloudflared exited during DNS warm-up; inspect $cloudflared_log"
+
+public_ready=0
+for attempt in $(seq 1 60); do
+  unauthenticated_status="$(
+    curl --silent \
+      --output /dev/null \
+      --write-out '%{http_code}' \
+      --max-time 5 \
+      "$public_url" 2>/dev/null || true
+  )"
+  authenticated_status="$(
+    curl --config "$HEALTH_CONFIG" \
+      --output /dev/null \
+      --write-out '%{http_code}' \
+      "$public_url" 2>/dev/null || true
+  )"
+  if [ "$unauthenticated_status" = "401" ] &&
+    [ "$authenticated_status" = "200" ]; then
+    public_ready=1
+    break
+  fi
+  sleep 1
+done
+[ "$public_ready" -eq 1 ] ||
+  die "Public authentication verification failed (unauthenticated HTTP ${unauthenticated_status:-none}, authenticated HTTP ${authenticated_status:-none}); inspect $cloudflared_log"
+
+rm -f "$HEALTH_CONFIG"
+HEALTH_CONFIG=""
+STARTUP_COMPLETE=1
+trap - ERR INT TERM EXIT
 release_lock
 
 info "Deployment is running"
-info "Local:  http://$LOCAL_HOST:$LOCAL_PORT"
-info "Public: https://$PUBLIC_HOSTNAME"
+info "Public: $public_url"
+info "Login:  use DEPLOY_USERNAME and DEPLOY_PASSWORD from $ENV_FILE"
 info "Stop:   npm stop"
 info "Logs:   $next_log and $cloudflared_log"

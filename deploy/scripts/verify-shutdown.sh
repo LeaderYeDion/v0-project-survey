@@ -23,21 +23,26 @@ for role in cloudflared next; do
     pid="$(read_role_pid "$role")"
     if kill -0 "$pid" 2>/dev/null; then
       printf 'UNSAFE: %s is still running as PID %s\n' "$role" "$pid" >&2
-      unsafe=1
     else
       printf 'UNSAFE: stale PID file remains: %s\n' "$pid_file" >&2
-      unsafe=1
     fi
+    unsafe=1
   fi
 done
 
 if [ -n "$(matching_tunnel_processes)" ]; then
-  printf 'UNSAFE: a matching cloudflared process is still running\n' >&2
+  printf 'UNSAFE: a matching Quick Tunnel process is still running\n' >&2
   unsafe=1
 fi
 
 if [ -n "$(matching_next_processes)" ]; then
   printf 'UNSAFE: a matching Next.js process is still running\n' >&2
+  unsafe=1
+fi
+
+if [ -e "$(public_url_file)" ]; then
+  printf 'UNSAFE: public URL state still exists: %s\n' \
+    "$(public_url_file)" >&2
   unsafe=1
 fi
 
@@ -51,7 +56,7 @@ fi
 [ "$unsafe" -eq 0 ] || exit 1
 
 if [ "$lock_held" -eq 1 ]; then
-  info "Deployment entry is closed: no project process or port remains"
+  info "Deployment entry is closed: no process, URL, or port remains"
 else
-  info "Verified stopped: no project process or port remains"
+  info "Verified stopped: no process, URL, or port remains"
 fi

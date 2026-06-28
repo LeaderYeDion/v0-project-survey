@@ -17,7 +17,7 @@
 - Replace: `deploy/tests/deployment-contract.test.mjs`
 - Delete: `deploy/tests/access-policy.test.mjs`
 
-- [ ] **Step 1: Write failing Basic Auth tests**
+- [x] **Step 1: Write failing Basic Auth tests**
 
 Create tests that import `proxy.ts`, set deployment environment variables, construct `NextRequest` objects, and assert:
 
@@ -30,7 +30,7 @@ test("allows the configured Basic Auth credentials")
 
 The tests must verify `503` for missing configuration, `401` plus `WWW-Authenticate` for rejected credentials, and `NextResponse.next()` for accepted credentials.
 
-- [ ] **Step 2: Write failing Quick Tunnel contract tests**
+- [x] **Step 2: Write failing Quick Tunnel contract tests**
 
 Replace the existing Named Tunnel assertions with checks that:
 
@@ -45,7 +45,7 @@ assert.ok(stop.indexOf('stop_role "cloudflared"') < stop.indexOf('stop_role "nex
 
 Also assert that package scripts expose `deploy:init`, `deploy:start`, `deploy:status`, `deploy:verify-stopped`, and `stop`, but no `deploy:sync-access`.
 
-- [ ] **Step 3: Run tests and confirm RED**
+- [x] **Step 3: Run tests and confirm RED**
 
 Run:
 
@@ -64,7 +64,7 @@ Expected: FAIL because `proxy.ts`, `deploy:init`, and Quick Tunnel lifecycle beh
 - Modify: `package.json`
 - Modify: `.gitignore`
 
-- [ ] **Step 1: Implement `proxy.ts`**
+- [x] **Step 1: Implement `proxy.ts`**
 
 Implement a named `proxy(request)` export:
 
@@ -88,7 +88,7 @@ new NextResponse("Authentication required", {
 
 Do not export a matcher so Proxy runs before all project routes.
 
-- [ ] **Step 2: Implement private config initialization**
+- [x] **Step 2: Implement private config initialization**
 
 `deploy/scripts/init-config.sh` must require `openssl`, refuse to overwrite an existing `deploy.env`, generate `openssl rand -hex 24`, write:
 
@@ -102,7 +102,7 @@ DEPLOY_PASSWORD=<generated hex>
 
 Set the file mode to `600` and print only its path.
 
-- [ ] **Step 3: Replace configuration and package entries**
+- [x] **Step 3: Replace configuration and package entries**
 
 `deploy.env.example` contains the same fields with an unusable password marker. Add:
 
@@ -118,7 +118,7 @@ deploy/runtime/
 deploy/**/*.credentials.json
 ```
 
-- [ ] **Step 4: Run tests and confirm GREEN**
+- [x] **Step 4: Run tests and confirm GREEN**
 
 Run:
 
@@ -135,7 +135,7 @@ Expected: Basic Auth tests pass and TypeScript exits 0.
 - Replace: `deploy/scripts/common.sh`
 - Replace: `deploy/scripts/check-prerequisites.sh`
 
-- [ ] **Step 1: Rewrite deployment environment validation**
+- [x] **Step 1: Rewrite deployment environment validation**
 
 `load_deploy_env` must require only:
 
@@ -145,7 +145,7 @@ LOCAL_HOST LOCAL_PORT DEPLOY_AUTH_ENABLED DEPLOY_USERNAME DEPLOY_PASSWORD
 
 Require loopback, port 3000, auth enabled, username matching `^[A-Za-z0-9._-]{1,64}$`, and password length at least 20.
 
-- [ ] **Step 2: Rewrite Quick Tunnel ownership checks**
+- [x] **Step 2: Rewrite Quick Tunnel ownership checks**
 
 Cloudflared PID identity must require `cloudflared`, `tunnel`, `--url`, and `http://127.0.0.1:3000`. Matching process discovery uses the same origin signature. Add helpers:
 
@@ -158,7 +158,7 @@ remove_public_url
 
 Only accept `https://[a-z0-9-]+.trycloudflare.com`.
 
-- [ ] **Step 3: Rewrite prerequisite checks**
+- [x] **Step 3: Rewrite prerequisite checks**
 
 Require `node npm cloudflared curl lsof ps pgrep openssl`. Verify private config mode and reject these default files when present:
 
@@ -173,7 +173,7 @@ Require `node npm cloudflared curl lsof ps pgrep openssl`. Verify private config
 
 The check performs no network calls and changes no process state.
 
-- [ ] **Step 4: Verify shell syntax**
+- [x] **Step 4: Verify shell syntax**
 
 Run:
 
@@ -191,7 +191,7 @@ Expected: exit 0.
 - Replace: `deploy/scripts/status.sh`
 - Replace: `deploy/scripts/verify-shutdown.sh`
 
-- [ ] **Step 1: Rewrite start**
+- [x] **Step 1: Rewrite start**
 
 Preserve the `ERR`, `INT`, `TERM`, and `EXIT` rollback behavior. After build:
 
@@ -207,7 +207,7 @@ Preserve the `ERR`, `INT`, `TERM`, and `EXIT` rollback behavior. After build:
 
 Any failure removes the temporary file and public URL, then stops cloudflared before Next.js.
 
-- [ ] **Step 2: Rewrite stop and shutdown verification**
+- [x] **Step 2: Rewrite stop and shutdown verification**
 
 Stop order:
 
@@ -220,11 +220,11 @@ stop_role "next"
 
 Shutdown verification requires no PID file, matching process, public URL file, or port 3000 listener.
 
-- [ ] **Step 3: Rewrite status**
+- [x] **Step 3: Rewrite status**
 
 `RUNNING` requires both valid PIDs, loopback listener, and valid public URL. `STOPPED` requires none. Partial state returns `DEGRADED`; identity, unexpected process, invalid URL, or non-loopback listener returns `UNSAFE`.
 
-- [ ] **Step 4: Run lifecycle contracts**
+- [x] **Step 4: Run lifecycle contracts**
 
 Run:
 
@@ -250,11 +250,11 @@ Expected: all deployment contract tests pass.
 - Modify: `README.md`
 - Modify: `docs/PROJECT_ITERATION.md`
 
-- [ ] **Step 1: Remove obsolete artifacts**
+- [x] **Step 1: Remove obsolete artifacts**
 
 Delete Named Tunnel config, email allowlist renderer/synchronizer, and their tests. Do not delete historical specs under `docs/superpowers/`.
 
-- [ ] **Step 2: Rewrite deploy documentation**
+- [x] **Step 2: Rewrite deploy documentation**
 
 All live deployment documents must state:
 
@@ -267,11 +267,11 @@ All live deployment documents must state:
 - exact `deploy:init`, start, status, stop, and verification commands;
 - remaining risks and incident response.
 
-- [ ] **Step 3: Update project documentation**
+- [x] **Step 3: Update project documentation**
 
 README and iteration records must replace fixed-domain/email-whitelist claims with the implemented Quick Tunnel and Basic Auth behavior. Record the prior Named Tunnel design as superseded, not deployed.
 
-- [ ] **Step 4: Scan for stale live guidance**
+- [x] **Step 4: Scan for stale live guidance**
 
 Run:
 
@@ -289,7 +289,7 @@ Expected: no live instructions remain; historical wording in the iteration log i
 - Verify: `README.md`
 - Verify: `docs/PROJECT_ITERATION.md`
 
-- [ ] **Step 1: Run full offline checks**
+- [x] **Step 1: Run full offline checks**
 
 ```bash
 node --test tests/*.test.mjs deploy/tests/*.test.mjs
@@ -301,7 +301,7 @@ git diff --check
 
 Expected: all tests, syntax, type checking, build, and diff checks pass.
 
-- [ ] **Step 2: Verify secret isolation**
+- [x] **Step 2: Verify secret isolation**
 
 ```bash
 git check-ignore deploy/config/deploy.env deploy/runtime/public-url
@@ -315,6 +315,8 @@ Expected: local credentials and runtime are ignored; no generated password appea
 
 - [ ] **Step 3: Run the real lifecycle**
 
+Status: Quick Tunnel started successfully and its built-in checks observed local/public `401` without credentials and `200` with credentials. The Codex process sandbox reaped background children after the start command returned, so a separate live `deploy:status` command could not observe the still-running state.
+
 Ensure port 3000 is free, then:
 
 ```bash
@@ -325,7 +327,7 @@ npm run deploy:status
 
 Verify local and public requests return 401 without credentials and 200 with credentials. Never print the generated password.
 
-- [ ] **Step 4: Stop and prove closure**
+- [x] **Step 4: Stop and prove closure**
 
 ```bash
 npm stop

@@ -11,5 +11,6 @@ acquire_lock
 trap release_lock EXIT
 
 stop_role "cloudflared"
+remove_public_url
 stop_role "next"
 "$SCRIPT_DIR/verify-shutdown.sh" --lock-held

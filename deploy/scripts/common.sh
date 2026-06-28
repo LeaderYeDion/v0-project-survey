@@ -5,7 +5,7 @@ DEPLOY_DIR="$PROJECT_ROOT/deploy"
 CONFIG_DIR="$DEPLOY_DIR/config"
 RUNTIME_DIR="$DEPLOY_DIR/runtime"
 ENV_FILE="$CONFIG_DIR/deploy.env"
-ALLOWLIST_FILE="$CONFIG_DIR/allowed-emails.txt"
+PUBLIC_URL_FILE="$RUNTIME_DIR/public-url"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -26,14 +26,20 @@ ensure_runtime_dir() {
 }
 
 load_deploy_env() {
-  [ -f "$ENV_FILE" ] || die "Missing $ENV_FILE. Copy deploy.env.example first."
+  [ -f "$ENV_FILE" ] ||
+    die "Missing $ENV_FILE. Run npm run deploy:init first."
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
 
   local name
-  for name in PUBLIC_HOSTNAME LOCAL_HOST LOCAL_PORT TUNNEL_NAME TUNNEL_CONFIG_PATH; do
+  for name in \
+    LOCAL_HOST \
+    LOCAL_PORT \
+    DEPLOY_AUTH_ENABLED \
+    DEPLOY_USERNAME \
+    DEPLOY_PASSWORD; do
     [ -n "${!name:-}" ] || die "Missing required setting: $name"
   done
 
@@ -41,8 +47,37 @@ load_deploy_env() {
     die "LOCAL_HOST must be 127.0.0.1"
   [ "$LOCAL_PORT" = "3000" ] ||
     die "LOCAL_PORT must be 3000"
-  [[ "$PUBLIC_HOSTNAME" != *"example.com"* ]] ||
-    die "PUBLIC_HOSTNAME still uses the example domain"
+  [ "$DEPLOY_AUTH_ENABLED" = "true" ] ||
+    die "DEPLOY_AUTH_ENABLED must be true for public deployment"
+  [[ "$DEPLOY_USERNAME" =~ ^[A-Za-z0-9._-]{1,64}$ ]] ||
+    die "DEPLOY_USERNAME must use 1-64 letters, digits, dots, underscores, or hyphens"
+  [ "${#DEPLOY_PASSWORD}" -ge 20 ] ||
+    die "DEPLOY_PASSWORD must contain at least 20 characters"
+  [[ "$DEPLOY_PASSWORD" != *$'\n'* ]] ||
+    die "DEPLOY_PASSWORD must not contain newlines"
+  [[ "$DEPLOY_PASSWORD" != replace-with-* ]] ||
+    die "DEPLOY_PASSWORD still uses the example value"
+}
+
+origin_url() {
+  printf 'http://%s:%s\n' "$LOCAL_HOST" "$LOCAL_PORT"
+}
+
+public_url_file() {
+  printf '%s\n' "$PUBLIC_URL_FILE"
+}
+
+read_public_url() {
+  [ -f "$PUBLIC_URL_FILE" ] || return 1
+  tr -d '[:space:]' <"$PUBLIC_URL_FILE"
+}
+
+is_valid_quick_tunnel_url() {
+  [[ "${1:-}" =~ ^https://[a-z0-9-]+\.trycloudflare\.com$ ]]
+}
+
+remove_public_url() {
+  rm -f "$PUBLIC_URL_FILE"
 }
 
 pid_file_for_role() {
@@ -59,8 +94,17 @@ read_role_pid() {
 
   local pid
   pid="$(tr -d '[:space:]' <"$pid_file")"
-  [[ "$pid" =~ ^[0-9]+$ ]] || die "Invalid PID file: $pid_file"
+  if ! [[ "$pid" =~ ^[0-9]+$ ]]; then
+    printf 'ERROR: Invalid PID file: %s\n' "$pid_file" >&2
+    return 2
+  fi
   printf '%s\n' "$pid"
+}
+
+process_cwd() {
+  lsof -a -p "$1" -d cwd -Fn 2>/dev/null |
+    sed -n 's/^n//p' |
+    head -n 1
 }
 
 pid_matches_role() {
@@ -74,14 +118,21 @@ pid_matches_role() {
 
   case "$role" in
     next)
-      [[ "$command_line" == *"$PROJECT_ROOT"* ]] &&
-        [[ "$command_line" == *"next"* ]] &&
-        [[ "$command_line" == *"start"* ]]
+      [ "$(process_cwd "$pid")" = "$PROJECT_ROOT" ] &&
+        {
+          [[ "$command_line" == *"next-server"* ]] ||
+            {
+              [[ "$command_line" == *"$PROJECT_ROOT"* ]] &&
+                [[ "$command_line" == *"next"* ]] &&
+                [[ "$command_line" == *"start"* ]]
+            }
+        }
       ;;
     cloudflared)
       [[ "$command_line" == *"cloudflared"* ]] &&
-        [[ "$command_line" == *"run"* ]] &&
-        [[ "$command_line" == *"$TUNNEL_NAME"* ]]
+        [[ "$command_line" == *"tunnel"* ]] &&
+        [[ "$command_line" == *"--url"* ]] &&
+        [[ "$command_line" == *"$(origin_url)"* ]]
       ;;
     *) return 1 ;;
   esac
@@ -98,15 +149,21 @@ stop_role() {
   fi
 
   local pid
-  pid="$(read_role_pid "$role")"
+  if ! pid="$(read_role_pid "$role")"; then
+    printf 'ERROR: Cannot read %s PID safely\n' "$role" >&2
+    return 1
+  fi
   if ! kill -0 "$pid" 2>/dev/null; then
     rm -f "$pid_file"
     info "Removed stale $role PID file"
     return 0
   fi
 
-  pid_matches_role "$role" "$pid" ||
-    die "PID $pid does not match role $role; refusing to kill it"
+  if ! pid_matches_role "$role" "$pid"; then
+    printf 'ERROR: PID %s does not match role %s; refusing to kill it\n' \
+      "$pid" "$role" >&2
+    return 1
+  fi
 
   info "Stopping $role (PID $pid)"
   kill -TERM "$pid"
@@ -118,12 +175,23 @@ stop_role() {
   done
 
   if kill -0 "$pid" 2>/dev/null; then
-    pid_matches_role "$role" "$pid" ||
-      die "PID $pid changed identity while stopping $role"
+    if ! pid_matches_role "$role" "$pid"; then
+      printf 'ERROR: PID %s changed identity while stopping %s\n' \
+        "$pid" "$role" >&2
+      return 1
+    fi
     info "$role did not exit after TERM; sending KILL"
     kill -KILL "$pid"
+    for attempt in $(seq 1 20); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
   fi
 
+  if kill -0 "$pid" 2>/dev/null; then
+    printf 'ERROR: %s PID %s remains after KILL\n' "$role" "$pid" >&2
+    return 1
+  fi
   rm -f "$pid_file"
 }
 
@@ -147,14 +215,18 @@ assert_loopback_listener() {
 
 matching_tunnel_processes() {
   pgrep -fl cloudflared 2>/dev/null |
-    grep -F -- "$TUNNEL_NAME" |
-    grep -F -- "run" || true
+    grep -F -- "tunnel" |
+    grep -F -- "--url" |
+    grep -F -- "$(origin_url)" || true
 }
 
 matching_next_processes() {
-  pgrep -fl next 2>/dev/null |
-    grep -F -- "$PROJECT_ROOT" |
-    grep -F -- "start" || true
+  local pid
+  for pid in $(pgrep -f 'next-server|next.*start' 2>/dev/null || true); do
+    if [ "$(process_cwd "$pid")" = "$PROJECT_ROOT" ]; then
+      ps -p "$pid" -o pid=,command= 2>/dev/null || true
+    fi
+  done
 }
 
 acquire_lock() {
@@ -181,6 +253,6 @@ assert_private_file() {
   local mode
   mode="$(file_mode "$file")"
   if (( (8#$mode & 077) != 0 )); then
-    die "$file must not be readable, writable, or executable by group/others; run chmod 600"
+    die "$file must not be accessible by group/others; run chmod 600"
   fi
 }
