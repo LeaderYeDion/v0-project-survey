@@ -4,19 +4,19 @@
 
 ## 当前阶段
 
-本项目目前是使用 mock 服务与前端内存状态驱动的可交互原型，适合验证“配置—运行—个体结果—聚合分析—导出”的产品流程和界面设计。它尚未接入真实 AI 调研后端、持久化数据库或项目/研究轮次/配置版本体系，因此当前结果只应用于演示、探索、预实验和假设生成，不能替代具有代表性的真实调查。
+本项目目前是使用 FastAPI Mock 后端驱动的可交互原型，适合验证“配置—运行—个体结果—聚合分析—导出”的产品流程和界面设计。调研编排、Mock 回答、历史、统计和导出已从前端迁移至 `backend/`；它尚未接入真实 AI 模型、持久化数据库或项目/研究轮次/配置版本体系，因此当前结果只应用于演示、探索、预实验和假设生成。
 
 完整现状、问题池、路线图与逐轮记录见 [项目迭代文档](./docs/PROJECT_ITERATION.md)。
 
 ## 业务逻辑
 - **配置驱动的模拟**：通过左侧配置面板调整问卷名称、描述、响应预算和问题库（文本/选择/量表），还可以定义性别、年龄段、职业、城市、收入及人数等受访者片段。配置支持切换到 JSON 编辑模式，便于导入导出整套设定。
-- **AI 调研流程模拟**：`app/page.tsx` 负责重置状态、调用 `apiGenerateRespondentsFromConfig`（通过 `lib/mock-survey-service.ts` 的 mock 实现）生成受访者群，再依序调用 `askQuestion`、`shouldInterviewerTerminate` 等函数模拟问答过程。每位受访者的对话、情绪、完成状态与终止原因都会被记录；当前回答并非由真实模型生成。
+- **AI 调研流程模拟**：前端创建运行并轮询 FastAPI 快照；`backend/app/services/run_service.py` 负责任务编排，`mock_engine.py` 生成虚拟受访者和回答。每位受访者的对话、情绪、完成状态与终止原因都会被记录；当前回答并非由真实模型生成。
 - **多维分析与导出**：分析面板实时汇总进度、情绪饼图、问题答复分布、受访者画像和维度聚合。问题分析支持按照性别/年龄/职业/城市/收入等维度筛选组合（例如“性别 = 男、收入 20-30 万、城市 = 北京”），也支持多维 group by（如同时分组性别 + 收入 + 城市）。历史记录可以保存、回放，数据可导出为 JSON/CSV 供进一步分析。
 
 ## 架构概览
 - **Next.js App Router + 响应式工作区**：`app/layout.tsx` 加载字体与全局样式（`app/globals.css`），`components/theme-provider.tsx` 强制暗黑主题。`app/page.tsx` 按三段式断点编排工作区：小于 768 px 使用“配置/结果/分析”顶部 Tabs，768–1199 px 使用结果中心与配置/分析 Sheet，1200 px 以上使用可拖拽并记忆栏宽的三栏桌面工作台。
-- **`app/page.tsx`：前端大脑**：此 client 组件持有 session、respondents、analytics、模式、历史和当前工作区等状态，对外暴露 `runSimulation`、`handleExport`、`handleLoadHistory`、`handleModeSelection` 等回调；移动端启动模拟后自动切到结果工作区。
-- **数据层与服务封装**：`lib/survey-api.ts` 作为统一接口层代理 `lib/mock-survey-service.ts`，后者包含 respondent 生成、对话模拟、分析函数（`analyzeQuestionResponses`、`analyzeByDemographics`、`filterRespondentsByDimensions`、`groupRespondentsByDimensions`）及历史/导出工具。历史记录当前只保存在模块内存中，刷新页面后不会保留；`lib/utils.ts` 提供类名拼接等通用辅助。
+- **`app/page.tsx`：前端工作区协调器**：此 client 组件负责调用运行/轮询/导出接口，保存当前接口快照、模式、历史选择和工作区等展示状态；移动端启动模拟后自动切到结果工作区。
+- **数据层与服务封装**：`lib/survey-api.ts` 是 `/survey-api/*` HTTP Client，Next.js Rewrite 将请求转发到 FastAPI。后端包含运行、Mock、分析、历史和导出服务；历史记录保存在 FastAPI 进程内存中，前端刷新后仍可访问，后端重启后丢失。
 
 ## 核心组件
 - **`SurveyConfigPanel`（配置工作区）**：管理元数据、响应时间滑块、可折叠问题列表及其选项、受访者片段（性别/年龄/职业/城市/收入/人数）；内容独立滚动，运行按钮固定在面板底部。
@@ -27,11 +27,11 @@
 ## 交互流程
 1. **选择模式**：进入页面后先选择“访谈”或“问卷”模式，确保中间面板呈现对应视图。
 2. **编辑配置**：在左侧输入调研标题/描述、设置响应时长、添加问题（文本/选择/量表），并指定受访者片段（性别、年龄段、职业、城市、收入与人数），可切换 JSON 模式快速批量编辑。
-3. **执行模拟**：点击“运行模拟”后清空旧数据、生成 respondents、按问题逐个调用 `askQuestion`，每次交互会触发分析更新并同步进度。
+3. **执行模拟**：点击“运行模拟”后由 FastAPI 创建后台运行，前端轮询完整快照并同步展示进度、回答和分析。
 4. **检视分析**：右侧分析面板实时更新：概览卡片、情绪/状态图、问题答复分布（支持多维筛选、group by、提示轴标签）、城市/收入画像、导出/保存/历史等操作。
 5. **沉淀与复用**：成功模拟后可保存历史记录，稍后通过历史列表回放；也可导出 JSON/CSV，在其他平台继续分析或归档。
 
-> 注意：历史记录目前仅在当前页面生命周期内有效，尚未持久化。导出的 JSON/CSV 文件由浏览器直接生成和下载。
+> 注意：历史记录目前保存在 FastAPI 进程内存中，后端重启后丢失。JSON/CSV 内容由后端生成，浏览器负责下载。
 
 ## 当前迭代重点
 
@@ -66,6 +66,14 @@
 ## 运行方式
 ```bash
 npm install
+bash backend/scripts/bootstrap.sh
+npm run dev:full
+```
+
+也可以在两个终端分别启动：
+
+```bash
+npm run dev:backend
 npm run dev
 ```
 浏览器访问 [http://localhost:3000](http://localhost:3000) 即可本地体验。

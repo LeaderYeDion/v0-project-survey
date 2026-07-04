@@ -8,6 +8,7 @@ node_modules/
 .next/
 .env*.local
 .DS_Store
+*.tsbuildinfo
 
 # Local zero-cost deployment secrets and runtime state
 deploy/config/deploy.env
