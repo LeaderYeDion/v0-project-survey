@@ -14,6 +14,7 @@ const zhCN = {
   common: {
     productName: "Survey Agent Simulator",
     productTagline: "AI 调研代理模拟平台",
+    selectLanguage: "选择语言",
     json: "JSON",
     csv: "CSV",
     add: "添加",
@@ -238,6 +239,7 @@ const enUS = {
   common: {
     productName: "Survey Agent Simulator",
     productTagline: "AI Survey Agent Simulation Platform",
+    selectLanguage: "Select language",
     json: "JSON",
     csv: "CSV",
     add: "Add",

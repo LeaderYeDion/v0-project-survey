@@ -83,6 +83,11 @@ test("Chinese and English catalogs have matching nested keys and functions", () 
   assertMatchingMessageShape(messages["zh-CN"], messages["en-US"])
 })
 
+test("catalogs provide localized language switcher labels", () => {
+  assert.equal(messages["zh-CN"].common.selectLanguage, "选择语言")
+  assert.equal(messages["en-US"].common.selectLanguage, "Select language")
+})
+
 test("dynamic catalog messages compose already-formatted values", () => {
   assert.equal(messages["zh-CN"].survey.completionRate("63%"), "完成率约 63%")
   assert.equal(
@@ -146,5 +151,6 @@ test("language switcher exposes both language options with a catalog label", asy
 
   assert.match(source, /\{\s*locale: "zh-CN", label: "中文"\s*\}/)
   assert.match(source, /\{\s*locale: "en-US", label: "English"\s*\}/)
-  assert.match(source, /aria-label=\{messages\./)
+  assert.match(source, /aria-label=\{messages\.common\.selectLanguage\}/)
+  assert.doesNotMatch(source, /aria-label=\{messages\.common\.productName\}/)
 })

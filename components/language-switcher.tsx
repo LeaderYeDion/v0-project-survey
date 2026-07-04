@@ -15,7 +15,7 @@ export function LanguageSwitcher(): React.JSX.Element {
   return (
     <div
       role="group"
-      aria-label={messages.common.productName}
+      aria-label={messages.common.selectLanguage}
       className="inline-flex rounded-md border bg-background p-0.5"
     >
       {options.map((option) => (
