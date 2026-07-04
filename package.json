@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:frontend": "node --test tests/*.test.mjs",
     "deploy:init": "bash deploy/scripts/init-config.sh",
     "deploy:check": "bash deploy/scripts/check-prerequisites.sh",
     "deploy:start": "bash deploy/scripts/start.sh",

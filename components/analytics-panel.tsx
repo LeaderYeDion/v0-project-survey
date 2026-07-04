@@ -62,17 +62,16 @@ import type {
   SurveyQuestion,
   SurveyHistoryRecord,
   SurveyConfig,
+  AnalyticsQueryResult,
+  DimensionFilters,
+  DimensionMetadata,
+  RespondentDimensionKey,
 } from "@/lib/survey-api"
 import {
-  analyzeQuestionResponses,
-  apiSaveSurveyToHistory,
+  apiSaveRunToHistory,
   apiFetchSurveyHistory,
-  filterRespondentsByDimensions,
-  getDimensionMetadata,
-  groupRespondentsByDimensions,
-  type DimensionFilters,
-  type DimensionMetadata,
-  type RespondentDimensionKey,
+  apiQueryRunAnalytics,
+  apiQueryHistoryAnalytics,
 } from "@/lib/survey-api"
 
 type ResponseDistributionEntry = {
@@ -176,6 +175,7 @@ interface AnalyticsPanelProps {
   onLoadHistory: (record: SurveyHistoryRecord) => void
   onReturnToCurrent: () => void
   viewingHistoryRecord: SurveyHistoryRecord | null
+  source: { type: "run" | "history"; id: string } | null
 }
 
 export function AnalyticsPanel({
@@ -192,6 +192,7 @@ export function AnalyticsPanel({
   onLoadHistory,
   onReturnToCurrent,
   viewingHistoryRecord,
+  source,
 }: AnalyticsPanelProps) {
   const [selectedQuestion, setSelectedQuestion] = useState<string>(questions[0]?.id || "")
   const [selectedDemographic, setSelectedDemographic] = useState<string>("city")
@@ -201,11 +202,10 @@ export function AnalyticsPanel({
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false)
   const [dimensionFilters, setDimensionFilters] = useState<DimensionFilters>({})
   const [groupByDimensions, setGroupByDimensions] = useState<RespondentDimensionKey[]>([])
+  const [analyticsResult, setAnalyticsResult] =
+    useState<AnalyticsQueryResult | null>(null)
 
-  const dimensionMetadata = useMemo(
-    () => getDimensionMetadata(respondents, config.respondentConfigs),
-    [respondents, config.respondentConfigs],
-  )
+  const dimensionMetadata = analyticsResult?.dimensionMetadata ?? []
   const dimensionMetadataMap = useMemo(() => {
     const map = new Map<RespondentDimensionKey, DimensionMetadata>()
     dimensionMetadata.forEach(meta => map.set(meta.key, meta))
@@ -215,7 +215,7 @@ export function AnalyticsPanel({
   useEffect(() => {
     setDimensionFilters({})
     setGroupByDimensions([])
-  }, [respondents, config.respondentConfigs])
+  }, [source?.id])
 
   const CLEAR_DIMENSION_VALUE = "__ALL__"
 
@@ -240,62 +240,48 @@ export function AnalyticsPanel({
     )
   }, [])
 
-  const filteredRespondents = useMemo(
-    () =>
-      filterRespondentsByDimensions(respondents, config.respondentConfigs, dimensionFilters),
-    [respondents, config.respondentConfigs, dimensionFilters],
-  )
-
-  const filteredSessions = useMemo(() => {
-    const respondentIds = new Set(filteredRespondents.map(r => r.id))
-    return sessions.filter(session => respondentIds.has(session.respondentId))
-  }, [sessions, filteredRespondents])
-
-  const filteredQuestionAnalysis = useMemo(
-    () => analyzeQuestionResponses(filteredSessions, questions),
-    [filteredSessions, questions],
-  )
-  const filteredQuestionAnalysisForSelected = filteredQuestionAnalysis.find(
-    q => q.questionId === selectedQuestion,
-  )
-
-  const groupedRespondents = useMemo(
-    () =>
-      groupRespondentsByDimensions(filteredRespondents, config.respondentConfigs, groupByDimensions),
-    [filteredRespondents, config.respondentConfigs, groupByDimensions],
-  )
-
-  const groupedQuestionSummaries = useMemo(() => {
-    if (groupByDimensions.length === 0) {
-      return []
+  useEffect(() => {
+    if (!source || !selectedQuestion) {
+      setAnalyticsResult(null)
+      return
     }
-
-    return groupedRespondents.map(group => {
-      const respondentSet = new Set(group.respondentIds)
-      const groupSessions = filteredSessions.filter(session =>
-        respondentSet.has(session.respondentId),
-      )
-      const groupAnalysis = analyzeQuestionResponses(groupSessions, questions).find(
-        q => q.questionId === selectedQuestion,
-      )
-      const responseData = groupAnalysis
-        ? mapResponseDistributionEntries(groupAnalysis.responseDistribution)
-        : []
-
-      return {
-        label: group.label,
-        respondentCount: group.respondentIds.length,
-        totalResponses: groupAnalysis?.totalResponses ?? 0,
-        responseData,
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        const query = {
+          questionId: selectedQuestion,
+          filters: dimensionFilters,
+          groupBy: groupByDimensions,
+        }
+        const result =
+          source.type === "run"
+            ? await apiQueryRunAnalytics(source.id, query)
+            : await apiQueryHistoryAnalytics(source.id, query)
+        if (!cancelled) setAnalyticsResult(result)
+      } catch (error) {
+        if (!cancelled) console.error("Analytics query error:", error)
       }
-    })
-  }, [
-    groupByDimensions,
-    groupedRespondents,
-    filteredSessions,
-    questions,
-    selectedQuestion,
-  ])
+    }, 100)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [source?.type, source?.id, selectedQuestion, dimensionFilters, groupByDimensions])
+
+  const filteredRespondentCount =
+    analyticsResult?.filteredRespondentCount ?? respondents.length
+  const filteredQuestionAnalysisForSelected =
+    analyticsResult?.filteredQuestionAnalysis ?? null
+  const groupedQuestionSummaries = (
+    analyticsResult?.groupedQuestionSummaries ?? []
+  ).map(group => ({
+    label: group.label,
+    respondentCount: group.respondentCount,
+    totalResponses: group.totalResponses,
+    responseData: group.analysis
+      ? mapResponseDistributionEntries(group.analysis.responseDistribution)
+      : [],
+  }))
 
   const hasActiveFilters = Object.values(dimensionFilters).some(value => !!value)
   const activeFilterEntries = (Object.entries(dimensionFilters) as [
@@ -323,18 +309,10 @@ export function AnalyticsPanel({
   }
 
   const handleSave = async () => {
-    if (sessions.length === 0) return
+    if (!source || source.type !== "run" || sessions.length === 0) return
     setIsSaving(true)
     try {
-      await apiSaveSurveyToHistory({
-        config,
-        sessions,
-        respondents,
-        progress,
-        sentiment,
-        questionAnalysis,
-        demographicAnalysis,
-      })
+      await apiSaveRunToHistory(source.id)
       await loadHistoryList()
     } finally {
       setIsSaving(false)
@@ -410,7 +388,7 @@ export function AnalyticsPanel({
 
   const totalMessages = sessions.reduce((acc, s) => acc + s.dialog.length, 0)
 
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | string) => {
     const d = new Date(date)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }
@@ -476,7 +454,12 @@ export function AnalyticsPanel({
             variant="outline"
             size="sm"
             onClick={handleSave}
-            disabled={sessions.length === 0 || isSaving || isRunning}
+            disabled={
+              sessions.length === 0 ||
+              isSaving ||
+              isRunning ||
+              source?.type !== "run"
+            }
             className="flex-1 h-8 text-xs bg-primary/10 border-primary/30 hover:bg-primary/20 text-primary"
           >
             {isSaving ? (
@@ -764,7 +747,7 @@ export function AnalyticsPanel({
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[11px] text-muted-foreground">
-                      展示 {filteredRespondents.length} / {respondents.length} 位受访者
+                      展示 {filteredRespondentCount} / {respondents.length} 位受访者
                     </span>
                     {activeFilterEntries.map(([key, value]) => (
                       <Badge key={`${key}-${value}`} variant="outline" className="text-[10px]">
@@ -808,7 +791,7 @@ export function AnalyticsPanel({
                       </Badge>
                     </div>
 
-                    {globalQuestionAnalysis.averageScore !== undefined && (
+                    {globalQuestionAnalysis.averageScore != null && (
                       <div className="p-2 rounded-lg bg-primary/10 border border-primary/20 text-[11px] text-muted-foreground">
                         平均分{" "}
                         <span className="text-sm font-bold text-primary">
@@ -841,7 +824,7 @@ export function AnalyticsPanel({
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-medium text-foreground">筛选洞察</h3>
                       <Badge variant="outline" className="text-[10px]">
-                        {filteredRespondents.length} 位受访者
+                        {filteredRespondentCount} 位受访者
                       </Badge>
                     </div>
                     {filteredResponseData.length > 0 ? (

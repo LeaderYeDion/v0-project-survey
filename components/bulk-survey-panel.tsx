@@ -418,7 +418,7 @@ export function BulkSurveyPanel({
                             </div>
                           )}
 
-                          {qa.averageScore !== undefined &&
+                          {qa.averageScore != null &&
                             question.type === "scale" && (
                               <div className="mt-1 text-[11px] text-muted-foreground">
                                 平均分约{" "}

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { MessageSquare, Sparkles, User, MapPin, Briefcase, DollarSign, AlertCircle } from "lucide-react"
-import type { InterviewSession, RespondentProfile } from "@/lib/mock-survey-service"
+import type { InterviewSession, RespondentProfile } from "@/lib/survey-contract"
 import { cn } from "@/lib/utils"
 
 interface ChatSimulationPanelProps {
@@ -39,7 +39,7 @@ export function ChatSimulationPanel({
   const selectedRespondent = respondents.find(r => r.id === selectedRespondentId)
   const selectedSession = sessions.find(s => s.respondentId === selectedRespondentId)
 
-  const getSentimentColor = (sentiment?: "positive" | "neutral" | "negative") => {
+  const getSentimentColor = (sentiment?: "positive" | "neutral" | "negative" | null) => {
     switch (sentiment) {
       case "positive":
         return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
@@ -50,7 +50,7 @@ export function ChatSimulationPanel({
     }
   }
 
-  const getSentimentLabel = (sentiment?: "positive" | "neutral" | "negative") => {
+  const getSentimentLabel = (sentiment?: "positive" | "neutral" | "negative" | null) => {
     switch (sentiment) {
       case "positive":
         return "正面"

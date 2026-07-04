@@ -1,93 +1,108 @@
-// Unified Survey API layer
-// All "backend-like" interactions should go through this file so that
-// it can be easily swapped out for a real backend implementation later.
-//
-// For now this file only proxies to the existing mock-survey-service
-// and keeps the same behaviour.
+export * from "./survey-contract"
 
-export * from "./mock-survey-service"
+import type {
+  AnalyticsQuery,
+  AnalyticsQueryResult,
+  RunSnapshot,
+  SimulationMode,
+  SurveyConfig,
+  SurveyHistoryRecord,
+} from "./survey-contract"
 
-import {
-  type SurveyConfig,
-  type InterviewSession,
-  type RespondentProfile,
-  type SurveyProgress,
-  type SentimentData,
-  type QuestionAnalysis,
-  type DemographicAnalysis,
-  type SurveyHistoryRecord,
-  type SurveyResponse,
-  generateRespondentsFromConfig,
-  saveSurveyToHistory,
-  fetchSurveyHistory,
-  fetchSurveyHistoryById,
-  exportSurveyResults,
-  buildSurveyResponses,
-} from "./mock-survey-service"
+const API_BASE = "/survey-api"
 
-// In the future these can be switched to real HTTP calls.
-// The front-end should only import from this file, not directly from mock-survey-service.
-
-export async function apiGenerateRespondentsFromConfig(
-  configs: SurveyConfig["respondentConfigs"],
-): Promise<RespondentProfile[]> {
-  return generateRespondentsFromConfig(configs)
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...init?.headers,
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`Survey API ${response.status}: ${await response.text()}`)
+  }
+  return response.json() as Promise<T>
 }
 
-export async function apiSaveSurveyToHistory(params: {
-  config: SurveyConfig
-  sessions: InterviewSession[]
-  respondents: RespondentProfile[]
-  progress: SurveyProgress
-  sentiment: SentimentData
-  questionAnalysis: QuestionAnalysis[]
-  demographicAnalysis: DemographicAnalysis[]
-}): Promise<SurveyHistoryRecord> {
-  const {
-    config,
-    sessions,
-    respondents,
-    progress,
-    sentiment,
-    questionAnalysis,
-    demographicAnalysis,
-  } = params
-
-  return saveSurveyToHistory(
-    config,
-    sessions,
-    respondents,
-    progress,
-    sentiment,
-    questionAnalysis,
-    demographicAnalysis,
-  )
+export function apiFetchDefaultTemplate(
+  signal?: AbortSignal,
+): Promise<SurveyConfig> {
+  return request("/templates/default", { signal })
 }
 
-export async function apiFetchSurveyHistory(): Promise<SurveyHistoryRecord[]> {
-  return fetchSurveyHistory()
+export function apiCreateRun(
+  mode: SimulationMode,
+  config: SurveyConfig,
+): Promise<RunSnapshot> {
+  return request("/runs", {
+    method: "POST",
+    body: JSON.stringify({ mode, config }),
+  })
 }
 
-export async function apiFetchSurveyHistoryById(
+export function apiFetchRun(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunSnapshot> {
+  return request(`/runs/${runId}`, { signal })
+}
+
+export function apiCancelRun(runId: string): Promise<RunSnapshot> {
+  return request(`/runs/${runId}/cancel`, { method: "POST" })
+}
+
+export function apiSaveRunToHistory(
+  runId: string,
+): Promise<SurveyHistoryRecord> {
+  return request("/history", {
+    method: "POST",
+    body: JSON.stringify({ runId }),
+  })
+}
+
+export function apiFetchSurveyHistory(): Promise<SurveyHistoryRecord[]> {
+  return request("/history")
+}
+
+export function apiFetchSurveyHistoryById(
   id: string,
-): Promise<SurveyHistoryRecord | null> {
-  return fetchSurveyHistoryById(id)
+): Promise<SurveyHistoryRecord> {
+  return request(`/history/${id}`)
+}
+
+export function apiQueryRunAnalytics(
+  runId: string,
+  query: AnalyticsQuery,
+): Promise<AnalyticsQueryResult> {
+  return request(`/runs/${runId}/analytics/query`, {
+    method: "POST",
+    body: JSON.stringify(query),
+  })
+}
+
+export function apiQueryHistoryAnalytics(
+  historyId: string,
+  query: AnalyticsQuery,
+): Promise<AnalyticsQueryResult> {
+  return request(`/history/${historyId}/analytics/query`, {
+    method: "POST",
+    body: JSON.stringify(query),
+  })
 }
 
 export async function apiExportSurveyResults(
-  sessions: InterviewSession[],
-  respondents: RespondentProfile[],
+  source: { type: "run" | "history"; id: string },
   format: "json" | "csv",
 ): Promise<Blob> {
-  return exportSurveyResults(sessions, respondents, format)
+  const response = await fetch(
+    `${API_BASE}/${source.type === "run" ? "runs" : "history"}/${source.id}/exports?format=${format}`,
+  )
+  if (!response.ok) {
+    throw new Error(`Survey API ${response.status}: ${await response.text()}`)
+  }
+  return response.blob()
 }
-
-export type { SurveyResponse }
-
-export function apiBuildSurveyResponses(
-  sessions: InterviewSession[],
-  surveyId: string,
-): SurveyResponse[] {
-  return buildSurveyResponses(sessions, surveyId)
-}
-
