@@ -14,6 +14,11 @@ import { messages } from "../lib/i18n/messages.ts"
 const readSource = (path) =>
   readFile(new URL(path, import.meta.url), "utf8")
 
+const stripComments = (source) =>
+  source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1")
+
 test("normalizes supported and language-family locale values", () => {
   assert.equal(normalizeLocale("zh-CN"), "zh-CN")
   assert.equal(normalizeLocale("zh-TW,zh;q=0.9"), "zh-CN")
@@ -187,6 +192,52 @@ test("language switcher exposes both language options with a catalog label", asy
   assert.match(source, /<Button[\s\S]*?lang="en-US"[\s\S]*?>English<\/Button>/)
   assert.match(source, /aria-label=\{messages\.common\.selectLanguage\}/)
   assert.doesNotMatch(source, /aria-label=\{messages\.common\.productName\}/)
+})
+
+test("dashboard and survey configuration use the locale catalog at the UI boundary", async () => {
+  const dashboard = await readSource("../app/page.tsx")
+  const configuration = await readSource(
+    "../components/survey-config-panel.tsx",
+  )
+
+  assert.match(dashboard, /const \{ locale, messages \} = useI18n\(\)/)
+  assert.match(dashboard, /<LanguageSwitcher \/>/)
+  assert.match(configuration, /const \{ messages \} = useI18n\(\)/)
+})
+
+test("survey configuration resolves JSON errors from the current locale", async () => {
+  const source = await readSource("../components/survey-config-panel.tsx")
+
+  assert.match(source, /useState\(false\)/)
+  assert.match(source, /setJsonError\(true\)/)
+  assert.match(
+    source,
+    /\{jsonError && \([\s\S]*?\{messages\.errors\.invalidJson\}[\s\S]*?\)\}/,
+  )
+  assert.doesNotMatch(source, /setJsonError\(messages\.errors\.invalidJson\)/)
+})
+
+test("dashboard and survey configuration contain no fixed Han-script UI literals", async () => {
+  const dashboard = await readSource("../app/page.tsx")
+  const configuration = await readSource(
+    "../components/survey-config-panel.tsx",
+  )
+  const configurationWithoutProtocolValue = stripComments(configuration).replace(
+    /gender:\s*"不限"/,
+    'gender: "__ANY_GENDER_PROTOCOL_VALUE__"',
+  )
+
+  assert.doesNotMatch(
+    stripComments(dashboard),
+    /[\u3400-\u9fff]/u,
+    "app/page.tsx must source visible and ARIA copy from the catalog",
+  )
+  assert.doesNotMatch(
+    configurationWithoutProtocolValue,
+    /[\u3400-\u9fff]/u,
+    "survey-config-panel.tsx may retain only the stored protocol value 不限",
+  )
+  assert.match(configuration, /gender:\s*"不限"/)
 })
 
 test("login page keeps redirect sanitization on the server and delegates localized UI", async () => {

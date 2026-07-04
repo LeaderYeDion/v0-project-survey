@@ -43,6 +43,7 @@ import {
 } from "@/lib/survey-api"
 import { DESKTOP_WORKSPACE_LAYOUT } from "@/lib/workspace-layout.mjs"
 import { useI18n } from "@/components/locale-provider"
+import { LanguageSwitcher } from "@/components/language-switcher"
 
 type Workspace = "config" | "results" | "analytics"
 
@@ -70,7 +71,7 @@ const EMPTY_SENTIMENT: SentimentData = {
 
 export default function ResearcherDashboard() {
   const layout = useResponsiveLayout()
-  const { locale } = useI18n()
+  const { locale, messages } = useI18n()
   const [config, setConfig] = useState<SurveyConfig>(EMPTY_CONFIG)
   const [currentRun, setCurrentRun] = useState<RunSnapshot | null>(null)
   const [mode, setMode] = useState<SimulationMode>("survey")
@@ -249,13 +250,24 @@ export default function ResearcherDashboard() {
   )
 
   const workspaceItems = [
-    { value: "config" as const, label: "配置", icon: Settings2 },
+    {
+      value: "config" as const,
+      label: messages.dashboard.config,
+      icon: Settings2,
+    },
     {
       value: "results" as const,
-      label: mode === "interview" ? "访谈" : "结果",
+      label:
+        mode === "interview"
+          ? messages.dashboard.interview
+          : messages.dashboard.results,
       icon: mode === "interview" ? MessageSquare : ClipboardList,
     },
-    { value: "analytics" as const, label: "分析", icon: BarChart3 },
+    {
+      value: "analytics" as const,
+      label: messages.dashboard.analytics,
+      icon: BarChart3,
+    },
   ]
 
   return (
@@ -277,17 +289,17 @@ export default function ResearcherDashboard() {
               </div>
               <div className="min-w-0">
                 <h1 className="flex items-center gap-2 text-base font-semibold leading-tight text-foreground sm:text-lg">
-                  Survey Agent Simulator
+                  {messages.common.productName}
                   <Sparkles className="h-4 w-4 shrink-0 text-primary" />
                 </h1>
                 <p className="mt-1 hidden text-xs text-muted-foreground min-[430px]:block">
                   {mode === "interview"
-                    ? "AI 驱动的虚拟访谈模拟平台"
-                    : "AI 驱动的大规模问卷调研模拟平台"}
+                    ? messages.dashboard.interviewTagline
+                    : messages.dashboard.surveyTagline}
                 </p>
               </div>
             </div>
-            <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-4 md:flex-nowrap">
               <div className="flex min-w-0 flex-1 items-center rounded-full border border-border/60 bg-secondary/40 p-0.5 text-xs md:flex-none">
                 <button
                   type="button"
@@ -298,7 +310,7 @@ export default function ResearcherDashboard() {
                   }`}
                   onClick={() => setMode("interview")}
                 >
-                  访谈模式
+                  {messages.dashboard.interviewMode}
                 </button>
                 <button
                   type="button"
@@ -309,7 +321,7 @@ export default function ResearcherDashboard() {
                   }`}
                   onClick={() => setMode("survey")}
                 >
-                  问卷模式
+                  {messages.dashboard.surveyMode}
                 </button>
               </div>
               <div className="flex shrink-0 items-center gap-2 rounded-full border border-border/50 bg-secondary/50 px-3 py-1.5">
@@ -323,15 +335,20 @@ export default function ResearcherDashboard() {
                   }`}
                 />
                 <span className="text-xs text-muted-foreground">
-                  {isRunning ? "运行中" : viewingHistoryRecord ? "查看历史" : "待机"}
+                  {isRunning
+                    ? messages.dashboard.running
+                    : viewingHistoryRecord
+                      ? messages.dashboard.viewingHistory
+                      : messages.dashboard.idle}
                 </span>
               </div>
+              <LanguageSwitcher />
             </div>
           </div>
         </div>
         {layout === "mobile" && (
           <nav
-            aria-label="工作区导航"
+            aria-label={messages.dashboard.workspaceNavigation}
             className="grid grid-cols-3 border-t border-border/50 bg-background/90 p-1"
           >
             {workspaceItems.map(item => {
@@ -379,10 +396,12 @@ export default function ResearcherDashboard() {
                   onClick={() => setConfigSheetOpen(true)}
                 >
                   <PanelLeftOpen className="size-4" />
-                  配置
+                  {messages.dashboard.config}
                 </Button>
                 <span className="text-xs text-muted-foreground">
-                  {mode === "interview" ? "访谈工作区" : "问卷结果工作区"}
+                  {mode === "interview"
+                    ? messages.dashboard.interviewWorkspace
+                    : messages.dashboard.surveyWorkspace}
                 </span>
                 <Button
                   type="button"
@@ -390,7 +409,7 @@ export default function ResearcherDashboard() {
                   size="sm"
                   onClick={() => setAnalyticsSheetOpen(true)}
                 >
-                  分析
+                  {messages.dashboard.analytics}
                   <PanelRightOpen className="size-4" />
                 </Button>
               </div>
@@ -405,8 +424,10 @@ export default function ResearcherDashboard() {
                 className="w-[min(92vw,420px)] max-w-none gap-0 p-0"
               >
                 <SheetHeader className="sr-only">
-                  <SheetTitle>调研配置</SheetTitle>
-                  <SheetDescription>编辑调研问题和受访者配置</SheetDescription>
+                  <SheetTitle>{messages.dashboard.configSheetTitle}</SheetTitle>
+                  <SheetDescription>
+                    {messages.dashboard.configSheetDescription}
+                  </SheetDescription>
                 </SheetHeader>
                 <div className="min-h-0 flex-1 overflow-hidden">
                   {configPanel}
@@ -423,8 +444,10 @@ export default function ResearcherDashboard() {
                 className="w-[min(92vw,420px)] max-w-none gap-0 p-0"
               >
                 <SheetHeader className="sr-only">
-                  <SheetTitle>调研分析</SheetTitle>
-                  <SheetDescription>查看调研进度与分析结果</SheetDescription>
+                  <SheetTitle>{messages.dashboard.analyticsSheetTitle}</SheetTitle>
+                  <SheetDescription>
+                    {messages.dashboard.analyticsSheetDescription}
+                  </SheetDescription>
                 </SheetHeader>
                 <div className="min-h-0 flex-1 overflow-hidden">
                   {analyticsPanel}
@@ -452,7 +475,7 @@ export default function ResearcherDashboard() {
             </ResizablePanel>
             <ResizableHandle
               withHandle
-              aria-label="调整配置与结果区域宽度"
+              aria-label={messages.dashboard.resizeConfigResults}
             />
             <ResizablePanel
               id="survey-results-workspace"
@@ -465,7 +488,7 @@ export default function ResearcherDashboard() {
             </ResizablePanel>
             <ResizableHandle
               withHandle
-              aria-label="调整结果与分析区域宽度"
+              aria-label={messages.dashboard.resizeResultsAnalytics}
             />
             <ResizablePanel
               id="survey-analytics-workspace"
@@ -485,10 +508,10 @@ export default function ResearcherDashboard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 p-4 backdrop-blur-xl">
           <div className="w-full max-w-[380px] rounded-2xl border border-border/70 bg-card/90 p-5 shadow-2xl sm:p-6">
             <h2 className="text-lg font-semibold text-foreground mb-3">
-              请选择启动模式
+              {messages.dashboard.chooseMode}
             </h2>
             <p className="text-sm text-muted-foreground mb-6">
-              新访谈/问卷环节开始前请选择一种模式，选定后即可继续。
+              {messages.dashboard.chooseModeDescription}
             </p>
             <div className="space-y-4">
               <button
@@ -496,9 +519,11 @@ export default function ResearcherDashboard() {
                 onClick={() => handleModeSelection("survey")}
                 className="w-full rounded-xl border border-border/60 bg-secondary/40 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
               >
-                <span className="text-base font-semibold">问卷模式</span>
+                <span className="text-base font-semibold">
+                  {messages.dashboard.surveyMode}
+                </span>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  一次性向大批量虚拟受访者分发问卷并获取统计结果
+                  {messages.dashboard.surveyModeDescription}
                 </p>
               </button>
               <button
@@ -506,9 +531,11 @@ export default function ResearcherDashboard() {
                 onClick={() => handleModeSelection("interview")}
                 className="w-full rounded-xl border border-border/60 bg-background/80 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
               >
-                <span className="text-base font-semibold">访谈模式</span>
+                <span className="text-base font-semibold">
+                  {messages.dashboard.interviewMode}
+                </span>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  模拟逐个受访者的深度访谈流程
+                  {messages.dashboard.interviewModeDescription}
                 </p>
               </button>
             </div>
