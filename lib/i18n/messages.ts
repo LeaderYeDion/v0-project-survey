@@ -148,7 +148,7 @@ const zhCN = {
     sampleSize: "样本量",
     sampleSizeDescription: "来自配置的虚拟受访者画像",
     completedSurveys: "完成问卷",
-    completionRate: (percentage: number | string) => `完成率约 ${percentage}%`,
+    completionRate: (percentage: string) => `完成率约 ${percentage}`,
     averageAnswered: "平均作答题数",
     completenessDescription: "模拟问卷的整体完备度",
     questionStatistics: "按问题的结果统计",
@@ -372,7 +372,7 @@ const enUS = {
     sampleSize: "Sample size",
     sampleSizeDescription: "Virtual respondent profiles from your configuration",
     completedSurveys: "Completed surveys",
-    completionRate: (percentage: number | string) => `About ${percentage}% complete`,
+    completionRate: (percentage: string) => `Completion rate: ${percentage}`,
     averageAnswered: "Average questions answered",
     completenessDescription: "Overall completeness of simulated responses",
     questionStatistics: "Results by question",
@@ -458,9 +458,10 @@ const enUS = {
   },
 } satisfies MessageShape<typeof zhCN>
 
-export type Messages = MessageShape<typeof zhCN>
+export type MessageCatalog = MessageShape<typeof zhCN>
+export type Messages = MessageCatalog
 
 export const messages = {
   "zh-CN": zhCN,
   "en-US": enUS,
-} satisfies Record<"zh-CN" | "en-US", Messages>
+} satisfies Record<"zh-CN" | "en-US", MessageCatalog>

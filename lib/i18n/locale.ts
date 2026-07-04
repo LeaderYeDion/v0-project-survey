@@ -34,11 +34,11 @@ export function formatInteger(locale: Locale, value: number): string {
 export function formatPercentage(
   locale: Locale,
   value: number,
-  options?: Intl.NumberFormatOptions,
+  options?: Omit<Intl.NumberFormatOptions, "style">,
 ): string {
   return new Intl.NumberFormat(locale, {
-    style: "percent",
     maximumFractionDigits: 0,
     ...options,
+    style: "percent",
   }).format(value)
 }
