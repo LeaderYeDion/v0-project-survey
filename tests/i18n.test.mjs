@@ -135,22 +135,56 @@ test("localized metadata comes from the resolved message catalog", async () => {
   assert.match(source, /messages\[locale\]\.metadata/)
 })
 
-test("locale provider persists locale changes and keeps html synchronized", async () => {
+test("browser locale synchronization updates document state for both locales", async () => {
+  const { syncDocumentLocale } = await import("../lib/i18n/browser.ts")
+  const description = {
+    content: "",
+    setAttribute(name, value) {
+      assert.equal(name, "content")
+      this.content = value
+    },
+  }
+  const fakeDocument = {
+    documentElement: { lang: "" },
+    cookie: "",
+    title: "",
+    querySelector(selector) {
+      assert.equal(selector, 'meta[name="description"]')
+      return description
+    },
+  }
+
+  for (const locale of ["zh-CN", "en-US"]) {
+    syncDocumentLocale(
+      fakeDocument,
+      locale,
+      messages[locale].metadata,
+      "survey_locale",
+    )
+
+    assert.equal(fakeDocument.documentElement.lang, locale)
+    assert.equal(
+      fakeDocument.cookie,
+      `survey_locale=${locale}; Path=/; Max-Age=31536000; SameSite=Lax`,
+    )
+    assert.equal(fakeDocument.title, messages[locale].metadata.title)
+    assert.equal(description.content, messages[locale].metadata.description)
+  }
+})
+
+test("locale provider delegates synchronous document updates to the browser helper", async () => {
   const source = await readSource("../components/locale-provider.tsx")
 
   assert.match(source, /setLocaleState\(locale\)/)
-  assert.match(source, /document\.documentElement\.lang = locale/)
-  assert.match(
-    source,
-    /`\$\{LOCALE_COOKIE\}=\$\{locale\}; Path=\/; Max-Age=31536000; SameSite=Lax`/,
-  )
+  assert.match(source, /syncDocumentLocale\(\s*document,\s*locale,/)
+  assert.doesNotMatch(source, /router\.refresh/)
 })
 
 test("language switcher exposes both language options with a catalog label", async () => {
   const source = await readSource("../components/language-switcher.tsx")
 
-  assert.match(source, /\{\s*locale: "zh-CN", label: "中文"\s*\}/)
-  assert.match(source, /\{\s*locale: "en-US", label: "English"\s*\}/)
+  assert.match(source, /<Button[\s\S]*?lang="zh-CN"[\s\S]*?>中文<\/Button>/)
+  assert.match(source, /<Button[\s\S]*?lang="en-US"[\s\S]*?>English<\/Button>/)
   assert.match(source, /aria-label=\{messages\.common\.selectLanguage\}/)
   assert.doesNotMatch(source, /aria-label=\{messages\.common\.productName\}/)
 })

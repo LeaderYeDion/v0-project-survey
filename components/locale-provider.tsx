@@ -4,16 +4,13 @@ import {
   createContext,
   useCallback,
   useContext,
-  useLayoutEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react"
 
-import {
-  LOCALE_COOKIE,
-  type Locale,
-} from "@/lib/i18n/locale"
+import { syncDocumentLocale } from "@/lib/i18n/browser"
+import { LOCALE_COOKIE, type Locale } from "@/lib/i18n/locale"
 import {
   messages as messageCatalogs,
   type MessageCatalog,
@@ -36,15 +33,14 @@ export function LocaleProvider({
 }): React.JSX.Element {
   const [locale, setLocaleState] = useState<Locale>(initialLocale)
 
-  useLayoutEffect(() => {
-    document.documentElement.lang = locale
-  }, [locale])
-
   const setLocale = useCallback((locale: Locale) => {
     setLocaleState(locale)
-    document.documentElement.lang = locale
-    document.cookie =
-      `${LOCALE_COOKIE}=${locale}; Path=/; Max-Age=31536000; SameSite=Lax`
+    syncDocumentLocale(
+      document,
+      locale,
+      messageCatalogs[locale].metadata,
+      LOCALE_COOKIE,
+    )
   }, [])
 
   const value = useMemo<I18nContextValue>(

@@ -2,12 +2,6 @@
 
 import { useI18n } from "@/components/locale-provider"
 import { Button } from "@/components/ui/button"
-import type { Locale } from "@/lib/i18n/locale"
-
-const options: ReadonlyArray<{ locale: Locale; label: string }> = [
-  { locale: "zh-CN", label: "中文" },
-  { locale: "en-US", label: "English" },
-]
 
 export function LanguageSwitcher(): React.JSX.Element {
   const { locale, setLocale, messages } = useI18n()
@@ -18,16 +12,22 @@ export function LanguageSwitcher(): React.JSX.Element {
       aria-label={messages.common.selectLanguage}
       className="inline-flex rounded-md border bg-background p-0.5"
     >
-      {options.map((option) => (
-        <Button
-          key={option.locale}
-          type="button"
-          variant={locale === option.locale ? "secondary" : "ghost"}
-          size="sm"
-          aria-pressed={locale === option.locale}
-          onClick={() => setLocale(option.locale)}
-        >{option.label}</Button>
-      ))}
+      <Button
+        type="button"
+        lang="zh-CN"
+        variant={locale === "zh-CN" ? "secondary" : "ghost"}
+        size="sm"
+        aria-pressed={locale === "zh-CN"}
+        onClick={() => setLocale("zh-CN")}
+      >中文</Button>
+      <Button
+        type="button"
+        lang="en-US"
+        variant={locale === "en-US" ? "secondary" : "ghost"}
+        size="sm"
+        aria-pressed={locale === "en-US"}
+        onClick={() => setLocale("en-US")}
+      >English</Button>
     </div>
   )
 }
