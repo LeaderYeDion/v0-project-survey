@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
 import test from "node:test"
 
 import {
@@ -9,6 +10,9 @@ import {
   resolveLocale,
 } from "../lib/i18n/locale.ts"
 import { messages } from "../lib/i18n/messages.ts"
+
+const readSource = (path) =>
+  readFile(new URL(path, import.meta.url), "utf8")
 
 test("normalizes supported and language-family locale values", () => {
   assert.equal(normalizeLocale("zh-CN"), "zh-CN")
@@ -99,4 +103,48 @@ test("dynamic catalog messages compose already-formatted values", () => {
     messages["en-US"].interview.questionProgress(3, "-"),
     "Question progress: 3 / -",
   )
+})
+
+test("server locale resolution awaits cookies and headers together", async () => {
+  const source = await readSource("../lib/i18n/server.ts")
+
+  assert.match(source, /await Promise\.all\(\[\s*cookies\(\),\s*headers\(\),?\s*\]\)/)
+  assert.match(source, /resolveLocale\(/)
+  assert.match(source, /cookieStore\.get\(LOCALE_COOKIE\)\?\.value/)
+  assert.match(source, /requestHeaders\.get\(["']accept-language["']\)/)
+})
+
+test("root layout synchronizes the resolved locale with html and the provider", async () => {
+  const source = await readSource("../app/layout.tsx")
+
+  assert.match(source, /export default async function RootLayout/)
+  assert.match(source, /const locale = await getRequestLocale\(\)/)
+  assert.match(source, /<html lang=\{locale\}/)
+  assert.match(source, /<LocaleProvider initialLocale=\{locale\}>/)
+})
+
+test("localized metadata comes from the resolved message catalog", async () => {
+  const source = await readSource("../app/layout.tsx")
+
+  assert.match(source, /export async function generateMetadata/)
+  assert.match(source, /messages\[locale\]\.metadata/)
+})
+
+test("locale provider persists locale changes and keeps html synchronized", async () => {
+  const source = await readSource("../components/locale-provider.tsx")
+
+  assert.match(source, /setLocaleState\(locale\)/)
+  assert.match(source, /document\.documentElement\.lang = locale/)
+  assert.match(
+    source,
+    /`\$\{LOCALE_COOKIE\}=\$\{locale\}; Path=\/; Max-Age=31536000; SameSite=Lax`/,
+  )
+})
+
+test("language switcher exposes both language options with a catalog label", async () => {
+  const source = await readSource("../components/language-switcher.tsx")
+
+  assert.match(source, /\{\s*locale: "zh-CN", label: "中文"\s*\}/)
+  assert.match(source, /\{\s*locale: "en-US", label: "English"\s*\}/)
+  assert.match(source, /aria-label=\{messages\./)
 })
