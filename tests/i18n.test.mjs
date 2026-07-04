@@ -222,3 +222,56 @@ test("login content and form use the locale catalog without fixed Chinese UI cop
     )
   }
 })
+
+async function loadLoginErrorState() {
+  return import("../app/login/login-error-state.ts").catch(() => ({}))
+}
+
+test("login errors are visible only in the locale that produced them", async () => {
+  const { getVisibleLoginError } = await loadLoginErrorState()
+
+  assert.equal(typeof getVisibleLoginError, "function")
+  const error = {
+    locale: "en-US",
+    message: "The username or password is incorrect.",
+  }
+
+  assert.equal(
+    getVisibleLoginError(error, "en-US"),
+    "The username or password is incorrect.",
+  )
+  assert.equal(getVisibleLoginError(error, "zh-CN"), null)
+  assert.equal(getVisibleLoginError(null, "en-US"), null)
+})
+
+test("superseded login requests stay invalid after switching back to their locale", async () => {
+  const { isCurrentLoginRequest } = await loadLoginErrorState()
+
+  assert.equal(typeof isCurrentLoginRequest, "function")
+  const englishRequest = { locale: "en-US", epoch: 1 }
+
+  assert.equal(isCurrentLoginRequest(englishRequest, "en-US", 1), true)
+  assert.equal(isCurrentLoginRequest(englishRequest, "zh-CN", 2), false)
+  assert.equal(isCurrentLoginRequest(englishRequest, "en-US", 3), false)
+})
+
+test("login form clears and invalidates errors on locale changes without clearing credentials", async () => {
+  const source = await readSource("../app/login/login-form.tsx")
+
+  assert.match(source, /useState<LoginErrorState \| null>\(null\)/)
+  assert.match(source, /getVisibleLoginError\(error, locale\)/)
+  assert.match(source, /currentLocaleRef\.current = locale/)
+  assert.match(source, /requestEpoch\.current \+= 1/)
+  assert.match(source, /isCurrentLoginRequest\(/)
+  assert.match(
+    source,
+    /setError\(\{\s*locale:\s*request\.locale,\s*message:\s*result\.error/,
+  )
+
+  const localeEffect = source.match(
+    /useEffect\(\(\) => \{[\s\S]*?\}, \[locale\]\)/,
+  )?.[0]
+  assert.ok(localeEffect)
+  assert.match(localeEffect, /setError\(null\)/)
+  assert.doesNotMatch(localeEffect, /setUsername|setPassword/)
+})

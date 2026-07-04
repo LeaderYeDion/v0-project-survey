@@ -1,12 +1,18 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2, LogIn } from "lucide-react"
 import { useI18n } from "@/components/locale-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  getVisibleLoginError,
+  isCurrentLoginRequest,
+  type LoginErrorState,
+  type LoginRequestToken,
+} from "./login-error-state"
 
 interface LoginFormProps {
   nextPath: string
@@ -17,15 +23,34 @@ export function LoginForm({ nextPath }: LoginFormProps) {
   const { locale, messages } = useI18n()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
-  const [error, setError] = useState("")
+  const [error, setError] = useState<LoginErrorState | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const currentLocaleRef = useRef(locale)
+  const previousLocaleRef = useRef(locale)
+  const requestEpoch = useRef(0)
+  currentLocaleRef.current = locale
+  const visibleError = getVisibleLoginError(error, locale)
+
+  useEffect(() => {
+    if (previousLocaleRef.current === locale) return
+
+    previousLocaleRef.current = locale
+    requestEpoch.current += 1
+    setError(null)
+    setIsSubmitting(false)
+  }, [locale])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (isSubmitting) return
 
-    setError("")
+    setError(null)
     setIsSubmitting(true)
+    requestEpoch.current += 1
+    const request: LoginRequestToken = {
+      locale,
+      epoch: requestEpoch.current,
+    }
 
     try {
       const response = await fetch("/api/auth/login", {
@@ -39,17 +64,49 @@ export function LoginForm({ nextPath }: LoginFormProps) {
       const result: { error?: string; redirectTo?: string } =
         await response.json()
 
+      if (
+        !isCurrentLoginRequest(
+          request,
+          currentLocaleRef.current,
+          requestEpoch.current,
+        )
+      ) {
+        return
+      }
+
       if (!response.ok || !result.redirectTo) {
-        setError(result.error || messages.auth.loginFailed)
+        setError({
+          locale: request.locale,
+          message: result.error || messages.auth.loginFailed,
+        })
         return
       }
 
       router.replace(result.redirectTo)
       router.refresh()
     } catch {
-      setError(messages.auth.serviceUnavailable)
+      if (
+        isCurrentLoginRequest(
+          request,
+          currentLocaleRef.current,
+          requestEpoch.current,
+        )
+      ) {
+        setError({
+          locale: request.locale,
+          message: messages.auth.serviceUnavailable,
+        })
+      }
     } finally {
-      setIsSubmitting(false)
+      if (
+        isCurrentLoginRequest(
+          request,
+          currentLocaleRef.current,
+          requestEpoch.current,
+        )
+      ) {
+        setIsSubmitting(false)
+      }
     }
   }
 
@@ -86,12 +143,12 @@ export function LoginForm({ nextPath }: LoginFormProps) {
         />
       </div>
 
-      {error && (
+      {visibleError && (
         <p
           role="alert"
           className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive-foreground"
         >
-          {error}
+          {visibleError}
         </p>
       )}
 
