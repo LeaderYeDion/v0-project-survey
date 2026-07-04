@@ -205,6 +205,50 @@ test("dashboard and survey configuration use the locale catalog at the UI bounda
   assert.match(configuration, /const \{ messages \} = useI18n\(\)/)
 })
 
+test("initial mode chooser is a mandatory modal with an in-dialog language switcher", async () => {
+  const source = await readSource("../app/page.tsx")
+  const chooser = source.match(
+    /<AlertDialog open=\{!modeSelected\}>[\s\S]*?<\/AlertDialog>/,
+  )?.[0]
+
+  assert.ok(chooser, "mode chooser must use the controlled AlertDialog")
+  assert.match(
+    chooser,
+    /<AlertDialogContent[\s\S]*?overlayClassName="bg-background\/95 backdrop-blur-xl"/,
+  )
+  assert.match(chooser, /<AlertDialogTitle/)
+  assert.match(chooser, /<AlertDialogDescription/)
+  assert.match(chooser, /<LanguageSwitcher \/>/)
+  assert.match(chooser, /handleModeSelection\("survey"\)/)
+  assert.match(chooser, /handleModeSelection\("interview"\)/)
+  assert.doesNotMatch(
+    chooser,
+    /AlertDialog(?:Action|Cancel)|onOpenChange|DialogClose/,
+    "mode selection must be the only way to dismiss the chooser",
+  )
+})
+
+test("alert dialog content supports a scoped overlay appearance", async () => {
+  const source = await readSource("../components/ui/alert-dialog.tsx")
+
+  assert.match(source, /overlayClassName\?: string/)
+  assert.match(
+    source,
+    /<AlertDialogOverlay className=\{overlayClassName\} \/>/,
+  )
+})
+
+test("persistent mode selector is a localized pressed-button group", async () => {
+  const source = await readSource("../app/page.tsx")
+  const group = source.match(
+    /<div[\s\S]*?role="group"[\s\S]*?aria-label=\{messages\.dashboard\.chooseMode\}[\s\S]*?<\/div>/,
+  )?.[0]
+
+  assert.ok(group, "persistent mode controls must form a labelled group")
+  assert.match(group, /aria-pressed=\{mode === "interview"\}/)
+  assert.match(group, /aria-pressed=\{mode === "survey"\}/)
+})
+
 test("survey configuration resolves JSON errors from the current locale", async () => {
   const source = await readSource("../components/survey-config-panel.tsx")
 
@@ -215,6 +259,39 @@ test("survey configuration resolves JSON errors from the current locale", async 
     /\{jsonError && \([\s\S]*?\{messages\.errors\.invalidJson\}[\s\S]*?\)\}/,
   )
   assert.doesNotMatch(source, /setJsonError\(messages\.errors\.invalidJson\)/)
+})
+
+test("JSON configuration editor exposes its label and validation error", async () => {
+  const source = await readSource("../components/survey-config-panel.tsx")
+
+  assert.match(source, /<Label\s+htmlFor="survey-config-json"/)
+  assert.match(source, /<Textarea[\s\S]*?id="survey-config-json"/)
+  assert.match(source, /aria-invalid=\{jsonError\}/)
+  assert.match(
+    source,
+    /aria-describedby=\{\s*jsonError \? "survey-config-json-error" : undefined\s*\}/,
+  )
+  assert.match(
+    source,
+    /<p[\s\S]*?id="survey-config-json-error"[\s\S]*?role="alert"/,
+  )
+})
+
+test("respondent group delete controls include their localized group index", async () => {
+  const source = await readSource("../components/survey-config-panel.tsx")
+
+  assert.equal(
+    messages["zh-CN"].config.deleteConfigurationGroup(1),
+    "删除配置组 1",
+  )
+  assert.equal(
+    messages["en-US"].config.deleteConfigurationGroup(1),
+    "Delete respondent group 1",
+  )
+  assert.match(
+    source,
+    /aria-label=\{messages\.config\.deleteConfigurationGroup\(\s*index \+ 1,\s*\)\}/,
+  )
 })
 
 test("dashboard and survey configuration contain no fixed Han-script UI literals", async () => {

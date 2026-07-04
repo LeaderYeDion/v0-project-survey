@@ -141,16 +141,28 @@ export function SurveyConfigPanel({
       <ScrollArea className="min-h-0 flex-1 p-3 sm:p-4">
         {jsonMode ? (
           <div className="space-y-3">
-            <Label className="text-muted-foreground">
+            <Label
+              htmlFor="survey-config-json"
+              className="text-muted-foreground"
+            >
               {messages.config.configurationJson}
             </Label>
             <Textarea
+              id="survey-config-json"
+              aria-invalid={jsonError}
+              aria-describedby={
+                jsonError ? "survey-config-json-error" : undefined
+              }
               className="min-h-[400px] font-mono text-sm bg-background/50 border-border/50 text-foreground"
               value={JSON.stringify(config, null, 2)}
               onChange={(e) => handleJsonChange(e.target.value)}
             />
             {jsonError && (
-              <p className="text-sm text-destructive">
+              <p
+                id="survey-config-json-error"
+                role="alert"
+                className="text-sm text-destructive"
+              >
                 {messages.errors.invalidJson}
               </p>
             )}
@@ -394,7 +406,9 @@ export function SurveyConfigPanel({
                               variant="ghost"
                               size="sm"
                               onClick={() => removeRespondentConfig(index)}
-                              aria-label={messages.common.delete}
+                              aria-label={messages.config.deleteConfigurationGroup(
+                                index + 1,
+                              )}
                               className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
                             >
                               <Trash2 className="w-3 h-3" />

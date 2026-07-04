@@ -18,6 +18,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { useResponsiveLayout } from "@/hooks/use-mobile"
 import {
   BarChart3,
@@ -300,9 +306,14 @@ export default function ResearcherDashboard() {
               </div>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-4 md:flex-nowrap">
-              <div className="flex min-w-0 flex-1 items-center rounded-full border border-border/60 bg-secondary/40 p-0.5 text-xs md:flex-none">
+              <div
+                role="group"
+                aria-label={messages.dashboard.chooseMode}
+                className="flex min-w-0 flex-1 items-center rounded-full border border-border/60 bg-secondary/40 p-0.5 text-xs md:flex-none"
+              >
                 <button
                   type="button"
+                  aria-pressed={mode === "interview"}
                   className={`flex-1 rounded-full px-3 py-1 text-[11px] transition md:flex-none ${
                     mode === "interview"
                       ? "bg-background text-foreground shadow-sm"
@@ -314,6 +325,7 @@ export default function ResearcherDashboard() {
                 </button>
                 <button
                   type="button"
+                  aria-pressed={mode === "survey"}
                   className={`flex-1 rounded-full px-3 py-1 text-[11px] transition md:flex-none ${
                     mode === "survey"
                       ? "bg-background text-foreground shadow-sm"
@@ -504,44 +516,48 @@ export default function ResearcherDashboard() {
         )}
       </main>
 
-      {!modeSelected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 p-4 backdrop-blur-xl">
-          <div className="w-full max-w-[380px] rounded-2xl border border-border/70 bg-card/90 p-5 shadow-2xl sm:p-6">
-            <h2 className="text-lg font-semibold text-foreground mb-3">
-              {messages.dashboard.chooseMode}
-            </h2>
-            <p className="text-sm text-muted-foreground mb-6">
-              {messages.dashboard.chooseModeDescription}
-            </p>
-            <div className="space-y-4">
-              <button
-                type="button"
-                onClick={() => handleModeSelection("survey")}
-                className="w-full rounded-xl border border-border/60 bg-secondary/40 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
-              >
-                <span className="text-base font-semibold">
-                  {messages.dashboard.surveyMode}
-                </span>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {messages.dashboard.surveyModeDescription}
-                </p>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleModeSelection("interview")}
-                className="w-full rounded-xl border border-border/60 bg-background/80 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
-              >
-                <span className="text-base font-semibold">
-                  {messages.dashboard.interviewMode}
-                </span>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {messages.dashboard.interviewModeDescription}
-                </p>
-              </button>
-            </div>
+      <AlertDialog open={!modeSelected}>
+        <AlertDialogContent
+          overlayClassName="bg-background/95 backdrop-blur-xl"
+          className="w-full max-w-[380px] gap-0 rounded-2xl border-border/70 bg-card/90 p-5 shadow-2xl sm:max-w-[380px] sm:p-6"
+        >
+          <div className="absolute right-5 top-5 sm:right-6 sm:top-6">
+            <LanguageSwitcher />
           </div>
-        </div>
-      )}
+          <AlertDialogTitle className="mb-3 min-h-9 pr-36 text-lg text-foreground">
+            {messages.dashboard.chooseMode}
+          </AlertDialogTitle>
+          <AlertDialogDescription className="mb-6">
+            {messages.dashboard.chooseModeDescription}
+          </AlertDialogDescription>
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => handleModeSelection("survey")}
+              className="w-full rounded-xl border border-border/60 bg-secondary/40 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
+            >
+              <span className="text-base font-semibold">
+                {messages.dashboard.surveyMode}
+              </span>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {messages.dashboard.surveyModeDescription}
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleModeSelection("interview")}
+              className="w-full rounded-xl border border-border/60 bg-background/80 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
+            >
+              <span className="text-base font-semibold">
+                {messages.dashboard.interviewMode}
+              </span>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {messages.dashboard.interviewModeDescription}
+              </p>
+            </button>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

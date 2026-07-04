@@ -98,6 +98,7 @@ const zhCN = {
     deleteQuestion: "删除问题",
     respondentConfiguration: "受访者配置",
     addConfigurationGroup: "添加配置组",
+    deleteConfigurationGroup: (index: number) => `删除配置组 ${index}`,
     configurationNumber: (index: number) => `配置 ${index}`,
     groupCount: (count: number) => `${count} 组`,
     respondentGroupSummary: (groups: number, total: number) =>
@@ -323,6 +324,8 @@ const enUS = {
     deleteQuestion: "Delete question",
     respondentConfiguration: "Respondent configuration",
     addConfigurationGroup: "Add configuration group",
+    deleteConfigurationGroup: (index: number) =>
+      `Delete respondent group ${index}`,
     configurationNumber: (index: number) => `Configuration ${index}`,
     groupCount: (count: number) => `${count} groups`,
     respondentGroupSummary: (groups: number, total: number) =>
