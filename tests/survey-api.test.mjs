@@ -1,11 +1,128 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import test from "node:test"
+import ts from "typescript"
+
+async function loadSurveyApi() {
+  const source = readFileSync("lib/survey-api.ts", "utf8").replace(
+    'export * from "./survey-contract"',
+    "",
+  )
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText
+  return import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`)
+}
+
+async function loadSurveyApiWithPrivateRequest() {
+  const source = readFileSync("lib/survey-api.ts", "utf8")
+    .replace('export * from "./survey-contract"', "")
+    .concat("\nexport { request as __request }\n")
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText
+  return import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`)
+}
 
 test("survey API uses the same-origin backend path", () => {
   const source = readFileSync("lib/survey-api.ts", "utf8")
   assert.ok(source.includes('const API_BASE = "/survey-api"'))
   assert.doesNotMatch(source, /mock-survey-service/)
+})
+
+test("every survey API request sends the required locale", async () => {
+  const api = await loadSurveyApi()
+  const calls = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, init })
+    return {
+      ok: true,
+      json: async () => ({}),
+      blob: async () => new Blob(),
+    }
+  }
+
+  try {
+    const locale = "en-US"
+    const signal = new AbortController().signal
+    await api.apiFetchDefaultTemplate(locale, signal)
+    await api.apiCreateRun(locale, "survey", { title: "test" })
+    await api.apiFetchRun(locale, "run-1", signal)
+    await api.apiCancelRun(locale, "run-1")
+    await api.apiSaveRunToHistory(locale, "run-1")
+    await api.apiFetchSurveyHistory(locale)
+    await api.apiFetchSurveyHistoryById(locale, "history-1")
+    await api.apiQueryRunAnalytics(locale, "run-1", { questionId: "q1" })
+    await api.apiQueryHistoryAnalytics(locale, "history-1", {
+      questionId: "q1",
+    })
+    await api.apiExportSurveyResults(
+      locale,
+      { type: "run", id: "run-1" },
+      "csv",
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.equal(calls.length, 10)
+  for (const { init } of calls) {
+    assert.equal(new Headers(init.headers).get("Accept-Language"), "en-US")
+  }
+  for (const { init } of calls.slice(0, -1)) {
+    assert.equal(new Headers(init.headers).get("Content-Type"), "application/json")
+  }
+  assert.equal(
+    new Headers(calls.at(-1).init.headers).get("Content-Type"),
+    null,
+  )
+})
+
+test("shared JSON requests enforce locale across Headers input", async () => {
+  const api = await loadSurveyApiWithPrivateRequest()
+  const originalFetch = globalThis.fetch
+  let capturedHeaders
+  globalThis.fetch = async (_url, init = {}) => {
+    capturedHeaders = new Headers(init.headers)
+    return {
+      ok: true,
+      json: async () => ({}),
+    }
+  }
+
+  try {
+    await api.__request("en-US", "/test", {
+      headers: new Headers([
+        ["Accept-Language", "zh-CN"],
+        ["X-Test", "preserved"],
+      ]),
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.equal(capturedHeaders.get("Accept-Language"), "en-US")
+  assert.equal(capturedHeaders.get("Content-Type"), "application/json")
+  assert.equal(capturedHeaders.get("X-Test"), "preserved")
+})
+
+test("dashboard loads the default template only until initialization succeeds", () => {
+  const source = readFileSync("app/page.tsx", "utf8")
+  assert.match(source, /useRef/)
+  assert.match(source, /templateLoadedRef\s*=\s*useRef\(false\)/)
+  assert.match(source, /if\s*\(templateLoadedRef\.current\)\s*return/)
+  assert.match(source, /templateLoadedRef\.current\s*=\s*true/)
+  assert.match(
+    source,
+    /apiFetchDefaultTemplate\(locale,\s*controller\.signal\)/,
+  )
 })
 
 test("Next rewrites survey API requests", () => {

@@ -1,10 +1,14 @@
 from typing import Literal
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 
 from app.api.helpers import not_found, repository, runs
+from app.api.language import require_language
 
-router = APIRouter(tags=["exports"])
+router = APIRouter(
+    tags=["exports"],
+    dependencies=[Depends(require_language)],
+)
 
 
 def file_response(
@@ -28,7 +32,8 @@ def file_response(
         headers={
             "Content-Disposition": (
                 f'attachment; filename="survey-results.{format}"'
-            )
+            ),
+            "Content-Language": request.state.locale,
         },
     )
 

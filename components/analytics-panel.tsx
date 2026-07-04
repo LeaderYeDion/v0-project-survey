@@ -67,6 +67,7 @@ import type {
   DimensionMetadata,
   RespondentDimensionKey,
 } from "@/lib/survey-api"
+import { useI18n } from "@/components/locale-provider"
 import {
   apiSaveRunToHistory,
   apiFetchSurveyHistory,
@@ -194,6 +195,7 @@ export function AnalyticsPanel({
   viewingHistoryRecord,
   source,
 }: AnalyticsPanelProps) {
+  const { locale } = useI18n()
   const [selectedQuestion, setSelectedQuestion] = useState<string>(questions[0]?.id || "")
   const [selectedDemographic, setSelectedDemographic] = useState<string>("city")
   const [historyRecords, setHistoryRecords] = useState<SurveyHistoryRecord[]>([])
@@ -255,8 +257,8 @@ export function AnalyticsPanel({
         }
         const result =
           source.type === "run"
-            ? await apiQueryRunAnalytics(source.id, query)
-            : await apiQueryHistoryAnalytics(source.id, query)
+            ? await apiQueryRunAnalytics(locale, source.id, query)
+            : await apiQueryHistoryAnalytics(locale, source.id, query)
         if (!cancelled) setAnalyticsResult(result)
       } catch (error) {
         if (!cancelled) console.error("Analytics query error:", error)
@@ -266,7 +268,7 @@ export function AnalyticsPanel({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [source?.type, source?.id, selectedQuestion, dimensionFilters, groupByDimensions])
+  }, [source?.type, source?.id, selectedQuestion, dimensionFilters, groupByDimensions, locale])
 
   const filteredRespondentCount =
     analyticsResult?.filteredRespondentCount ?? respondents.length
@@ -301,7 +303,7 @@ export function AnalyticsPanel({
   const loadHistoryList = async () => {
     setIsLoadingHistory(true)
     try {
-      const records = await apiFetchSurveyHistory()
+      const records = await apiFetchSurveyHistory(locale)
       setHistoryRecords(records)
     } finally {
       setIsLoadingHistory(false)
@@ -312,7 +314,7 @@ export function AnalyticsPanel({
     if (!source || source.type !== "run" || sessions.length === 0) return
     setIsSaving(true)
     try {
-      await apiSaveRunToHistory(source.id)
+      await apiSaveRunToHistory(locale, source.id)
       await loadHistoryList()
     } finally {
       setIsSaving(false)

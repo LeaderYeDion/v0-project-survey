@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from app.api.helpers import (
     history_as_snapshot,
@@ -6,9 +6,13 @@ from app.api.helpers import (
     repository,
     runs,
 )
+from app.api.language import require_language
 from app.schemas.analytics import AnalyticsQuery, AnalyticsQueryResult
 
-router = APIRouter(tags=["analytics"])
+router = APIRouter(
+    tags=["analytics"],
+    dependencies=[Depends(require_language)],
+)
 
 
 @router.post(

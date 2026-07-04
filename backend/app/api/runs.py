@@ -1,9 +1,14 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from app.api.helpers import not_found, runs
+from app.api.language import require_language
 from app.schemas.survey import CreateRunRequest, RunSnapshot
 
-router = APIRouter(prefix="/api/runs", tags=["runs"])
+router = APIRouter(
+    prefix="/api/runs",
+    tags=["runs"],
+    dependencies=[Depends(require_language)],
+)
 
 
 @router.post("", response_model=RunSnapshot, status_code=201)

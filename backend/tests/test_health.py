@@ -16,6 +16,7 @@ async def test_health_reports_service_and_python_version() -> None:
         response = await client.get("/api/health")
 
     assert response.status_code == 200
+    assert response.headers["content-language"] == "zh-CN"
     assert response.json() == {
         "status": "ok",
         "service": "survey-mock-backend",

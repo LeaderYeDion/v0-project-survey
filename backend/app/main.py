@@ -1,6 +1,6 @@
 import sys
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 
 from app.api import analytics, exports, history, runs, templates
 from app.repositories.memory import MemoryRepository
@@ -27,8 +27,17 @@ def create_app(
     application.state.run_service = service
     application.state.exporter = ExportService()
 
+    @application.middleware("http")
+    async def echo_content_language(request: Request, call_next):
+        response = await call_next(request)
+        locale = getattr(request.state, "locale", None)
+        if locale is not None:
+            response.headers["Content-Language"] = locale
+        return response
+
     @application.get("/api/health")
-    async def health() -> dict[str, str]:
+    async def health(response: Response) -> dict[str, str]:
+        response.headers["Content-Language"] = "zh-CN"
         return {
             "status": "ok",
             "service": "survey-mock-backend",

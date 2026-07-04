@@ -1,12 +1,17 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from app.api.helpers import not_found, repository, runs
+from app.api.language import require_language
 from app.schemas.survey import (
     CreateHistoryRequest,
     SurveyHistoryRecord,
 )
 
-router = APIRouter(prefix="/api/history", tags=["history"])
+router = APIRouter(
+    prefix="/api/history",
+    tags=["history"],
+    dependencies=[Depends(require_language)],
+)
 
 
 @router.post("", response_model=SurveyHistoryRecord, status_code=201)

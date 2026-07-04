@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { SurveyConfigPanel } from "@/components/survey-config-panel"
 import { ChatSimulationPanel } from "@/components/chat-simulation-panel"
 import { AnalyticsPanel } from "@/components/analytics-panel"
@@ -42,6 +42,7 @@ import {
   apiExportSurveyResults,
 } from "@/lib/survey-api"
 import { DESKTOP_WORKSPACE_LAYOUT } from "@/lib/workspace-layout.mjs"
+import { useI18n } from "@/components/locale-provider"
 
 type Workspace = "config" | "results" | "analytics"
 
@@ -69,6 +70,7 @@ const EMPTY_SENTIMENT: SentimentData = {
 
 export default function ResearcherDashboard() {
   const layout = useResponsiveLayout()
+  const { locale } = useI18n()
   const [config, setConfig] = useState<SurveyConfig>(EMPTY_CONFIG)
   const [currentRun, setCurrentRun] = useState<RunSnapshot | null>(null)
   const [mode, setMode] = useState<SimulationMode>("survey")
@@ -77,28 +79,34 @@ export default function ResearcherDashboard() {
   const [configSheetOpen, setConfigSheetOpen] = useState(false)
   const [analyticsSheetOpen, setAnalyticsSheetOpen] = useState(false)
   const [viewingHistoryRecord, setViewingHistoryRecord] = useState<SurveyHistoryRecord | null>(null)
+  const templateLoadedRef = useRef(false)
 
   const isRunning =
     currentRun?.status === "queued" || currentRun?.status === "running"
 
   useEffect(() => {
+    if (templateLoadedRef.current) return
     const controller = new AbortController()
-    apiFetchDefaultTemplate(controller.signal)
-      .then(setConfig)
+    apiFetchDefaultTemplate(locale, controller.signal)
+      .then(nextConfig => {
+        if (controller.signal.aborted) return
+        templateLoadedRef.current = true
+        setConfig(nextConfig)
+      })
       .catch(error => {
         if (!controller.signal.aborted) {
           console.error("Template error:", error)
         }
       })
     return () => controller.abort()
-  }, [])
+  }, [locale])
 
   useEffect(() => {
     if (!currentRun || !isRunning) return
     const controller = new AbortController()
     const timer = window.setInterval(async () => {
       try {
-        const next = await apiFetchRun(currentRun.id, controller.signal)
+        const next = await apiFetchRun(locale, currentRun.id, controller.signal)
         setCurrentRun(next)
         if (!["queued", "running"].includes(next.status)) {
           window.clearInterval(timer)
@@ -114,7 +122,7 @@ export default function ResearcherDashboard() {
       controller.abort()
       window.clearInterval(timer)
     }
-  }, [currentRun?.id, isRunning])
+  }, [currentRun?.id, isRunning, locale])
 
   const displaySessions =
     viewingHistoryRecord?.sessions ?? currentRun?.sessions ?? []
@@ -148,17 +156,17 @@ export default function ResearcherDashboard() {
     setViewingHistoryRecord(null)
 
     try {
-      setCurrentRun(await apiCreateRun(mode, config))
+      setCurrentRun(await apiCreateRun(locale, mode, config))
     } catch (error) {
       console.error("Simulation error:", error)
     }
-  }, [config, isRunning, mode])
+  }, [config, isRunning, locale, mode])
 
   const handleExport = useCallback(
     async (format: "json" | "csv") => {
       if (!displaySource) return
       try {
-        const blob = await apiExportSurveyResults(displaySource, format)
+        const blob = await apiExportSurveyResults(locale, displaySource, format)
         const url = URL.createObjectURL(blob)
         const a = document.createElement("a")
         a.href = url
@@ -169,7 +177,7 @@ export default function ResearcherDashboard() {
         console.error("Export error:", error)
       }
     },
-    [displaySource]
+    [displaySource, locale]
   )
 
   const handleSelectRespondent = useCallback((id: string) => {

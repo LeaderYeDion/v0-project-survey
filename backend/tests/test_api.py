@@ -9,6 +9,8 @@ from app.services.analytics_service import AnalyticsService
 from app.services.mock_engine import MockEngine, default_survey_config
 from app.services.run_service import RunService
 
+LANGUAGE_HEADERS = {"Accept-Language": "en-US"}
+
 
 @pytest.fixture
 def repository() -> MemoryRepository:
@@ -43,6 +45,7 @@ async def create_completed_run(
 ) -> str:
     created = await client.post(
         "/api/runs",
+        headers=LANGUAGE_HEADERS,
         json={
             "mode": "survey",
             "config": default_survey_config().model_dump(mode="json"),
@@ -56,10 +59,32 @@ async def create_completed_run(
 
 @pytest.mark.asyncio
 async def test_default_template(client: httpx.AsyncClient) -> None:
-    response = await client.get("/api/templates/default")
+    missing = await client.get("/api/templates/default")
+    assert missing.status_code == 400
+    assert missing.json()["detail"]["code"] == "LANGUAGE_NOT_SUPPORTED"
+
+    response = await client.get(
+        "/api/templates/default",
+        headers=LANGUAGE_HEADERS,
+    )
 
     assert response.status_code == 200
+    assert response.headers["content-language"] == "en-US"
     assert response.json()["title"] == "用户体验调研"
+
+    unsupported = await client.get(
+        "/api/templates/default",
+        headers={"Accept-Language": "fr-FR"},
+    )
+    assert unsupported.status_code == 400
+    assert unsupported.json()["detail"]["code"] == "LANGUAGE_NOT_SUPPORTED"
+
+    chinese = await client.get(
+        "/api/templates/default",
+        headers={"Accept-Language": "zh-CN"},
+    )
+    assert chinese.status_code == 200
+    assert chinese.headers["content-language"] == "zh-CN"
 
 
 @pytest.mark.asyncio
@@ -68,6 +93,7 @@ async def test_create_read_and_missing_run(
 ) -> None:
     created = await client.post(
         "/api/runs",
+        headers=LANGUAGE_HEADERS,
         json={
             "mode": "survey",
             "config": default_survey_config().model_dump(mode="json"),
@@ -76,13 +102,29 @@ async def test_create_read_and_missing_run(
     assert created.status_code == 201
     run_id = created.json()["id"]
 
-    fetched = await client.get(f"/api/runs/{run_id}")
+    fetched = await client.get(
+        f"/api/runs/{run_id}",
+        headers=LANGUAGE_HEADERS,
+    )
     assert fetched.status_code == 200
+    assert fetched.headers["content-language"] == "en-US"
     assert fetched.json()["id"] == run_id
 
-    missing = await client.get("/api/runs/missing")
+    missing = await client.get(
+        "/api/runs/missing",
+        headers=LANGUAGE_HEADERS,
+    )
     assert missing.status_code == 404
+    assert missing.headers["content-language"] == "en-US"
     assert missing.json()["detail"]["code"] == "RUN_NOT_FOUND"
+
+    invalid = await client.post(
+        "/api/runs",
+        headers=LANGUAGE_HEADERS,
+        json={},
+    )
+    assert invalid.status_code == 422
+    assert invalid.headers["content-language"] == "en-US"
 
 
 @pytest.mark.asyncio
@@ -92,15 +134,20 @@ async def test_history_analytics_and_export(
 ) -> None:
     run_id = await create_completed_run(client, run_service)
 
-    saved = await client.post("/api/history", json={"runId": run_id})
+    saved = await client.post(
+        "/api/history",
+        headers=LANGUAGE_HEADERS,
+        json={"runId": run_id},
+    )
     assert saved.status_code == 201
     history_id = saved.json()["id"]
 
-    records = await client.get("/api/history")
+    records = await client.get("/api/history", headers=LANGUAGE_HEADERS)
     assert records.json()[0]["id"] == history_id
 
     analytics = await client.post(
         f"/api/runs/{run_id}/analytics/query",
+        headers=LANGUAGE_HEADERS,
         json={"questionId": "q1", "filters": {}, "groupBy": ["city"]},
     )
     assert analytics.status_code == 200
@@ -108,9 +155,11 @@ async def test_history_analytics_and_export(
 
     exported = await client.get(
         f"/api/runs/{run_id}/exports",
+        headers=LANGUAGE_HEADERS,
         params={"format": "csv"},
     )
     assert exported.status_code == 200
+    assert exported.headers["content-language"] == "en-US"
     assert exported.headers["content-type"].startswith("text/csv")
     assert exported.content.decode("utf-8-sig").startswith(
         "respondentId,name,city,status"
