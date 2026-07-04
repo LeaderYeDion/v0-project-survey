@@ -4,6 +4,7 @@
 
 - macOS；
 - Node.js、npm 和项目依赖已安装；
+- 后端 Python 3.14.6 虚拟环境已初始化；
 - 不在路由器上配置任何端口转发；
 - 不需要域名或 Cloudflare 账号。
 
@@ -12,6 +13,7 @@
 ```bash
 brew install cloudflared
 cloudflared version
+bash backend/scripts/bootstrap.sh
 ```
 
 不要执行：
@@ -57,6 +59,9 @@ deploy/config/deploy.env
 ```bash
 LOCAL_HOST=127.0.0.1
 LOCAL_PORT=3000
+BACKEND_HOST=127.0.0.1
+BACKEND_PORT=8000
+SURVEY_BACKEND_URL=http://127.0.0.1:8000
 DEPLOY_AUTH_ENABLED=true
 DEPLOY_USERNAME=survey
 DEPLOY_PASSWORD=<48位随机十六进制密码>
@@ -71,18 +76,21 @@ chmod 600 deploy/config/deploy.env
 
 用户名只能包含字母、数字、点、下划线和连字符；密码至少 20 个字符。不要把该文件发到聊天、Issue 或 Git。
 
+8000 被占用时，可以把 `BACKEND_PORT` 和 `SURVEY_BACKEND_URL` 改为同一个空闲端口，例如 8010；`BACKEND_HOST` 必须保持 `127.0.0.1`。
+
 ## 4. 部署前检查
 
 ```bash
 npm run deploy:check
 ```
 
-它会离线检查依赖、私密文件权限、loopback、端口、认证强度和 cloudflared 默认配置冲突，不调用 Cloudflare API，也不启动进程。
+它会离线检查依赖、Python 3.14.6 后端环境、私密文件权限、loopback、端口、认证强度和 cloudflared 默认配置冲突，不调用 Cloudflare API，也不启动进程。
 
-如果端口 3000 已被其他服务占用：
+如果端口 3000 或 8000 已被其他服务占用：
 
 ```bash
 lsof -nP -iTCP:3000 -sTCP:LISTEN
+lsof -nP -iTCP:8000 -sTCP:LISTEN
 ```
 
 请先确认进程身份并由其所有者停止。部署脚本不会擅自 kill。
@@ -98,14 +106,17 @@ npm run deploy:start
 1. 获取生命周期锁；
 2. 检查配置；
 3. 构建生产版本；
-4. 启动仅监听 `127.0.0.1:3000` 的 Next.js；
-5. 使用 Basic Authorization 健康检查验证本地错误凭据返回 401、正确凭据返回 200；
-6. 启动匿名 Quick Tunnel；
-7. 提取随机 HTTPS 地址；
-8. 使用相同健康检查验证公网错误凭据返回 401、正确凭据返回 200；
-9. 打印公网地址。
+4. 启动仅监听 `BACKEND_HOST:BACKEND_PORT`（默认 `127.0.0.1:8000`）的 FastAPI，并检查 `/api/health`；
+5. 启动仅监听 `127.0.0.1:3000` 的 Next.js；
+6. 使用 Basic Authorization 验证本地页面和 `/survey-api/health`，并确认未认证请求返回 401；
+7. 启动匿名 Quick Tunnel；
+8. 提取随机 HTTPS 地址；
+9. 使用相同健康检查验证公网页面和代理后的 FastAPI；
+10. 打印公网地址。
 
-任一步失败都会停止本轮已启动的 Tunnel 和 Next.js。
+任一步失败都会停止本轮已启动的 Tunnel、Next.js 和 FastAPI。
+
+运行日志位于 `deploy/runtime/backend.log`、`next.log` 和 `cloudflared.log`。
 
 查看状态和地址：
 
@@ -131,7 +142,7 @@ npm run deploy:status
 npm stop
 ```
 
-脚本先停止 cloudflared，删除临时网址状态，再停止 Next.js，最后检查 PID、匹配进程和 TCP 3000。
+脚本先停止 cloudflared，删除临时网址状态，再停止 Next.js 和 FastAPI，最后检查 PID、匹配进程以及配置的前后端端口。
 
 再次验证：
 
@@ -144,6 +155,7 @@ npm run deploy:verify-stopped
 ```bash
 pgrep -fl cloudflared
 lsof -nP -iTCP:3000 -sTCP:LISTEN
+lsof -nP -iTCP:8000 -sTCP:LISTEN
 ```
 
 与本项目相关的输出应为空。
@@ -157,3 +169,5 @@ npm run deploy:start
 ```
 
 必须把新地址重新发给使用者。需要更换密码时，先 `npm stop`，编辑 `deploy.env`，再重新启动。
+
+FastAPI 使用内存仓储；停止或重启后端会清空当前运行和历史记录。

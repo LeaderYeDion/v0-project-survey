@@ -27,16 +27,80 @@ test("rolls failed starts back for ordinary exits and signals", async () => {
   assert.match(start, /remove_public_url/)
 })
 
-test("stops tunnel and removes its URL before stopping Next.js", async () => {
+test("starts and health-checks FastAPI behind the authenticated Next.js proxy", async () => {
+  const start = await read("deploy/scripts/start.sh")
+
+  assert.match(start, /backend\/\.venv\/bin\/uvicorn/)
+  assert.match(start, /--host\s+"\$BACKEND_HOST"/)
+  assert.match(start, /--port\s+"\$BACKEND_PORT"/)
+  assert.match(start, /\/api\/health/)
+  assert.match(start, /\/survey-api\/health/)
+  assert.match(start, /backend\.log/)
+})
+
+test("rolls FastAPI back after Next.js and before releasing the lifecycle lock", async () => {
+  const start = await read("deploy/scripts/start.sh")
+  const stopNext = start.indexOf('stop_role "next"')
+  const stopBackend = start.indexOf('stop_role "backend"')
+  const releaseLock = start.indexOf("release_lock")
+
+  assert.ok(stopNext >= 0)
+  assert.ok(stopBackend > stopNext)
+  assert.ok(releaseLock > stopBackend)
+})
+
+test("stops tunnel and removes its URL before stopping Next.js and FastAPI", async () => {
   const stop = await read("deploy/scripts/stop.sh")
   const tunnel = stop.indexOf('stop_role "cloudflared"')
   const publicUrl = stop.indexOf("remove_public_url")
   const next = stop.indexOf('stop_role "next"')
+  const backend = stop.indexOf('stop_role "backend"')
 
   assert.ok(tunnel >= 0)
   assert.ok(publicUrl > tunnel)
   assert.ok(next > publicUrl)
+  assert.ok(backend > next)
   assert.match(stop, /verify-shutdown\.sh/)
+})
+
+test("status and shutdown verification cover FastAPI and both loopback ports", async () => {
+  const common = await read("deploy/scripts/common.sh")
+  const status = await read("deploy/scripts/status.sh")
+  const verify = await read("deploy/scripts/verify-shutdown.sh")
+
+  assert.match(common, /next\s*\|\s*backend\s*\|\s*cloudflared/)
+  assert.match(common, /matching_backend_processes/)
+  assert.match(status, /backend_ok/)
+  assert.match(status, /BACKEND_PORT/)
+  assert.match(verify, /cloudflared next backend/)
+  assert.match(verify, /BACKEND_PORT/)
+})
+
+test("deployment configuration and prerequisites require the local Python backend", async () => {
+  const common = await read("deploy/scripts/common.sh")
+  const init = await read("deploy/scripts/init-config.sh")
+  const example = await read("deploy/config/deploy.env.example")
+  const prerequisites = await read("deploy/scripts/check-prerequisites.sh")
+
+  for (const source of [common, init, example]) {
+    assert.match(source, /BACKEND_HOST/)
+    assert.match(source, /BACKEND_PORT/)
+    assert.match(source, /SURVEY_BACKEND_URL/)
+  }
+  assert.match(prerequisites, /backend\/\.venv\/bin\/python/)
+  assert.match(prerequisites, /backend\/scripts\/bootstrap\.sh/)
+  assert.match(prerequisites, /3,\s*14,\s*6/)
+})
+
+test("allows a configurable backend port while keeping the backend loopback-only", async () => {
+  const common = await read("deploy/scripts/common.sh")
+
+  assert.doesNotMatch(common, /\[ "\$BACKEND_PORT" = "8000" \]/)
+  assert.match(common, /\$BACKEND_PORT.*\^\[0-9\]\+\$/s)
+  assert.match(
+    common,
+    /SURVEY_BACKEND_URL.*http:\/\/\$BACKEND_HOST:\$BACKEND_PORT/s,
+  )
 })
 
 test("package scripts expose only the zero-cost lifecycle", async () => {

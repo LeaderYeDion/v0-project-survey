@@ -16,6 +16,9 @@ umask 077
 {
   printf 'LOCAL_HOST=127.0.0.1\n'
   printf 'LOCAL_PORT=3000\n'
+  printf 'BACKEND_HOST=127.0.0.1\n'
+  printf 'BACKEND_PORT=8000\n'
+  printf 'SURVEY_BACKEND_URL=http://127.0.0.1:8000\n'
   printf 'DEPLOY_AUTH_ENABLED=true\n'
   printf 'DEPLOY_USERNAME=survey\n'
   printf 'DEPLOY_PASSWORD=%s\n' "$password"

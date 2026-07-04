@@ -13,6 +13,14 @@ done
 
 assert_private_file "$ENV_FILE"
 
+backend_python="$PROJECT_ROOT/backend/.venv/bin/python"
+backend_uvicorn="$PROJECT_ROOT/backend/.venv/bin/uvicorn"
+[ -x "$backend_python" ] && [ -x "$backend_uvicorn" ] ||
+  die "Backend environment is missing. Run bash backend/scripts/bootstrap.sh"
+"$backend_python" -c \
+  'import sys, fastapi, uvicorn; assert sys.version_info[:3] == (3, 14, 6)' ||
+  die "Backend requires Python 3.14.6 with FastAPI and Uvicorn; run bash backend/scripts/bootstrap.sh"
+
 for config_path in \
   "$HOME/.cloudflared/config.yml" \
   "$HOME/.cloudflared/config.yaml" \

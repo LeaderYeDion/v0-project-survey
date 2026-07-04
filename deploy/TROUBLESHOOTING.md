@@ -21,6 +21,15 @@ brew install cloudflared
 cloudflared version
 ```
 
+## 缺少或版本错误的后端环境
+
+```bash
+bash backend/scripts/bootstrap.sh
+npm run deploy:check
+```
+
+部署要求项目本地 Python 3.14.6、FastAPI 和 Uvicorn 均可用。
+
 ## 默认 config 与 Quick Tunnel 冲突
 
 错误会指出具体 `config.yml` 或 `config.yaml`。如需保留：
@@ -31,13 +40,21 @@ mv ~/.cloudflared/config.yml ~/.cloudflared/config.yml.named-tunnel-disabled
 
 不要删除不确定用途的配置。
 
-## 3000 端口被占用
+## 3000 或 8000 端口被占用
 
 ```bash
 lsof -nP -iTCP:3000 -sTCP:LISTEN
+lsof -nP -iTCP:8000 -sTCP:LISTEN
 ```
 
 脚本不会自动终止占用者。确认身份后由该服务自己的停止命令处理。
+
+如果 8000 属于其他项目，可在私密 `deploy.env` 中同时修改：
+
+```bash
+BACKEND_PORT=8010
+SURVEY_BACKEND_URL=http://127.0.0.1:8010
+```
 
 ## 无法生成 `trycloudflare.com` 地址
 
@@ -86,17 +103,34 @@ tail -n 100 deploy/runtime/next.log
 
 先执行停止验证，再重新启动。
 
+## 页面可访问但调研功能失败
+
+依次检查 FastAPI 直连和 Next.js 代理：
+
+```bash
+source deploy/config/deploy.env
+curl --fail "http://${BACKEND_HOST}:${BACKEND_PORT}/api/health"
+curl --user "$DEPLOY_USERNAME:$DEPLOY_PASSWORD" \
+  --fail "http://${LOCAL_HOST}:${LOCAL_PORT}/survey-api/health"
+tail -n 100 deploy/runtime/backend.log
+tail -n 100 deploy/runtime/next.log
+```
+
+如果 FastAPI 已重启，先前保存在内存中的运行和历史记录无法恢复。
+
 ## `npm stop` 返回 UNSAFE
 
 ```bash
 npm run deploy:status
 pgrep -fl cloudflared
 lsof -nP -iTCP:3000 -sTCP:LISTEN
+lsof -nP -iTCP:8000 -sTCP:LISTEN
 ```
 
 常见原因：
 
 - 非本项目程序占用 3000；
+- 非本项目程序占用 8000；
 - 手工启动了另一个相同 origin 的 Quick Tunnel；
 - PID 被复用或状态文件损坏；
 - 服务监听在 `0.0.0.0`。

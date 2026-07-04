@@ -17,7 +17,7 @@ else
 fi
 
 unsafe=0
-for role in cloudflared next; do
+for role in cloudflared next backend; do
   pid_file="$(pid_file_for_role "$role")"
   if [ -f "$pid_file" ]; then
     pid="$(read_role_pid "$role")"
@@ -40,16 +40,28 @@ if [ -n "$(matching_next_processes)" ]; then
   unsafe=1
 fi
 
+if [ -n "$(matching_backend_processes)" ]; then
+  printf 'UNSAFE: a matching FastAPI process is still running\n' >&2
+  unsafe=1
+fi
+
 if [ -e "$(public_url_file)" ]; then
   printf 'UNSAFE: public URL state still exists: %s\n' \
     "$(public_url_file)" >&2
   unsafe=1
 fi
 
-listeners="$(port_listener)"
-if [ -n "$listeners" ]; then
+next_listeners="$(port_listener "$LOCAL_PORT")"
+if [ -n "$next_listeners" ]; then
   printf 'UNSAFE: TCP port %s is still listening:\n%s\n' \
-    "$LOCAL_PORT" "$listeners" >&2
+    "$LOCAL_PORT" "$next_listeners" >&2
+  unsafe=1
+fi
+
+backend_listeners="$(port_listener "$BACKEND_PORT")"
+if [ -n "$backend_listeners" ]; then
+  printf 'UNSAFE: TCP port %s is still listening:\n%s\n' \
+    "$BACKEND_PORT" "$backend_listeners" >&2
   unsafe=1
 fi
 

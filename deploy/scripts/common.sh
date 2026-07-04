@@ -37,6 +37,9 @@ load_deploy_env() {
   for name in \
     LOCAL_HOST \
     LOCAL_PORT \
+    BACKEND_HOST \
+    BACKEND_PORT \
+    SURVEY_BACKEND_URL \
     DEPLOY_AUTH_ENABLED \
     DEPLOY_USERNAME \
     DEPLOY_PASSWORD; do
@@ -47,6 +50,15 @@ load_deploy_env() {
     die "LOCAL_HOST must be 127.0.0.1"
   [ "$LOCAL_PORT" = "3000" ] ||
     die "LOCAL_PORT must be 3000"
+  [ "$BACKEND_HOST" = "127.0.0.1" ] ||
+    die "BACKEND_HOST must be 127.0.0.1"
+  [[ "$BACKEND_PORT" =~ ^[0-9]+$ ]] &&
+    (( 10#$BACKEND_PORT >= 1024 && 10#$BACKEND_PORT <= 65535 )) ||
+    die "BACKEND_PORT must be an integer from 1024 through 65535"
+  [ "$BACKEND_PORT" != "$LOCAL_PORT" ] ||
+    die "BACKEND_PORT must differ from LOCAL_PORT"
+  [ "$SURVEY_BACKEND_URL" = "http://$BACKEND_HOST:$BACKEND_PORT" ] ||
+    die "SURVEY_BACKEND_URL must be http://$BACKEND_HOST:$BACKEND_PORT"
   [ "$DEPLOY_AUTH_ENABLED" = "true" ] ||
     die "DEPLOY_AUTH_ENABLED must be true for public deployment"
   [[ "$DEPLOY_USERNAME" =~ ^[A-Za-z0-9._-]{1,64}$ ]] ||
@@ -61,6 +73,10 @@ load_deploy_env() {
 
 origin_url() {
   printf 'http://%s:%s\n' "$LOCAL_HOST" "$LOCAL_PORT"
+}
+
+backend_origin_url() {
+  printf 'http://%s:%s\n' "$BACKEND_HOST" "$BACKEND_PORT"
 }
 
 public_url_file() {
@@ -82,7 +98,7 @@ remove_public_url() {
 
 pid_file_for_role() {
   case "$1" in
-    next | cloudflared) printf '%s/%s.pid\n' "$RUNTIME_DIR" "$1" ;;
+    next | backend | cloudflared) printf '%s/%s.pid\n' "$RUNTIME_DIR" "$1" ;;
     *) die "Unknown process role: $1" ;;
   esac
 }
@@ -127,6 +143,13 @@ pid_matches_role() {
                 [[ "$command_line" == *"start"* ]]
             }
         }
+      ;;
+    backend)
+      [ "$(process_cwd "$pid")" = "$PROJECT_ROOT/backend" ] &&
+        [[ "$command_line" == *"$PROJECT_ROOT/backend/.venv/bin/"* ]] &&
+        [[ "$command_line" == *"app.main:app"* ]] &&
+        [[ "$command_line" == *"--host $BACKEND_HOST"* ]] &&
+        [[ "$command_line" == *"--port $BACKEND_PORT"* ]]
       ;;
     cloudflared)
       [[ "$command_line" == *"cloudflared"* ]] &&
@@ -196,21 +219,27 @@ stop_role() {
 }
 
 port_listener() {
-  lsof -nP -iTCP:"$LOCAL_PORT" -sTCP:LISTEN 2>/dev/null || true
+  local port="$1"
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+}
+
+listener_is_loopback() {
+  local host="$1"
+  local port="$2"
+  local listeners
+  listeners="$(port_listener "$port")"
+  [ -n "$listeners" ] &&
+    [[ "$listeners" == *"$host:$port"* ]] &&
+    [[ "$listeners" != *"*:$port"* ]] &&
+    [[ "$listeners" != *"0.0.0.0:$port"* ]] &&
+    [[ "$listeners" != *"[::]:$port"* ]]
 }
 
 assert_loopback_listener() {
-  local listeners
-  listeners="$(port_listener)"
-  [ -n "$listeners" ] || die "Nothing is listening on $LOCAL_HOST:$LOCAL_PORT"
-  [[ "$listeners" == *"$LOCAL_HOST:$LOCAL_PORT"* ]] ||
-    die "Port $LOCAL_PORT is not bound to $LOCAL_HOST"
-  [[ "$listeners" != *"*:$LOCAL_PORT"* ]] ||
-    die "Port $LOCAL_PORT is exposed on every interface"
-  [[ "$listeners" != *"0.0.0.0:$LOCAL_PORT"* ]] ||
-    die "Port $LOCAL_PORT is exposed on 0.0.0.0"
-  [[ "$listeners" != *"[::]:$LOCAL_PORT"* ]] ||
-    die "Port $LOCAL_PORT is exposed on IPv6"
+  local host="$1"
+  local port="$2"
+  listener_is_loopback "$host" "$port" ||
+    die "Port $port must listen only on $host"
 }
 
 matching_tunnel_processes() {
@@ -224,6 +253,15 @@ matching_next_processes() {
   local pid
   for pid in $(pgrep -f 'next-server|next.*start' 2>/dev/null || true); do
     if [ "$(process_cwd "$pid")" = "$PROJECT_ROOT" ]; then
+      ps -p "$pid" -o pid=,command= 2>/dev/null || true
+    fi
+  done
+}
+
+matching_backend_processes() {
+  local pid
+  for pid in $(pgrep -f 'uvicorn.*app\.main:app' 2>/dev/null || true); do
+    if [ "$(process_cwd "$pid")" = "$PROJECT_ROOT/backend" ]; then
       ps -p "$pid" -o pid=,command= 2>/dev/null || true
     fi
   done

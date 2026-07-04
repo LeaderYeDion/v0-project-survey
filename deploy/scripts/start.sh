@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/common.sh"
 
+STARTED_BACKEND=0
 STARTED_NEXT=0
 STARTED_TUNNEL=0
 STARTUP_COMPLETE=0
@@ -19,6 +20,9 @@ rollback() {
   remove_public_url
   if [ "$STARTED_NEXT" -eq 1 ]; then
     stop_role "next" || true
+  fi
+  if [ "$STARTED_BACKEND" -eq 1 ]; then
+    stop_role "backend" || true
   fi
   [ -z "$HEALTH_CONFIG" ] || rm -f "$HEALTH_CONFIG"
   release_lock
@@ -50,7 +54,7 @@ load_deploy_env
 acquire_lock
 "$SCRIPT_DIR/check-prerequisites.sh"
 
-for role in next cloudflared; do
+for role in backend next cloudflared; do
   [ ! -f "$(pid_file_for_role "$role")" ] ||
     die "Found $role PID file; run npm stop before starting"
 done
@@ -61,14 +65,54 @@ done
   die "A matching Quick Tunnel process is already running"
 [ -z "$(matching_next_processes)" ] ||
   die "A matching Next.js production process is already running"
-[ -z "$(port_listener)" ] ||
+[ -z "$(matching_backend_processes)" ] ||
+  die "A matching FastAPI backend process is already running"
+[ -z "$(port_listener "$LOCAL_PORT")" ] ||
   die "Port $LOCAL_PORT is already in use; refusing to start or kill its owner"
+[ -z "$(port_listener "$BACKEND_PORT")" ] ||
+  die "Port $BACKEND_PORT is already in use; refusing to start or kill its owner"
 
 info "Building the production application"
 (cd "$PROJECT_ROOT" && npm run build)
 
+backend_log="$RUNTIME_DIR/backend.log"
 next_log="$RUNTIME_DIR/next.log"
 cloudflared_log="$RUNTIME_DIR/cloudflared.log"
+
+info "Starting FastAPI on $BACKEND_HOST:$BACKEND_PORT"
+(
+  cd "$PROJECT_ROOT/backend"
+  nohup "$PROJECT_ROOT/backend/.venv/bin/uvicorn" app.main:app \
+    --host "$BACKEND_HOST" \
+    --port "$BACKEND_PORT" >"$backend_log" 2>&1 &
+  printf '%s\n' "$!" >"$(pid_file_for_role backend)"
+)
+backend_pid="$(read_role_pid backend)"
+STARTED_BACKEND=1
+
+backend_ready=0
+for attempt in $(seq 1 80); do
+  if ! kill -0 "$backend_pid" 2>/dev/null; then
+    die "FastAPI exited during startup; inspect $backend_log"
+  fi
+  backend_status="$(
+    curl --silent \
+      --output /dev/null \
+      --write-out '%{http_code}' \
+      --max-time 5 \
+      "$(backend_origin_url)/api/health" 2>/dev/null || true
+  )"
+  if [ "$backend_status" = "200" ]; then
+    backend_ready=1
+    break
+  fi
+  sleep 0.25
+done
+[ "$backend_ready" -eq 1 ] ||
+  die "FastAPI health check failed; inspect $backend_log"
+pid_matches_role backend "$backend_pid" ||
+  die "FastAPI PID identity check failed"
+assert_loopback_listener "$BACKEND_HOST" "$BACKEND_PORT"
 
 info "Starting Next.js on $LOCAL_HOST:$LOCAL_PORT"
 nohup "$PROJECT_ROOT/node_modules/.bin/next" start \
@@ -94,6 +138,7 @@ chmod 600 "$HEALTH_CONFIG"
 unset basic_token
 
 local_url="$(origin_url)/"
+local_backend_url="$(origin_url)/survey-api/health"
 next_ready=0
 for attempt in $(seq 1 80); do
   if ! kill -0 "$next_pid" 2>/dev/null; then
@@ -114,6 +159,15 @@ done
 [ "$next_ready" -eq 1 ] ||
   die "Authenticated local health check failed; inspect $next_log"
 
+authenticated_backend_status="$(
+  curl --config "$HEALTH_CONFIG" \
+    --output /dev/null \
+    --write-out '%{http_code}' \
+    "$local_backend_url" 2>/dev/null || true
+)"
+[ "$authenticated_backend_status" = "200" ] ||
+  die "Authenticated backend proxy health check failed; inspect $next_log and $backend_log"
+
 unauthenticated_status="$(
   curl --silent \
     --output /dev/null \
@@ -123,9 +177,18 @@ unauthenticated_status="$(
 )"
 [ "$unauthenticated_status" = "401" ] ||
   die "Unauthenticated local request was not rejected"
+unauthenticated_backend_status="$(
+  curl --silent \
+    --output /dev/null \
+    --write-out '%{http_code}' \
+    --max-time 5 \
+    "$local_backend_url" 2>/dev/null || true
+)"
+[ "$unauthenticated_backend_status" = "401" ] ||
+  die "Unauthenticated backend proxy request was not rejected"
 pid_matches_role next "$next_pid" ||
   die "Next.js PID identity check failed"
-assert_loopback_listener
+assert_loopback_listener "$LOCAL_HOST" "$LOCAL_PORT"
 
 info "Starting zero-cost Cloudflare Quick Tunnel"
 nohup cloudflared tunnel \
@@ -176,15 +239,22 @@ for attempt in $(seq 1 60); do
       --write-out '%{http_code}' \
       "$public_url" 2>/dev/null || true
   )"
+  authenticated_backend_status="$(
+    curl --config "$HEALTH_CONFIG" \
+      --output /dev/null \
+      --write-out '%{http_code}' \
+      "$public_url/survey-api/health" 2>/dev/null || true
+  )"
   if [ "$unauthenticated_status" = "401" ] &&
-    [ "$authenticated_status" = "200" ]; then
+    [ "$authenticated_status" = "200" ] &&
+    [ "$authenticated_backend_status" = "200" ]; then
     public_ready=1
     break
   fi
   sleep 1
 done
 [ "$public_ready" -eq 1 ] ||
-  die "Public authentication verification failed (unauthenticated HTTP ${unauthenticated_status:-none}, authenticated HTTP ${authenticated_status:-none}); inspect $cloudflared_log"
+  die "Public verification failed (unauthenticated HTTP ${unauthenticated_status:-none}, page HTTP ${authenticated_status:-none}, backend HTTP ${authenticated_backend_status:-none}); inspect $cloudflared_log"
 
 rm -f "$HEALTH_CONFIG"
 HEALTH_CONFIG=""
@@ -196,4 +266,4 @@ info "Deployment is running"
 info "Public: $public_url"
 info "Login:  use DEPLOY_USERNAME and DEPLOY_PASSWORD from $ENV_FILE"
 info "Stop:   npm stop"
-info "Logs:   $next_log and $cloudflared_log"
+info "Logs:   $backend_log, $next_log and $cloudflared_log"

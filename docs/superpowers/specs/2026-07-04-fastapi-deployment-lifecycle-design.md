@@ -36,10 +36,10 @@ FastAPI 不直接暴露给 Cloudflare、局域网或公网，因此不需要 COR
 部署配置新增：
 
 - `BACKEND_HOST=127.0.0.1`
-- `BACKEND_PORT=8000`
-- `SURVEY_BACKEND_URL=http://127.0.0.1:8000`
+- `BACKEND_PORT=8000`（默认值，可在端口冲突时调整）
+- `SURVEY_BACKEND_URL=http://127.0.0.1:8000`（必须与 Host/Port 一致）
 
-脚本强制校验这些值，避免 FastAPI 误监听公网接口或 Next.js Rewrite 指向外部地址。已有私密 `deploy.env` 不由初始化脚本覆盖；缺少新字段时给出明确修复提示。
+脚本强制 `BACKEND_HOST` 为 loopback，并校验端口范围及 Rewrite URL 与 Host/Port 一致，避免 FastAPI 误监听公网接口或 Next.js Rewrite 指向外部地址。已有私密 `deploy.env` 不由初始化脚本覆盖；缺少新字段时给出明确修复提示。
 
 ## 健康检查
 
