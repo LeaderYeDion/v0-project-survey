@@ -188,3 +188,37 @@ test("language switcher exposes both language options with a catalog label", asy
   assert.match(source, /aria-label=\{messages\.common\.selectLanguage\}/)
   assert.doesNotMatch(source, /aria-label=\{messages\.common\.productName\}/)
 })
+
+test("login page keeps redirect sanitization on the server and delegates localized UI", async () => {
+  const source = await readSource("../app/login/page.tsx")
+
+  assert.match(source, /export default async function LoginPage/)
+  assert.match(source, /getSafeRedirectPath\(requestedNext\)/)
+  assert.match(source, /return <LoginPageContent nextPath=\{nextPath\} \/>/)
+  assert.doesNotMatch(source, /LoginForm/)
+})
+
+test("login content and form use the locale catalog without fixed Chinese UI copy", async () => {
+  const page = await readSource("../app/login/page.tsx")
+  const content = await readSource("../app/login/login-page-content.tsx")
+  const form = await readSource("../app/login/login-form.tsx")
+
+  assert.match(content, /^"use client"/)
+  assert.match(content, /useI18n\(\)/)
+  assert.match(content, /<LanguageSwitcher \/>/)
+  assert.match(content, /<LoginForm nextPath=\{nextPath\} \/>/)
+  assert.match(form, /const \{ locale, messages \} = useI18n\(\)/)
+  assert.match(form, /"Accept-Language": locale/)
+
+  for (const [name, source] of [
+    ["page.tsx", page],
+    ["login-page-content.tsx", content],
+    ["login-form.tsx", form],
+  ]) {
+    assert.doesNotMatch(
+      source,
+      /[\u3400-\u9fff]/u,
+      `${name} must not contain fixed Chinese UI literals`,
+    )
+  }
+})

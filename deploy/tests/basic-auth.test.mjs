@@ -1,5 +1,6 @@
 import test, { afterEach } from "node:test"
 import assert from "node:assert/strict"
+import { registerHooks } from "node:module"
 import { NextRequest } from "next/server.js"
 import { proxy } from "../../proxy.ts"
 import {
@@ -10,6 +11,23 @@ import {
   validateDeploymentCredentials,
   verifyDeploymentSession,
 } from "../../lib/deployment-auth.mjs"
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "next/server") {
+      return nextResolve("next/server.js", context)
+    }
+    if (specifier.startsWith("@/")) {
+      return nextResolve(
+        new URL(`../../${specifier.slice(2)}`, import.meta.url).href,
+        context,
+      )
+    }
+    return nextResolve(specifier, context)
+  },
+})
+
+const { POST: login } = await import("../../app/api/auth/login/route.ts")
 
 const originalEnvironment = {
   DEPLOY_AUTH_ENABLED: process.env.DEPLOY_AUTH_ENABLED,
@@ -113,6 +131,55 @@ test("only accepts local redirect paths", () => {
   assert.equal(getSafeRedirectPath("//attacker.example"), "/")
   assert.equal(getSafeRedirectPath("javascript:alert(1)"), "/")
   assert.equal(getSafeRedirectPath(null), "/")
+})
+
+test("localizes invalid login credentials from the exact request locale", async () => {
+  process.env.DEPLOY_AUTH_ENABLED = "true"
+  process.env.DEPLOY_USERNAME = "survey"
+  process.env.DEPLOY_PASSWORD = "0123456789abcdef0123456789abcdef"
+
+  for (const [locale, expectedError] of [
+    ["en-US", "The username or password is incorrect."],
+    ["zh-CN", "用户名或密码不正确"],
+  ]) {
+    const response = await login(
+      new NextRequest("https://survey.example.test/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Accept-Language": locale,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username: "survey", password: "wrong" }),
+      }),
+    )
+
+    assert.equal(response.status, 401)
+    assert.equal(response.headers.get("content-language"), locale)
+    assert.deepEqual(await response.json(), { error: expectedError })
+  }
+})
+
+test("localizes unavailable login service and defaults unsupported locales to Chinese", async () => {
+  process.env.DEPLOY_AUTH_ENABLED = "true"
+  delete process.env.DEPLOY_USERNAME
+  delete process.env.DEPLOY_PASSWORD
+
+  for (const [locale, expectedLocale, expectedError] of [
+    ["en-US", "en-US", "The sign-in service is temporarily unavailable."],
+    ["fr-FR", "zh-CN", "登录服务暂不可用"],
+    [undefined, "zh-CN", "登录服务暂不可用"],
+  ]) {
+    const response = await login(
+      new NextRequest("https://survey.example.test/api/auth/login", {
+        method: "POST",
+        headers: locale ? { "Accept-Language": locale } : undefined,
+      }),
+    )
+
+    assert.equal(response.status, 503)
+    assert.equal(response.headers.get("content-language"), expectedLocale)
+    assert.deepEqual(await response.json(), { error: expectedError })
+  }
 })
 
 test("allows requests when deployment auth is disabled", () => {

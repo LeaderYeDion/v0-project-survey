@@ -7,9 +7,24 @@ import {
   validateDeploymentCredentials,
 } from "@/lib/deployment-auth.mjs"
 
-const noStoreHeaders = { "Cache-Control": "no-store" }
+const loginErrors = {
+  "zh-CN": {
+    serviceUnavailable: "登录服务暂不可用",
+    invalidCredentials: "用户名或密码不正确",
+  },
+  "en-US": {
+    serviceUnavailable: "The sign-in service is temporarily unavailable.",
+    invalidCredentials: "The username or password is incorrect.",
+  },
+} as const
 
 export async function POST(request: NextRequest) {
+  const locale =
+    request.headers.get("accept-language") === "en-US" ? "en-US" : "zh-CN"
+  const responseHeaders = {
+    "Cache-Control": "no-store",
+    "Content-Language": locale,
+  }
   const expectedUsername = process.env.DEPLOY_USERNAME
   const expectedPassword = process.env.DEPLOY_PASSWORD
   if (
@@ -18,8 +33,8 @@ export async function POST(request: NextRequest) {
     !expectedPassword
   ) {
     return NextResponse.json(
-      { error: "登录服务暂不可用" },
-      { status: 503, headers: noStoreHeaders },
+      { error: loginErrors[locale].serviceUnavailable },
+      { status: 503, headers: responseHeaders },
     )
   }
 
@@ -46,15 +61,15 @@ export async function POST(request: NextRequest) {
     )
   ) {
     return NextResponse.json(
-      { error: "用户名或密码不正确" },
-      { status: 401, headers: noStoreHeaders },
+      { error: loginErrors[locale].invalidCredentials },
+      { status: 401, headers: responseHeaders },
     )
   }
 
   const redirectTo = getSafeRedirectPath(requestedNext)
   const response = NextResponse.json(
     { ok: true, redirectTo },
-    { headers: noStoreHeaders },
+    { headers: responseHeaders },
   )
   const isHttps =
     request.nextUrl.protocol === "https:" ||

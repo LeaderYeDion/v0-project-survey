@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2, LogIn } from "lucide-react"
+import { useI18n } from "@/components/locale-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,6 +14,7 @@ interface LoginFormProps {
 
 export function LoginForm({ nextPath }: LoginFormProps) {
   const router = useRouter()
+  const { locale, messages } = useI18n()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -28,21 +30,24 @@ export function LoginForm({ nextPath }: LoginFormProps) {
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Accept-Language": locale,
+        },
         body: JSON.stringify({ username, password, next: nextPath }),
       })
       const result: { error?: string; redirectTo?: string } =
         await response.json()
 
       if (!response.ok || !result.redirectTo) {
-        setError(result.error || "登录失败，请稍后重试")
+        setError(result.error || messages.auth.loginFailed)
         return
       }
 
       router.replace(result.redirectTo)
       router.refresh()
     } catch {
-      setError("无法连接登录服务，请稍后重试")
+      setError(messages.auth.serviceUnavailable)
     } finally {
       setIsSubmitting(false)
     }
@@ -51,7 +56,7 @@ export function LoginForm({ nextPath }: LoginFormProps) {
   return (
     <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
       <div className="space-y-2">
-        <Label htmlFor="username">用户名</Label>
+        <Label htmlFor="username">{messages.auth.username}</Label>
         <Input
           id="username"
           name="username"
@@ -60,14 +65,14 @@ export function LoginForm({ nextPath }: LoginFormProps) {
           autoFocus
           value={username}
           onChange={event => setUsername(event.target.value)}
-          placeholder="请输入用户名"
+          placeholder={messages.auth.usernamePlaceholder}
           required
           disabled={isSubmitting}
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="password">密码</Label>
+        <Label htmlFor="password">{messages.auth.password}</Label>
         <Input
           id="password"
           name="password"
@@ -75,7 +80,7 @@ export function LoginForm({ nextPath }: LoginFormProps) {
           autoComplete="current-password"
           value={password}
           onChange={event => setPassword(event.target.value)}
-          placeholder="请输入密码"
+          placeholder={messages.auth.passwordPlaceholder}
           required
           disabled={isSubmitting}
         />
@@ -100,7 +105,7 @@ export function LoginForm({ nextPath }: LoginFormProps) {
         ) : (
           <LogIn className="size-4" />
         )}
-        {isSubmitting ? "正在登录…" : "登录"}
+        {isSubmitting ? messages.auth.signingIn : messages.auth.signIn}
       </Button>
     </form>
   )
