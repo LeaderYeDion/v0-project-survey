@@ -13,3 +13,11 @@ node_modules/
 deploy/config/deploy.env
 deploy/runtime/
 deploy/**/*.credentials.json
+
+# Local Python backend runtime
+backend/.python/
+backend/.tools/
+backend/.venv/
+backend/.pytest_cache/
+backend/**/__pycache__/
+backend/**/*.pyc

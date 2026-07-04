@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "dev:backend": "cd backend && .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "deploy:init": "bash deploy/scripts/init-config.sh",
     "deploy:check": "bash deploy/scripts/check-prerequisites.sh",
     "deploy:start": "bash deploy/scripts/start.sh",
