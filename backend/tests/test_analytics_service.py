@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from app.schemas.analytics import AnalyticsQuery
+from app.mocks.catalog import MockCatalog
 from app.schemas.survey import (
     DialogMessage,
     InterviewSession,
@@ -137,6 +138,7 @@ def build_snapshot() -> RunSnapshot:
     return RunSnapshot.empty(
         run_id="run-1",
         mode="survey",
+        locale="zh-CN",
         config=config,
         created_at=now,
     ).model_copy(
@@ -156,7 +158,7 @@ def build_snapshot() -> RunSnapshot:
 
 def test_question_analysis_and_typed_responses() -> None:
     snapshot = build_snapshot()
-    service = AnalyticsService()
+    service = AnalyticsService(MockCatalog())
 
     analysis = service.analyze_questions(
         snapshot.sessions,
@@ -176,7 +178,7 @@ def test_question_analysis_and_typed_responses() -> None:
 
 def test_filter_and_multi_dimension_group() -> None:
     snapshot = build_snapshot()
-    result = AnalyticsService().query(
+    result = AnalyticsService(MockCatalog()).query(
         snapshot,
         AnalyticsQuery(
             questionId="scale-1",

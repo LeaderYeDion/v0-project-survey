@@ -21,16 +21,14 @@ from app.schemas.survey import (
     TextAnswer,
 )
 
-DIMENSION_LABELS = {
-    "gender": "性别",
-    "ageRange": "年龄段",
-    "occupation": "职业",
-    "city": "工作城市",
-    "income": "收入区间",
-}
+from app.locales import Locale
+from app.services.analysis_labels import AnalysisLabels
 
 
 class AnalyticsService:
+    def __init__(self, labels: AnalysisLabels) -> None:
+        self.labels = labels
+
     def analyze_sentiment(
         self,
         sessions: list[InterviewSession],
@@ -86,6 +84,7 @@ class AnalyticsService:
         sessions: list[InterviewSession],
         respondents: list[RespondentProfile],
         questions: list[SurveyQuestion],
+        locale: Locale,
     ) -> list[DemographicAnalysis]:
         result: list[DemographicAnalysis] = []
         session_map = {session.respondentId: session for session in sessions}
@@ -96,7 +95,7 @@ class AnalyticsService:
             ]
             dimensions += [
                 (
-                    f"收入:{income}",
+                    self.labels.income_group_label(locale, income),
                     [item for item in respondents if item.income == income],
                 )
                 for income in dict.fromkeys(item.income for item in respondents)
@@ -197,8 +196,9 @@ class AnalyticsService:
         query: AnalyticsQuery,
     ) -> AnalyticsQueryResult:
         configs = snapshot.config.respondentConfigs
+        dimension_labels = self.labels.dimension_labels(snapshot.locale)
         metadata = []
-        for key, label in DIMENSION_LABELS.items():
+        for key, label in dimension_labels.items():
             values = list(
                 dict.fromkeys(
                     self._dimension_value(item, configs, key)
@@ -260,7 +260,7 @@ class AnalyticsService:
                 None,
             )
             label = " / ".join(
-                f"{DIMENSION_LABELS[dimension]}: {value}"
+                f"{dimension_labels[dimension]}: {value}"
                 for dimension, value in zip(query.groupBy, values, strict=True)
             )
             grouped.append(

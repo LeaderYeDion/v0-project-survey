@@ -26,6 +26,7 @@ def history_as_snapshot(record: SurveyHistoryRecord) -> RunSnapshot:
     return RunSnapshot(
         id=record.runId,
         mode=record.mode,
+        locale=record.locale,
         status="completed",
         config=record.config,
         respondents=record.respondents,

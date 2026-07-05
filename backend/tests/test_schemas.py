@@ -1,7 +1,14 @@
+from datetime import UTC, datetime
+
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.survey import CreateRunRequest, SurveyConfig, SurveyQuestion
+from app.schemas.survey import (
+    CreateRunRequest,
+    RunSnapshot,
+    SurveyConfig,
+    SurveyQuestion,
+)
 
 
 def test_choice_question_requires_options() -> None:
@@ -31,3 +38,33 @@ def test_run_requires_questions_and_respondents() -> None:
                 respondentConfigs=[],
             ),
         )
+
+
+def test_empty_run_persists_locale() -> None:
+    config = SurveyConfig(
+        title="Test",
+        description="",
+        maxResponseTime=30,
+        questions=[SurveyQuestion(id="q1", type="text", question="Why?")],
+        respondentConfigs=[
+            {
+                "id": "group-1",
+                "gender": "Any",
+                "ageRange": "20-30",
+                "occupation": "Engineer",
+                "city": "Seattle",
+                "income": "$100k-$150k",
+                "count": 1,
+            }
+        ],
+    )
+
+    snapshot = RunSnapshot.empty(
+        run_id="run-1",
+        mode="survey",
+        locale="en-US",
+        config=config,
+        created_at=datetime.now(UTC),
+    )
+
+    assert snapshot.locale == "en-US"

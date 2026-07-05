@@ -1,8 +1,8 @@
-from typing import Annotated, Literal
+from typing import Annotated
 
-from fastapi import Header, HTTPException, Request, Response
+from fastapi import Header, Request, Response
 
-Locale = Literal["zh-CN", "en-US"]
+from app.locales import Locale, normalize_locale
 
 
 async def require_language(
@@ -13,14 +13,7 @@ async def require_language(
         Header(alias="Accept-Language"),
     ] = None,
 ) -> Locale:
-    if accept_language not in ("zh-CN", "en-US"):
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "LANGUAGE_NOT_SUPPORTED",
-                "message": "Accept-Language must be zh-CN or en-US",
-            },
-        )
-    request.state.locale = accept_language
-    response.headers["Content-Language"] = accept_language
-    return accept_language
+    locale = normalize_locale(accept_language)
+    request.state.locale = locale
+    response.headers["Content-Language"] = locale
+    return locale

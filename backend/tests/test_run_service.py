@@ -3,10 +3,13 @@ import random
 import pytest
 
 from app.repositories.memory import MemoryRepository
+from app.mocks.catalog import MockCatalog
+from app.mocks.engine import MockEngine
 from app.schemas.survey import CreateRunRequest
 from app.services.analytics_service import AnalyticsService
-from app.services.mock_engine import MockEngine, default_survey_config
 from app.services.run_service import RunService
+
+CATALOG = MockCatalog()
 
 
 @pytest.mark.asyncio
@@ -14,12 +17,13 @@ async def test_run_progresses_to_completed() -> None:
     repository = MemoryRepository()
     service = RunService(
         repository=repository,
-        engine=MockEngine(random.Random(1), delay_scale=0),
-        analytics=AnalyticsService(),
+        engine=MockEngine(CATALOG, random.Random(1), delay_scale=0),
+        analytics=AnalyticsService(CATALOG),
     )
 
     created = await service.create_run(
-        CreateRunRequest(mode="survey", config=default_survey_config())
+        CreateRunRequest(mode="survey", config=CATALOG.default_template("zh-CN")),
+        "zh-CN",
     )
     completed = await service.wait(created.id)
 
@@ -40,11 +44,12 @@ async def test_cancel_stops_run() -> None:
     repository = MemoryRepository()
     service = RunService(
         repository=repository,
-        engine=MockEngine(random.Random(1), delay_scale=0.1),
-        analytics=AnalyticsService(),
+        engine=MockEngine(CATALOG, random.Random(1), delay_scale=0.1),
+        analytics=AnalyticsService(CATALOG),
     )
     created = await service.create_run(
-        CreateRunRequest(mode="interview", config=default_survey_config())
+        CreateRunRequest(mode="interview", config=CATALOG.default_template("zh-CN")),
+        "zh-CN",
     )
 
     cancelled = await service.cancel(created.id)

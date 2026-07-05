@@ -4,12 +4,14 @@ import httpx
 import pytest
 
 from app.main import create_app
+from app.mocks.catalog import MockCatalog
+from app.mocks.engine import MockEngine
 from app.repositories.memory import MemoryRepository
 from app.services.analytics_service import AnalyticsService
-from app.services.mock_engine import MockEngine, default_survey_config
 from app.services.run_service import RunService
 
 LANGUAGE_HEADERS = {"Accept-Language": "en-US"}
+CATALOG = MockCatalog()
 
 
 @pytest.fixture
@@ -21,8 +23,8 @@ def repository() -> MemoryRepository:
 def run_service(repository: MemoryRepository) -> RunService:
     return RunService(
         repository=repository,
-        engine=MockEngine(random.Random(3), delay_scale=0),
-        analytics=AnalyticsService(),
+        engine=MockEngine(CATALOG, random.Random(3), delay_scale=0),
+        analytics=AnalyticsService(CATALOG),
     )
 
 
@@ -48,7 +50,7 @@ async def create_completed_run(
         headers=LANGUAGE_HEADERS,
         json={
             "mode": "survey",
-            "config": default_survey_config().model_dump(mode="json"),
+            "config": CATALOG.default_template("en-US").model_dump(mode="json"),
         },
     )
     assert created.status_code == 201
@@ -60,8 +62,9 @@ async def create_completed_run(
 @pytest.mark.asyncio
 async def test_default_template(client: httpx.AsyncClient) -> None:
     missing = await client.get("/api/templates/default")
-    assert missing.status_code == 400
-    assert missing.json()["detail"]["code"] == "LANGUAGE_NOT_SUPPORTED"
+    assert missing.status_code == 200
+    assert missing.headers["content-language"] == "en-US"
+    assert missing.json()["title"] == "User Experience Survey"
 
     response = await client.get(
         "/api/templates/default",
@@ -70,14 +73,15 @@ async def test_default_template(client: httpx.AsyncClient) -> None:
 
     assert response.status_code == 200
     assert response.headers["content-language"] == "en-US"
-    assert response.json()["title"] == "用户体验调研"
+    assert response.json()["title"] == "User Experience Survey"
 
     unsupported = await client.get(
         "/api/templates/default",
         headers={"Accept-Language": "fr-FR"},
     )
-    assert unsupported.status_code == 400
-    assert unsupported.json()["detail"]["code"] == "LANGUAGE_NOT_SUPPORTED"
+    assert unsupported.status_code == 200
+    assert unsupported.headers["content-language"] == "en-US"
+    assert unsupported.json()["title"] == "User Experience Survey"
 
     chinese = await client.get(
         "/api/templates/default",
@@ -85,6 +89,7 @@ async def test_default_template(client: httpx.AsyncClient) -> None:
     )
     assert chinese.status_code == 200
     assert chinese.headers["content-language"] == "zh-CN"
+    assert chinese.json()["title"] == "用户体验调研"
 
 
 @pytest.mark.asyncio
@@ -96,7 +101,7 @@ async def test_create_read_and_missing_run(
         headers=LANGUAGE_HEADERS,
         json={
             "mode": "survey",
-            "config": default_survey_config().model_dump(mode="json"),
+            "config": CATALOG.default_template("en-US").model_dump(mode="json"),
         },
     )
     assert created.status_code == 201
