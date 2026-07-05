@@ -46,6 +46,17 @@ test("health curls exercise the supported Chinese request language", async () =>
   const sharedHealthConfig = start.match(
     /chmod 600 "\$HEALTH_CONFIG"\n\{\n([\s\S]*?)\n\} >"\$HEALTH_CONFIG"/,
   )?.[1]
+  const authenticatedBackendChecks = [
+    ...start.matchAll(
+      /^\s*authenticated_backend_status="\$\(\n([\s\S]*?)\n\s*\)"$/gm,
+    ),
+  ].map(match => match[1])
+  const localProxyHealthCheck = authenticatedBackendChecks.find(block =>
+    block.includes('"$local_backend_url"'),
+  )
+  const publicProxyHealthCheck = authenticatedBackendChecks.find(block =>
+    block.includes('"$public_url/survey-api/health"'),
+  )
 
   assert.ok(directHealthCheck, "direct FastAPI health curl was not found")
   assert.match(directHealthCheck, /\bcurl\b/)
@@ -58,6 +69,24 @@ test("health curls exercise the supported Chinese request language", async () =>
   assert.match(
     sharedHealthConfig,
     /^\s*printf 'header = "Accept-Language: zh-CN"\\n'\s*$/m,
+  )
+
+  assert.ok(
+    localProxyHealthCheck,
+    "local /survey-api/health curl was not found",
+  )
+  assert.match(
+    localProxyHealthCheck,
+    /^\s*curl --config "\$HEALTH_CONFIG"\s*\\$/m,
+  )
+
+  assert.ok(
+    publicProxyHealthCheck,
+    "public /survey-api/health curl was not found",
+  )
+  assert.match(
+    publicProxyHealthCheck,
+    /^\s*curl --config "\$HEALTH_CONFIG"\s*\\$/m,
   )
 })
 
