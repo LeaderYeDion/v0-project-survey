@@ -481,6 +481,102 @@ test("survey result panel state is not keyed or reset when locale changes", asyn
   }
 })
 
+test("analytics and history use the locale catalog and presentation formatters", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(analytics, /const \{ locale, messages \} = useI18n\(\)/)
+  assert.match(
+    analytics,
+    /formatDate\(\s*locale,\s*viewingHistoryRecord\.savedAt,/,
+  )
+  assert.match(analytics, /formatDate\(\s*locale,\s*record\.savedAt,/)
+  assert.match(analytics, /formatInteger\(locale,\s*progress\.totalRespondents\)/)
+  assert.match(analytics, /formatPercentage\(\s*locale,/)
+  assert.match(
+    analytics,
+    /formatDecimal\(\s*locale,\s*globalQuestionAnalysis\.averageScore,\s*1,\s*\)/,
+  )
+  assert.doesNotMatch(analytics, /\.toFixed\(/)
+})
+
+test("analytics API calls propagate the current locale", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(
+    analytics,
+    /apiQueryRunAnalytics\(locale,\s*source\.id,\s*query\)/,
+  )
+  assert.match(
+    analytics,
+    /apiQueryHistoryAnalytics\(locale,\s*source\.id,\s*query\)/,
+  )
+  assert.match(analytics, /apiFetchSurveyHistory\(locale\)/)
+  assert.match(analytics, /apiSaveRunToHistory\(locale,\s*source\.id\)/)
+  assert.match(
+    analytics,
+    /\[[^\]]*source\?\.type[\s\S]*?\blocale\b[^\]]*\]\)/,
+  )
+})
+
+test("analytics preserves backend-provided labels, questions, groups, and answers", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(analytics, /<span[^>]*>\{meta\.label\}<\/span>/)
+  assert.match(analytics, /\{option\}/)
+  assert.match(analytics, /\{q\.question\.length/)
+  assert.match(analytics, /\{group\.label\}/)
+  assert.match(analytics, /\{data\.tagName\}/)
+  assert.match(analytics, /\{data\.fullAnswer\}/)
+  assert.match(analytics, /\{answer\}/)
+  assert.match(analytics, /tagName\.startsWith\("收入:"\)/)
+})
+
+test("analytics contains no fixed Han-script UI literals beyond its backend protocol marker", async () => {
+  const analytics = stripComments(
+    await readSource("../components/analytics-panel.tsx"),
+  )
+  const withoutIncomeProtocol = analytics.replaceAll(
+    '"收入:"',
+    '"__INCOME_PROTOCOL_PREFIX__"',
+  )
+
+  assert.doesNotMatch(
+    withoutIncomeProtocol,
+    /[\u3400-\u9fff]/u,
+    "analytics-panel.tsx must source visible and ARIA copy from the catalog",
+  )
+  assert.equal(
+    analytics.match(/"收入:"/g)?.length,
+    2,
+    "only the exact income tag protocol checks may remain",
+  )
+})
+
+test("analytics state is not keyed or reset when locale changes", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  for (const initializer of [
+    /\[selectedQuestion,\s*setSelectedQuestion\] = useState<string>/,
+    /\[selectedDemographic,\s*setSelectedDemographic\] = useState<string>\("city"\)/,
+    /\[historyDialogOpen,\s*setHistoryDialogOpen\] = useState\(false\)/,
+    /\[dimensionFilters,\s*setDimensionFilters\] = useState<DimensionFilters>\(\{\}\)/,
+    /\[groupByDimensions,\s*setGroupByDimensions\] = useState<RespondentDimensionKey\[]>\(\[\]\)/,
+  ]) {
+    assert.match(analytics, initializer)
+  }
+  assert.doesNotMatch(analytics, /key=\{locale\}/)
+
+  const localeEffects = analytics
+    .split("useEffect(")
+    .filter(effect => /\}, \[[^\]]*\blocale\b[^\]]*\]\)/.test(effect))
+  for (const effect of localeEffects) {
+    assert.doesNotMatch(
+      effect,
+      /setSelectedQuestion|setSelectedDemographic|setHistoryDialogOpen|setDimensionFilters|setGroupByDimensions|onReturnToCurrent/,
+    )
+  }
+})
+
 test("login page keeps redirect sanitization on the server and delegates localized UI", async () => {
   const source = await readSource("../app/login/page.tsx")
 

@@ -69,6 +69,14 @@ import type {
 } from "@/lib/survey-api"
 import { useI18n } from "@/components/locale-provider"
 import {
+  formatDate,
+  formatDecimal,
+  formatInteger,
+  formatPercentage,
+  type Locale,
+} from "@/lib/i18n/locale"
+import type { MessageCatalog } from "@/lib/i18n/messages"
+import {
   apiSaveRunToHistory,
   apiFetchSurveyHistory,
   apiQueryRunAnalytics,
@@ -102,7 +110,11 @@ function mapResponseDistributionEntries(
   }))
 }
 
-function renderResponseTooltipContent(payload?: any[]) {
+function renderResponseTooltipContent(
+  locale: Locale,
+  messages: MessageCatalog,
+  payload?: any[],
+) {
   const entry = payload?.[0]
   const data = entry?.payload
   if (!data) {
@@ -111,18 +123,25 @@ function renderResponseTooltipContent(payload?: any[]) {
   return (
     <div className="bg-card border border-border rounded-lg p-2 shadow-lg">
       <p className="text-xs text-foreground break-words">{data.fullAnswer}</p>
-      <p className="text-xs text-muted-foreground">数量: {data.count}</p>
+      <p className="text-xs text-muted-foreground">
+        {messages.analytics.quantity}: {formatInteger(locale, data.count)}
+      </p>
     </div>
   )
 }
 
-function renderQuestionBarChart(data: ResponseDistributionEntry[], color: string) {
+function renderQuestionBarChart(
+  data: ResponseDistributionEntry[],
+  color: string,
+  locale: Locale,
+  messages: MessageCatalog,
+) {
   const height = calculateChartHeight(data.length)
   return (
     <ChartContainer
       config={{
         count: {
-          label: "回答数",
+          label: messages.analytics.answerCount,
           color,
         },
       }}
@@ -138,10 +157,12 @@ function renderQuestionBarChart(data: ResponseDistributionEntry[], color: string
             tick={AXIS_TICK_STYLE}
             tickFormatter={value => {
               const normalized = typeof value === "number" ? value : Number(value)
-              return Number.isFinite(normalized) ? normalized.toString() : ""
+              return Number.isFinite(normalized)
+                ? formatInteger(locale, normalized)
+                : ""
             }}
             label={{
-              value: "回答数",
+              value: messages.analytics.answerCount,
               position: "bottom",
               offset: 10,
               fill: "hsl(var(--muted-foreground))",
@@ -154,7 +175,11 @@ function renderQuestionBarChart(data: ResponseDistributionEntry[], color: string
             width={66}
             tick={AXIS_TICK_STYLE}
           />
-          <ChartTooltip content={({ payload }) => renderResponseTooltipContent(payload)} />
+          <ChartTooltip
+            content={({ payload }) =>
+              renderResponseTooltipContent(locale, messages, payload)
+            }
+          />
           <Bar dataKey="count" fill={color} radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
@@ -195,7 +220,7 @@ export function AnalyticsPanel({
   viewingHistoryRecord,
   source,
 }: AnalyticsPanelProps) {
-  const { locale } = useI18n()
+  const { locale, messages } = useI18n()
   const [selectedQuestion, setSelectedQuestion] = useState<string>(questions[0]?.id || "")
   const [selectedDemographic, setSelectedDemographic] = useState<string>("city")
   const [historyRecords, setHistoryRecords] = useState<SurveyHistoryRecord[]>([])
@@ -327,34 +352,34 @@ export function AnalyticsPanel({
   }
 
   const sentimentData = [
-    { name: "正面", value: sentiment.positive, fill: "#10b981" },
-    { name: "中性", value: sentiment.neutral, fill: "#64748b" },
-    { name: "负面", value: sentiment.negative, fill: "#f43f5e" },
+    { name: messages.common.positive, value: sentiment.positive, fill: "#10b981" },
+    { name: messages.common.neutral, value: sentiment.neutral, fill: "#64748b" },
+    { name: messages.common.negative, value: sentiment.negative, fill: "#f43f5e" },
   ]
 
   const statusData = [
     { 
-      name: "已完成", 
+      name: messages.common.completed,
       value: sessions.filter(s => s.status === "completed").length,
       fill: "#10b981"
     },
     { 
-      name: "受访者终止", 
+      name: messages.common.respondentTerminated,
       value: sessions.filter(s => s.status === "terminated_by_respondent").length,
       fill: "#f59e0b"
     },
     { 
-      name: "调研方终止", 
+      name: messages.common.interviewerTerminated,
       value: sessions.filter(s => s.status === "terminated_by_interviewer").length,
       fill: "#f43f5e"
     },
     { 
-      name: "进行中", 
+      name: messages.common.inProgress,
       value: sessions.filter(s => s.status === "in_progress").length,
       fill: "#3b82f6"
     },
     { 
-      name: "等待中", 
+      name: messages.common.pending,
       value: sessions.filter(s => s.status === "pending").length,
       fill: "#64748b"
     },
@@ -384,16 +409,20 @@ export function AnalyticsPanel({
 
   const demographicData = getDemographicData()
 
-  const completionPercentage = progress.totalRespondents > 0
-    ? Math.round((progress.completedRespondents / progress.totalRespondents) * 100)
+  const completionRatio = progress.totalRespondents > 0
+    ? progress.completedRespondents / progress.totalRespondents
     : 0
+  const completionPercentage = completionRatio * 100
 
   const totalMessages = sessions.reduce((acc, s) => acc + s.dialog.length, 0)
 
-  const formatDate = (date: Date | string) => {
-    const d = new Date(date)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  }
+  const historyDateOptions = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  } satisfies Intl.DateTimeFormatOptions
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -402,7 +431,9 @@ export function AnalyticsPanel({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <BarChart3 className="w-5 h-5 text-primary" />
-            <h2 className="font-semibold text-foreground">分析面板</h2>
+            <h2 className="font-semibold text-foreground">
+              {messages.analytics.panelTitle}
+            </h2>
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -410,20 +441,24 @@ export function AnalyticsPanel({
               size="sm"
               onClick={() => onExport("json")}
               disabled={sessions.length === 0}
+              aria-label={messages.analytics.exportJson}
+              title={messages.analytics.exportJson}
               className="text-muted-foreground hover:text-foreground h-7 px-2"
             >
               <Download className="w-3 h-3 mr-1" />
-              JSON
+              {messages.common.json}
             </Button>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => onExport("csv")}
               disabled={sessions.length === 0}
+              aria-label={messages.analytics.exportCsv}
+              title={messages.analytics.exportCsv}
               className="text-muted-foreground hover:text-foreground h-7 px-2"
             >
               <Download className="w-3 h-3 mr-1" />
-              CSV
+              {messages.common.csv}
             </Button>
           </div>
         </div>
@@ -432,7 +467,13 @@ export function AnalyticsPanel({
         {viewingHistoryRecord && (
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
             <Clock className="w-3 h-3" />
-            <span>{formatDate(viewingHistoryRecord.savedAt)}</span>
+            <span>
+              {formatDate(
+                locale,
+                viewingHistoryRecord.savedAt,
+                historyDateOptions,
+              )}
+            </span>
             <Hash className="w-3 h-3 ml-2" />
             <span className="font-mono">{viewingHistoryRecord.id.slice(-8)}</span>
           </div>
@@ -449,7 +490,7 @@ export function AnalyticsPanel({
             className="flex-1 h-8 text-xs bg-secondary/30 border-border/50 hover:bg-secondary/50"
           >
             <ArrowLeft className="w-3 h-3 mr-1" />
-            返回当前调研
+            {messages.analytics.returnToCurrent}
           </Button>
         ) : (
           <Button
@@ -469,7 +510,7 @@ export function AnalyticsPanel({
             ) : (
               <Save className="w-3 h-3 mr-1" />
             )}
-            保存本次调研
+            {messages.analytics.saveSurvey}
           </Button>
         )}
         
@@ -482,14 +523,14 @@ export function AnalyticsPanel({
               className="flex-1 h-8 text-xs bg-secondary/30 border-border/50 hover:bg-secondary/50"
             >
               <History className="w-3 h-3 mr-1" />
-              历史记录
+              {messages.analytics.history}
             </Button>
           </DialogTrigger>
           <DialogContent className="bg-card border-border/50 max-w-md">
             <DialogHeader>
               <DialogTitle className="text-foreground flex items-center gap-2">
                 <History className="w-4 h-4 text-primary" />
-                调研历史记录
+                {messages.analytics.historyTitle}
               </DialogTitle>
             </DialogHeader>
             <div className="mt-4">
@@ -499,7 +540,7 @@ export function AnalyticsPanel({
                 </div>
               ) : historyRecords.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
-                  暂无历史记录
+                  {messages.analytics.noHistory}
                 </div>
               ) : (
                 <ScrollArea className="h-[300px] pr-4">
@@ -515,13 +556,19 @@ export function AnalyticsPanel({
                             {record.config.title}
                           </span>
                           <Badge variant="outline" className="text-[10px]">
-                            {record.respondents.length} 人
+                            {messages.common.people(
+                              formatInteger(locale, record.respondents.length),
+                            )}
                           </Badge>
                         </div>
                         <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            {formatDate(record.savedAt)}
+                            {formatDate(
+                              locale,
+                              record.savedAt,
+                              historyDateOptions,
+                            )}
                           </span>
                           <span className="flex items-center gap-1">
                             <Hash className="w-3 h-3" />
@@ -530,10 +577,20 @@ export function AnalyticsPanel({
                         </div>
                         <div className="mt-2 flex gap-2">
                           <Badge className="text-[10px] bg-emerald-500/20 text-emerald-400 border-0">
-                            完成 {record.progress.completedRespondents}
+                            {messages.analytics.completedCount(
+                              formatInteger(
+                                locale,
+                                record.progress.completedRespondents,
+                              ),
+                            )}
                           </Badge>
                           <Badge className="text-[10px] bg-rose-500/20 text-rose-400 border-0">
-                            终止 {record.progress.terminatedRespondents}
+                            {messages.analytics.terminatedCount(
+                              formatInteger(
+                                locale,
+                                record.progress.terminatedRespondents,
+                              ),
+                            )}
                           </Badge>
                         </div>
                       </button>
@@ -553,40 +610,48 @@ export function AnalyticsPanel({
             <div className="p-3 rounded-xl bg-secondary/30 border border-border/30">
               <div className="flex items-center gap-2 mb-1.5">
                 <Users className="w-4 h-4 text-primary" />
-                <span className="text-xs text-muted-foreground">总受访者</span>
+                <span className="text-xs text-muted-foreground">
+                  {messages.analytics.totalRespondents}
+                </span>
               </div>
               <span className="text-2xl font-bold text-foreground">
-                {progress.totalRespondents}
+                {formatInteger(locale, progress.totalRespondents)}
               </span>
             </div>
 
             <div className="p-3 rounded-xl bg-secondary/30 border border-border/30">
               <div className="flex items-center gap-2 mb-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs text-muted-foreground">已完成</span>
+                <span className="text-xs text-muted-foreground">
+                  {messages.analytics.completed}
+                </span>
               </div>
               <span className="text-2xl font-bold text-emerald-400">
-                {progress.completedRespondents}
+                {formatInteger(locale, progress.completedRespondents)}
               </span>
             </div>
 
             <div className="p-3 rounded-xl bg-secondary/30 border border-border/30">
               <div className="flex items-center gap-2 mb-1.5">
                 <XCircle className="w-4 h-4 text-rose-400" />
-                <span className="text-xs text-muted-foreground">终止</span>
+                <span className="text-xs text-muted-foreground">
+                  {messages.analytics.terminated}
+                </span>
               </div>
               <span className="text-2xl font-bold text-rose-400">
-                {progress.terminatedRespondents}
+                {formatInteger(locale, progress.terminatedRespondents)}
               </span>
             </div>
 
             <div className="p-3 rounded-xl bg-secondary/30 border border-border/30">
               <div className="flex items-center gap-2 mb-1.5">
                 <MessageSquare className="w-4 h-4 text-accent" />
-                <span className="text-xs text-muted-foreground">总对话</span>
+                <span className="text-xs text-muted-foreground">
+                  {messages.analytics.totalDialogs}
+                </span>
               </div>
               <span className="text-2xl font-bold text-foreground">
-                {totalMessages}
+                {formatInteger(locale, totalMessages)}
               </span>
             </div>
           </div>
@@ -596,9 +661,11 @@ export function AnalyticsPanel({
             <div className="flex items-center justify-between text-xs mb-2">
               <span className="text-muted-foreground flex items-center gap-1.5">
                 <TrendingUp className="w-3.5 h-3.5 text-primary" />
-                访谈完成率
+                {messages.analytics.interviewCompletionRate}
               </span>
-              <span className="text-foreground font-medium">{completionPercentage}%</span>
+              <span className="text-foreground font-medium">
+                {formatPercentage(locale, completionRatio)}
+              </span>
             </div>
             <Progress value={completionPercentage} className="h-2 bg-secondary" />
           </div>
@@ -606,9 +673,15 @@ export function AnalyticsPanel({
           {/* Tabbed Analysis */}
           <Tabs defaultValue="overview" className="w-full">
             <TabsList className="w-full bg-secondary/30 p-1">
-              <TabsTrigger value="overview" className="flex-1 text-xs">概览</TabsTrigger>
-              <TabsTrigger value="questions" className="flex-1 text-xs">问题分析</TabsTrigger>
-              <TabsTrigger value="demographic" className="flex-1 text-xs">人群分析</TabsTrigger>
+              <TabsTrigger value="overview" className="flex-1 text-xs">
+                {messages.analytics.overview}
+              </TabsTrigger>
+              <TabsTrigger value="questions" className="flex-1 text-xs">
+                {messages.analytics.questionAnalysis}
+              </TabsTrigger>
+              <TabsTrigger value="demographic" className="flex-1 text-xs">
+                {messages.analytics.demographicAnalysis}
+              </TabsTrigger>
             </TabsList>
 
             {/* Overview Tab */}
@@ -617,20 +690,20 @@ export function AnalyticsPanel({
               <div className="p-3 rounded-xl bg-secondary/20 border border-border/30">
                 <h3 className="text-xs font-medium text-foreground mb-3 flex items-center gap-1.5">
                   <PieChartIcon className="w-3.5 h-3.5 text-primary" />
-                  情感分布
+                  {messages.analytics.sentimentDistribution}
                 </h3>
                 
                 {sessions.length === 0 ? (
                   <div className="flex items-center justify-center h-24 text-muted-foreground text-xs">
-                    暂无数据
+                    {messages.common.noData}
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
                     <ChartContainer
                       config={{
-                        positive: { label: "正面", color: "#10b981" },
-                        neutral: { label: "中性", color: "#64748b" },
-                        negative: { label: "负面", color: "#f43f5e" },
+                        positive: { label: messages.common.positive, color: "#10b981" },
+                        neutral: { label: messages.common.neutral, color: "#64748b" },
+                        negative: { label: messages.common.negative, color: "#f43f5e" },
                       }}
                       className="h-24 w-24"
                     >
@@ -649,7 +722,11 @@ export function AnalyticsPanel({
                               <Cell key={`cell-${index}`} fill={entry.fill} />
                             ))}
                           </Pie>
-                          <Tooltip />
+                          <Tooltip
+                            formatter={value =>
+                              formatPercentage(locale, Number(value) / 100)
+                            }
+                          />
                         </PieChart>
                       </ResponsiveContainer>
                     </ChartContainer>
@@ -665,7 +742,7 @@ export function AnalyticsPanel({
                             {item.name}
                           </span>
                           <span className="text-xs font-medium text-foreground">
-                            {item.value}%
+                            {formatPercentage(locale, item.value / 100)}
                           </span>
                         </div>
                       ))}
@@ -678,12 +755,12 @@ export function AnalyticsPanel({
               <div className="p-3 rounded-xl bg-secondary/20 border border-border/30">
                 <h3 className="text-xs font-medium text-foreground mb-3 flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5 text-primary" />
-                  访谈状态分布
+                  {messages.analytics.interviewStatusDistribution}
                 </h3>
                 
                 {sessions.length === 0 ? (
                   <div className="flex items-center justify-center h-24 text-muted-foreground text-xs">
-                    暂无数据
+                    {messages.common.noData}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -697,7 +774,7 @@ export function AnalyticsPanel({
                           {item.name}
                         </span>
                         <span className="text-xs font-medium text-foreground">
-                          {item.value}
+                          {formatInteger(locale, item.value)}
                         </span>
                       </div>
                     ))}
@@ -710,7 +787,7 @@ export function AnalyticsPanel({
             <TabsContent value="questions" className="mt-4 space-y-4">
               <Select value={selectedQuestion} onValueChange={setSelectedQuestion}>
                 <SelectTrigger className="w-full h-8 text-xs bg-secondary/30 border-border/30">
-                  <SelectValue placeholder="选择问题" />
+                  <SelectValue placeholder={messages.analytics.selectQuestion} />
                 </SelectTrigger>
                 <SelectContent>
                   {questions.map(q => (
@@ -731,11 +808,11 @@ export function AnalyticsPanel({
                           onValueChange={value => handleDimensionFilterChange(meta.key, value)}
                         >
                           <SelectTrigger className="h-9 text-xs bg-background/50 border-border/50">
-                            <SelectValue placeholder="All" />
+                            <SelectValue placeholder={messages.common.all} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value={CLEAR_DIMENSION_VALUE} className="text-xs">
-                              全部
+                              {messages.common.all}
                             </SelectItem>
                             {meta.values.map(option => (
                               <SelectItem key={option} value={option} className="text-xs">
@@ -749,7 +826,10 @@ export function AnalyticsPanel({
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[11px] text-muted-foreground">
-                      展示 {filteredRespondentCount} / {respondents.length} 位受访者
+                      {messages.analytics.filteredRespondents(
+                        formatInteger(locale, filteredRespondentCount),
+                        formatInteger(locale, respondents.length),
+                      )}
                     </span>
                     {activeFilterEntries.map(([key, value]) => (
                       <Badge key={`${key}-${value}`} variant="outline" className="text-[10px]">
@@ -763,7 +843,7 @@ export function AnalyticsPanel({
                       onClick={() => setDimensionFilters({})}
                       disabled={!hasActiveFilters}
                     >
-                      清除筛选
+                      {messages.analytics.clearFilters}
                     </Button>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -777,7 +857,9 @@ export function AnalyticsPanel({
                           onClick={() => toggleGroupByDimension(meta.key)}
                           className="h-7 px-2 text-[11px]"
                         >
-                          {isActive ? `取消按 ${meta.label} 分组` : `按 ${meta.label} 分组`}
+                          {isActive
+                            ? messages.analytics.cancelGroupBy(meta.label)
+                            : messages.analytics.groupBy(meta.label)}
                         </Button>
                       )
                     })}
@@ -786,59 +868,84 @@ export function AnalyticsPanel({
 
                 {globalQuestionAnalysis ? (
                   <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-medium text-foreground">回答分布</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-xs font-medium text-foreground">
+                        {messages.analytics.responseDistribution}
+                      </h3>
                       <Badge variant="outline" className="text-[10px]">
-                        {globalQuestionAnalysis.totalResponses} 条回答
+                        {messages.common.responses(
+                          formatInteger(
+                            locale,
+                            globalQuestionAnalysis.totalResponses,
+                          ),
+                        )}
                       </Badge>
                     </div>
 
                     {globalQuestionAnalysis.averageScore != null && (
                       <div className="p-2 rounded-lg bg-primary/10 border border-primary/20 text-[11px] text-muted-foreground">
-                        平均分{" "}
+                        {messages.analytics.averageScore}{" "}
                         <span className="text-sm font-bold text-primary">
-                          {globalQuestionAnalysis.averageScore.toFixed(1)}
+                          {formatDecimal(
+                            locale,
+                            globalQuestionAnalysis.averageScore,
+                            1,
+                          )}
                         </span>
                       </div>
                     )}
 
                     {globalQuestionResponseData.length === 0 ? (
                       <div className="flex items-center justify-center h-24 text-muted-foreground text-xs">
-                        暂无回答
+                        {messages.analytics.noAnswers}
                       </div>
                     ) : (
                       <>
-                        {renderQuestionBarChart(globalQuestionResponseData, "#38bdf8")}
+                        {renderQuestionBarChart(
+                          globalQuestionResponseData,
+                          "#38bdf8",
+                          locale,
+                          messages,
+                        )}
                         <p className="text-[10px] text-muted-foreground">
-                          横轴：回答数；纵轴：选项内容
+                          {messages.analytics.chartAxes}
                         </p>
                       </>
                     )}
                   </div>
                 ) : (
                   <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 text-xs text-muted-foreground">
-                    暂无问题数据
+                    {messages.analytics.noQuestionData}
                   </div>
                 )}
 
                 {hasActiveFilters && (
                   <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-medium text-foreground">筛选洞察</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-xs font-medium text-foreground">
+                        {messages.analytics.filteredInsights}
+                      </h3>
                       <Badge variant="outline" className="text-[10px]">
-                        {filteredRespondentCount} 位受访者
+                        {messages.common.people(
+                          formatInteger(locale, filteredRespondentCount),
+                        )}
                       </Badge>
                     </div>
                     {filteredResponseData.length > 0 ? (
                       <>
-                        {renderQuestionBarChart(filteredResponseData, "#f97316")}
+                        {renderQuestionBarChart(
+                          filteredResponseData,
+                          "#f97316",
+                          locale,
+                          messages,
+                        )}
                         <p className="text-[10px] text-muted-foreground">
-                          横轴：回答数；纵轴：选项内容
+                          {messages.analytics.chartAxes}
                         </p>
                       </>
                     ) : (
                       <div className="flex items-center justify-center h-20 text-muted-foreground text-xs">
-                        当前筛选下暂无回答
+                        {messages.analytics.noFilteredAnswers}
                       </div>
                     )}
                   </div>
@@ -848,10 +955,18 @@ export function AnalyticsPanel({
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                       <span>
-                        按 {groupByDescription || "所选维度"} 分组
+                        {messages.analytics.groupBy(
+                          groupByDescription ||
+                            messages.analytics.selectedDimensions,
+                        )}
                       </span>
                       <Badge variant="outline" className="text-[10px]">
-                        {groupedQuestionSummaries.length} 个分组
+                        {messages.analytics.groupCount(
+                          formatInteger(
+                            locale,
+                            groupedQuestionSummaries.length,
+                          ),
+                        )}
                       </Badge>
                     </div>
                     <div className="space-y-3">
@@ -863,15 +978,22 @@ export function AnalyticsPanel({
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-foreground">{group.label}</span>
                             <Badge variant="outline" className="text-[10px]">
-                              {group.respondentCount} 位
+                              {messages.common.people(
+                                formatInteger(locale, group.respondentCount),
+                              )}
                             </Badge>
                           </div>
                            {group.responseData.length === 0 ? (
                              <div className="text-[11px] text-muted-foreground">
-                               当前维度组合暂无回答
+                               {messages.analytics.noGroupAnswers}
                              </div>
                            ) : (
-                             renderQuestionBarChart(group.responseData, "#a855f7")
+                             renderQuestionBarChart(
+                               group.responseData,
+                               "#a855f7",
+                               locale,
+                               messages,
+                             )
                            )}
                         </div>
                       ))}
@@ -879,17 +1001,17 @@ export function AnalyticsPanel({
                   </div>
                 )}
                 <p className="text-[10px] text-muted-foreground">
-                  组合图表同样遵循横轴为回答数、纵轴为选项的约定。
+                  {messages.analytics.combinedChartHint}
                 </p>
               </div>
             </TabsContent>
 
             {/* Demographic Tab */}
             <TabsContent value="demographic" className="mt-4 space-y-4">
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Select value={selectedQuestion} onValueChange={setSelectedQuestion}>
-                  <SelectTrigger className="flex-1 h-8 text-xs bg-secondary/30 border-border/30">
-                    <SelectValue placeholder="选择问题" />
+                  <SelectTrigger className="min-w-0 flex-1 h-8 text-xs bg-secondary/30 border-border/30">
+                    <SelectValue placeholder={messages.analytics.selectQuestion} />
                   </SelectTrigger>
                   <SelectContent>
                     {questions.map(q => (
@@ -901,12 +1023,16 @@ export function AnalyticsPanel({
                 </Select>
 
                 <Select value={selectedDemographic} onValueChange={setSelectedDemographic}>
-                  <SelectTrigger className="w-24 h-8 text-xs bg-secondary/30 border-border/30">
+                  <SelectTrigger className="w-full sm:w-auto sm:min-w-24 h-8 text-xs bg-secondary/30 border-border/30">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="city" className="text-xs">按城市</SelectItem>
-                    <SelectItem value="income" className="text-xs">按收入</SelectItem>
+                    <SelectItem value="city" className="text-xs">
+                      {messages.analytics.byCity}
+                    </SelectItem>
+                    <SelectItem value="income" className="text-xs">
+                      {messages.analytics.byIncome}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -914,18 +1040,20 @@ export function AnalyticsPanel({
               <div className="space-y-3">
                 {demographicData.length === 0 ? (
                   <div className="flex items-center justify-center h-24 text-muted-foreground text-xs p-3 rounded-xl bg-secondary/20 border border-border/30">
-                    暂无人群分析数据
+                    {messages.analytics.noDemographicData}
                   </div>
                 ) : (
                   demographicData.map((data, idx) => (
                     <div key={idx} className="p-3 rounded-xl bg-secondary/20 border border-border/30">
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                         <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                           <Filter className="w-3 h-3 text-primary" />
                           {data.tagName}
                         </span>
                         <Badge variant="outline" className="text-[10px]">
-                          {data.respondentCount} 人
+                          {messages.common.people(
+                            formatInteger(locale, data.respondentCount),
+                          )}
                         </Badge>
                       </div>
                       <div className="space-y-1.5">
@@ -943,7 +1071,7 @@ export function AnalyticsPanel({
                               {answer}
                             </span>
                             <span className="text-[10px] font-medium text-foreground w-6 text-right">
-                              {count}
+                              {formatInteger(locale, count)}
                             </span>
                           </div>
                         ))}
@@ -971,12 +1099,12 @@ export function AnalyticsPanel({
               />
               <span className="text-xs text-foreground">
                 {isRunning
-                  ? "正在进行调研..."
+                  ? messages.analytics.surveyRunning
                   : viewingHistoryRecord
-                  ? "正在查看历史记录"
+                  ? messages.analytics.historyViewing
                   : sessions.length > 0
-                  ? "调研已完成"
-                  : "等待开始调研"}
+                  ? messages.analytics.surveyCompleted
+                  : messages.analytics.waitingToStart}
               </span>
             </div>
           </div>
