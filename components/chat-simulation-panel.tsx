@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { MessageSquare, Sparkles, User, MapPin, Briefcase, DollarSign, AlertCircle } from "lucide-react"
 import type { InterviewSession, RespondentProfile } from "@/lib/survey-contract"
+import { useI18n } from "@/components/locale-provider"
+import { formatDate, formatInteger } from "@/lib/i18n/locale"
 import { cn } from "@/lib/utils"
 
 interface ChatSimulationPanelProps {
@@ -24,6 +26,7 @@ export function ChatSimulationPanel({
   currentRespondentId,
   onSelectRespondent
 }: ChatSimulationPanelProps) {
+  const { locale, messages } = useI18n()
   const [selectedRespondentId, setSelectedRespondentId] = useState<string | null>(null)
   const [mobileView, setMobileView] =
     useState<MobileInterviewView>("respondents")
@@ -53,32 +56,31 @@ export function ChatSimulationPanel({
   const getSentimentLabel = (sentiment?: "positive" | "neutral" | "negative" | null) => {
     switch (sentiment) {
       case "positive":
-        return "正面"
+        return messages.common.positive
       case "negative":
-        return "负面"
+        return messages.common.negative
       default:
-        return "中性"
+        return messages.common.neutral
     }
   }
 
   const getStatusBadge = (status: InterviewSession["status"]) => {
     switch (status) {
       case "completed":
-        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">已完成</Badge>
+        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">{messages.common.completed}</Badge>
       case "in_progress":
-        return <Badge className="bg-primary/20 text-primary border-primary/30 text-[10px] animate-pulse">进行中</Badge>
+        return <Badge className="bg-primary/20 text-primary border-primary/30 text-[10px] animate-pulse">{messages.common.inProgress}</Badge>
       case "terminated_by_respondent":
-        return <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[10px]">受访者终止</Badge>
+        return <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[10px]">{messages.common.respondentTerminated}</Badge>
       case "terminated_by_interviewer":
-        return <Badge className="bg-rose-500/20 text-rose-400 border-rose-500/30 text-[10px]">调研方终止</Badge>
+        return <Badge className="bg-rose-500/20 text-rose-400 border-rose-500/30 text-[10px]">{messages.common.interviewerTerminated}</Badge>
       default:
-        return <Badge className="bg-secondary/50 text-muted-foreground border-border/30 text-[10px]">等待中</Badge>
+        return <Badge className="bg-secondary/50 text-muted-foreground border-border/30 text-[10px]">{messages.common.pending}</Badge>
     }
   }
 
   const formatTime = (date: Date | string) => {
-    const d = typeof date === "string" ? new Date(date) : date
-    return d.toLocaleTimeString("zh-CN", {
+    return formatDate(locale, date, {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit"
@@ -94,7 +96,7 @@ export function ChatSimulationPanel({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden md:flex-row">
       <nav
-        aria-label="访谈内容导航"
+        aria-label={messages.interview.contentNavigation}
         className="grid shrink-0 grid-cols-2 gap-1 border-b border-border/30 bg-card/50 p-1 md:hidden"
       >
         <button
@@ -107,7 +109,7 @@ export function ChatSimulationPanel({
               : "h-8 rounded-md text-xs text-muted-foreground"
           }
         >
-          受访者
+          {messages.interview.respondents}
         </button>
         <button
           type="button"
@@ -119,7 +121,7 @@ export function ChatSimulationPanel({
               : "h-8 rounded-md text-xs text-muted-foreground"
           }
         >
-          对话
+          {messages.interview.conversation}
         </button>
       </nav>
 
@@ -133,10 +135,16 @@ export function ChatSimulationPanel({
         <div className="p-3 border-b border-border/30">
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-primary" />
-            <span className="text-sm font-medium text-foreground">受访者列表</span>
+            <span className="text-sm font-medium text-foreground">{messages.interview.respondentList}</span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {respondents.length} 位受访者 / {sessions.filter(s => s.status === "completed").length} 已完成
+            {messages.interview.respondentSummary(
+              formatInteger(locale, respondents.length),
+              formatInteger(
+                locale,
+                sessions.filter(s => s.status === "completed").length,
+              ),
+            )}
           </p>
         </div>
 
@@ -144,7 +152,7 @@ export function ChatSimulationPanel({
           <div className="p-2 space-y-1">
             {respondents.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground text-sm">
-                开始模拟后显示受访者
+                {messages.interview.emptyRespondents}
               </div>
             ) : (
               respondents.map(respondent => {
@@ -187,7 +195,10 @@ export function ChatSimulationPanel({
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="text-[10px] text-muted-foreground">
-                            {respondent.age}岁 · {respondent.city}
+                            {messages.interview.yearsOld(
+                              formatInteger(locale, respondent.age),
+                            )}{" "}
+                            · {respondent.city}
                           </span>
                         </div>
                         <div className="mt-1.5">
@@ -214,13 +225,13 @@ export function ChatSimulationPanel({
         <div className="flex items-center justify-between p-4 border-b border-border/50">
           <div className="flex items-center gap-2">
             <MessageSquare className="w-5 h-5 text-primary" />
-            <h2 className="font-semibold text-foreground">对话详情</h2>
+            <h2 className="font-semibold text-foreground">{messages.interview.conversationDetails}</h2>
           </div>
           <div className="flex items-center gap-2">
             {isRunning && (
               <Badge className="bg-primary/20 text-primary border-primary/30 animate-pulse">
                 <Sparkles className="w-3 h-3 mr-1" />
-                模拟中
+                {messages.interview.simulating}
               </Badge>
             )}
           </div>
@@ -244,7 +255,10 @@ export function ChatSimulationPanel({
                   <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <User className="w-3 h-3" />
-                      {selectedRespondent.age}岁 · {selectedRespondent.gender}
+                      {messages.interview.yearsOld(
+                        formatInteger(locale, selectedRespondent.age),
+                      )}{" "}
+                      · {selectedRespondent.gender}
                     </span>
                     <span className="flex items-center gap-1">
                       <Briefcase className="w-3 h-3" />
@@ -279,8 +293,8 @@ export function ChatSimulationPanel({
                   </div>
                   <p className="text-muted-foreground text-sm">
                     {selectedSession?.status === "pending"
-                      ? "等待开始访谈..."
-                      : "暂无对话内容"}
+                      ? messages.interview.waitingToStart
+                      : messages.interview.emptyConversation}
                   </p>
                 </div>
               ) : (
@@ -319,7 +333,9 @@ export function ChatSimulationPanel({
                             message.role === "respondent" && "justify-end"
                           )}>
                             <span className="text-sm font-medium text-foreground">
-                              {message.role === "interviewer" ? "调研员" : selectedRespondent.name}
+                              {message.role === "interviewer"
+                                ? messages.interview.interviewer
+                                : selectedRespondent.name}
                             </span>
                             <span className="text-xs text-muted-foreground">
                               {formatTime(message.timestamp)}
@@ -376,14 +392,24 @@ export function ChatSimulationPanel({
             <div className="px-4 py-3 border-t border-border/50 bg-secondary/20">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
-                  问题进度: <span className="text-foreground">{selectedSession?.completedQuestions || 0}</span> / {selectedSession?.totalQuestions || "-"}
+                  {messages.interview.questionProgress(
+                    formatInteger(
+                      locale,
+                      selectedSession?.completedQuestions || 0,
+                    ),
+                    selectedSession?.totalQuestions
+                      ? formatInteger(locale, selectedSession.totalQuestions)
+                      : "-",
+                  )}
                 </span>
                 <span>
-                  对话消息: <span className="text-foreground">{selectedSession?.dialog.length || 0}</span>
+                  {messages.interview.dialogMessages(
+                    formatInteger(locale, selectedSession?.dialog.length || 0),
+                  )}
                 </span>
                 {selectedSession && (
                   <span>
-                    状态: {getStatusBadge(selectedSession.status)}
+                    {messages.interview.status}: {getStatusBadge(selectedSession.status)}
                   </span>
                 )}
               </div>
@@ -395,10 +421,10 @@ export function ChatSimulationPanel({
               <User className="w-10 h-10 text-muted-foreground" />
             </div>
             <p className="text-muted-foreground text-sm mb-2">
-              选择一位受访者查看对话详情
+              {messages.interview.selectRespondent}
             </p>
             <p className="text-muted-foreground text-xs">
-              每位受访者的完整访谈过程将在此显示
+              {messages.interview.respondentInterviewHint}
             </p>
           </div>
         )}

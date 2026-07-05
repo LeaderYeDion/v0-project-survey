@@ -29,7 +29,9 @@ import type {
   SurveyResponse,
 } from "@/lib/survey-api"
 import { Badge } from "@/components/ui/badge"
+import { useI18n } from "@/components/locale-provider"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { formatInteger, formatPercentage } from "@/lib/i18n/locale"
 
 interface BulkSurveyPanelProps {
   sessions: InterviewSession[]
@@ -50,9 +52,11 @@ export function BulkSurveyPanel({
   responses,
   isRunning,
 }: BulkSurveyPanelProps) {
+  const { locale, messages } = useI18n()
   const completedCount = sessions.filter(s => s.status === "completed").length
   const total = progress.totalRespondents || respondents.length
-  const completionRate = total > 0 ? Math.round((completedCount / total) * 100) : 0
+  const completionRate =
+    total > 0 ? formatPercentage(locale, completedCount / total) : formatPercentage(locale, 0)
 
   const avgAnswered =
     sessions.length > 0
@@ -90,10 +94,10 @@ export function BulkSurveyPanel({
     questions.find(q => q.id === id) || null
 
   const renderAnswerText = (question: SurveyQuestion, value?: any) => {
-    if (value === undefined || value === null) return "未作答"
+    if (value === undefined || value === null) return messages.survey.unanswered
 
     if (question.type === "scale") {
-      return `${value} 分`
+      return messages.survey.points(value)
     }
 
     if (question.type === "choice") {
@@ -109,6 +113,21 @@ export function BulkSurveyPanel({
     value === undefined || value === null || Number.isNaN(value)
       ? "—"
       : value.toFixed(digits)
+
+  const getQuestionTypeLabel = (type: SurveyQuestion["type"]) => {
+    if (type === "choice") return messages.survey.choiceType
+    if (type === "scale") return messages.survey.scaleType
+    return messages.survey.openType
+  }
+
+  const getResponseStatusLabel = (status: SurveyResponse["status"]) => {
+    if (status === "completed") return messages.common.completed
+    if (status === "partial") return messages.survey.partiallyCompleted
+    if (status === "terminated_by_respondent") {
+      return messages.common.respondentTerminated
+    }
+    return messages.common.interviewerTerminated
+  }
 
   const buildScaleDistribution = (entries: { label: string; value: number }[]) => {
     const numericEntries = entries
@@ -184,10 +203,10 @@ export function BulkSurveyPanel({
           <ClipboardList className="w-5 h-5 text-primary" />
           <div className="flex flex-col">
             <h2 className="font-semibold text-foreground text-sm">
-              问卷调研总览
+              {messages.survey.overviewTitle}
             </h2>
             <p className="text-xs text-muted-foreground">
-              模拟真实线上问卷，聚焦样本规模与统计结果
+              {messages.survey.overviewDescription}
             </p>
           </div>
         </div>
@@ -200,7 +219,9 @@ export function BulkSurveyPanel({
               isRunning ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"
             }`}
           />
-          {isRunning ? "实时更新中" : "静态结果"}
+          {isRunning
+            ? messages.survey.liveUpdating
+            : messages.survey.staticResults}
         </Badge>
       </div>
 
@@ -210,13 +231,13 @@ export function BulkSurveyPanel({
           <div className="p-3 rounded-xl bg-secondary/30 border border-border/40">
             <div className="flex items-center gap-2 mb-1.5">
               <Users className="w-4 h-4 text-primary" />
-              <span className="text-[11px] text-muted-foreground">样本量</span>
+              <span className="text-[11px] text-muted-foreground">{messages.survey.sampleSize}</span>
             </div>
             <div className="text-2xl font-semibold text-foreground">
-              {total}
+              {formatInteger(locale, total)}
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              来自配置的虚拟受访者画像
+              {messages.survey.sampleSizeDescription}
             </p>
           </div>
 
@@ -224,14 +245,14 @@ export function BulkSurveyPanel({
             <div className="flex items-center gap-2 mb-1.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               <span className="text-[11px] text-muted-foreground">
-                完成问卷
+                {messages.survey.completedSurveys}
               </span>
             </div>
             <div className="text-2xl font-semibold text-emerald-400">
-              {completedCount}
+              {formatInteger(locale, completedCount)}
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              完成率约 {completionRate}%
+              {messages.survey.completionRate(completionRate)}
             </p>
           </div>
 
@@ -239,14 +260,14 @@ export function BulkSurveyPanel({
             <div className="flex items-center gap-2 mb-1.5">
               <BarChart3 className="w-4 h-4 text-accent" />
               <span className="text-[11px] text-muted-foreground">
-                平均作答题数
+                {messages.survey.averageAnswered}
               </span>
             </div>
             <div className="text-2xl font-semibold text-foreground">
-              {avgAnswered}
+              {formatInteger(locale, avgAnswered)}
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              模拟问卷的整体完备度
+              {messages.survey.completenessDescription}
             </p>
           </div>
         </div>
@@ -262,16 +283,27 @@ export function BulkSurveyPanel({
               <div className="flex min-w-0 items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-primary" />
                 <span className="min-w-0 break-words text-xs font-medium text-foreground">
-                  按问题的结果统计
+                  {messages.survey.questionStatistics}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => setShowQuestionStats(v => !v)}
+                aria-expanded={showQuestionStats}
+                aria-label={
+                  showQuestionStats
+                    ? messages.survey.hideQuestionStatistics
+                    : messages.survey.showQuestionStatistics
+                }
+                title={
+                  showQuestionStats
+                    ? messages.survey.hideQuestionStatistics
+                    : messages.survey.showQuestionStatistics
+                }
                 className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
               >
                 <Activity className="w-3 h-3" />
-                <span>全局视角</span>
+                <span>{messages.survey.globalView}</span>
                 <ChevronDown
                   className={`w-3 h-3 transition-transform ${
                     showQuestionStats ? "rotate-0" : "-rotate-90"
@@ -284,7 +316,7 @@ export function BulkSurveyPanel({
               <ScrollArea className="flex-1 min-h-0 pr-2">
                 {questionAnalysis.length === 0 ? (
                   <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
-                    暂无统计数据，开始问卷后将自动生成。
+                    {messages.survey.noStatistics}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -312,15 +344,14 @@ export function BulkSurveyPanel({
                               variant="outline"
                               className="text-[10px] border-border/60"
                             >
-                              {qa.totalResponses} 份回答
+                              {messages.survey.answerCount(
+                                formatInteger(locale, qa.totalResponses),
+                              )}
                             </Badge>
                           </div>
                           <p className="text-[11px] text-muted-foreground mb-2">
-                            类型：{question.type === "choice"
-                              ? "选择题"
-                              : question.type === "scale"
-                              ? "打分题"
-                              : "开放题"}
+                            {messages.survey.type}:{" "}
+                            {getQuestionTypeLabel(question.type)}
                           </p>
 
                           {question.type === "choice" &&
@@ -349,7 +380,7 @@ export function BulkSurveyPanel({
                                     </Pie>
                                     <Tooltip
                                       formatter={(value: any, _name, props) => [
-                                        value,
+                                        formatInteger(locale, Number(value)),
                                         (props?.payload as any)?.label,
                                       ]}
                                     />
@@ -366,16 +397,16 @@ export function BulkSurveyPanel({
                                   if (!scaleStats) {
                                     return (
                                       <div className="max-w-[320px] w-full text-center text-[11px] text-muted-foreground">
-                                        当前数据不能用于统计摘要。
+                                        {messages.survey.invalidScaleSummary}
                                       </div>
                                     )
                                   }
 
                                   const statsList = [
-                                    ["平均值", formatStat(scaleStats.average)],
-                                    ["中位数", formatStat(scaleStats.median)],
-                                    ["众数", formatStat(scaleStats.mode)],
-                                    ["方差", formatStat(scaleStats.variance, 2)],
+                                    [messages.survey.average, formatStat(scaleStats.average)],
+                                    [messages.survey.median, formatStat(scaleStats.median)],
+                                    [messages.survey.mode, formatStat(scaleStats.mode)],
+                                    [messages.survey.variance, formatStat(scaleStats.variance, 2)],
                                     ["P90", formatStat(scaleStats.p90)],
                                     ["P70", formatStat(scaleStats.p70)],
                                     ["P50", formatStat(scaleStats.p50)],
@@ -386,10 +417,10 @@ export function BulkSurveyPanel({
                                       <div className="rounded-lg bg-background/40 border border-border/50 p-3 text-[12px] mx-auto">
                                         <div className="flex items-center justify-between mb-2">
                                           <span className="text-xs font-semibold text-foreground">
-                                            打分题统计摘要
+                                            {messages.survey.scaleSummary}
                                           </span>
                                           <span className="text-[11px] text-muted-foreground">
-                                            节省空间，直观阅读
+                                            {messages.survey.scaleSummaryHint}
                                           </span>
                                         </div>
                                         <div className="space-y-1">
@@ -414,14 +445,14 @@ export function BulkSurveyPanel({
 
                           {question.type === "text" && (
                             <div className="text-[11px] text-muted-foreground">
-                              开放题暂不展示图表，可以在右侧分析面板查看更多详情。
+                              {messages.survey.openQuestionChartHint}
                             </div>
                           )}
 
                           {qa.averageScore != null &&
                             question.type === "scale" && (
                               <div className="mt-1 text-[11px] text-muted-foreground">
-                                平均分约{" "}
+                                {messages.survey.averageScore}{" "}
                                 <span className="font-semibold text-foreground">
                                   {qa.averageScore.toFixed(1)}
                                 </span>
@@ -446,21 +477,24 @@ export function BulkSurveyPanel({
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-primary" />
                 <span className="text-xs font-medium text-foreground">
-                  单份问卷详情
+                  {messages.survey.responseDetails}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-muted-foreground">
                   {responses.length > 0
-                    ? `第 ${currentResponseIndex + 1} / ${
-                        responses.length
-                      } 份`
-                    : "暂无问卷"}
+                    ? messages.survey.responsePosition(
+                        formatInteger(locale, currentResponseIndex + 1),
+                        formatInteger(locale, responses.length),
+                      )
+                    : messages.survey.noSurvey}
                 </span>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={handlePrevResponse}
+                    aria-label={messages.survey.previousResponse}
+                    title={messages.survey.previousResponse}
                     className="w-6 h-6 rounded-full border border-border/50 flex items-center justify-center text-muted-foreground hover:bg-secondary/60 disabled:opacity-40"
                     disabled={responses.length === 0}
                   >
@@ -469,6 +503,8 @@ export function BulkSurveyPanel({
                   <button
                     type="button"
                     onClick={handleNextResponse}
+                    aria-label={messages.survey.nextResponse}
+                    title={messages.survey.nextResponse}
                     className="w-6 h-6 rounded-full border border-border/50 flex items-center justify-center text-muted-foreground hover:bg-secondary/60 disabled:opacity-40"
                     disabled={responses.length === 0}
                   >
@@ -478,6 +514,17 @@ export function BulkSurveyPanel({
                 <button
                   type="button"
                   onClick={() => setShowResponseDetail(v => !v)}
+                  aria-expanded={showResponseDetail}
+                  aria-label={
+                    showResponseDetail
+                      ? messages.survey.hideResponseDetails
+                      : messages.survey.showResponseDetails
+                  }
+                  title={
+                    showResponseDetail
+                      ? messages.survey.hideResponseDetails
+                      : messages.survey.showResponseDetails
+                  }
                   className="ml-1 flex items-center justify-center w-6 h-6 rounded-full border border-border/50 text-muted-foreground hover:bg-secondary/60"
                 >
                   <ChevronDown
@@ -494,7 +541,7 @@ export function BulkSurveyPanel({
                 {responses.length === 0 || !currentResponse ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-xs text-muted-foreground">
                     <Clock className="w-6 h-6 mb-2 text-muted-foreground" />
-                    暂无问卷结果，开始模拟后可逐份查看完整回答。
+                    {messages.survey.noResults}
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col min-h-0">
@@ -502,18 +549,21 @@ export function BulkSurveyPanel({
                     <div className="mb-2 flex items-center justify-between">
                       <div className="space-y-0.5">
                         <p className="text-xs text-muted-foreground">
-                          受访者信息
+                          {messages.survey.respondentInformation}
                         </p>
                         {currentRespondent ? (
                           <p className="text-[11px] text-foreground">
-                            {currentRespondent.age} 岁 ·{" "}
+                            {messages.interview.yearsOld(
+                              formatInteger(locale, currentRespondent.age),
+                            )}{" "}
+                            ·{" "}
                             {currentRespondent.gender} ·{" "}
                             {currentRespondent.city} ·{" "}
                             {currentRespondent.occupation}
                           </p>
                         ) : (
                           <p className="text-[11px] text-muted-foreground">
-                            受访者信息缺失
+                            {messages.survey.missingRespondentInformation}
                           </p>
                         )}
                       </div>
@@ -521,14 +571,8 @@ export function BulkSurveyPanel({
                         variant="outline"
                         className="text-[10px] border-border/60"
                       >
-                        状态：{currentResponse.status === "completed"
-                          ? "已完成"
-                          : currentResponse.status === "partial"
-                          ? "部分完成"
-                          : currentResponse.status ===
-                            "terminated_by_respondent"
-                          ? "受访者终止"
-                          : "调研方终止"}
+                        {messages.survey.status}:{" "}
+                        {getResponseStatusLabel(currentResponse.status)}
                       </Badge>
                     </div>
 
