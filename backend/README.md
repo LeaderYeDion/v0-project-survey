@@ -46,3 +46,18 @@ backend/.venv/bin/python -m pytest backend/tests -v
 curl --fail http://127.0.0.1:8000/api/health
 curl --fail http://127.0.0.1:3000/survey-api/health
 ```
+
+## Mock 实现边界
+
+所有 Mock 专属数据与行为统一位于 `app/mocks/`：
+
+- `catalog.py` 管理结构一致的中英文模板、画像、回答、终止与分析标签；
+- `engine.py` 管理随机生成、延时、情绪与终止规则。
+
+`app/main.py` 是唯一组合根，负责把 Mock 模板、分析标签和模拟执行实现注入
+通用 API 与 Service。`RunService`、统计服务和 API Router 只依赖
+`TemplateProvider`、`AnalysisLabels` 与 `SimulationEngine` 协议。
+
+后续接入真实逻辑时，应在组合根替换这三个实现，无需修改 API Router 或
+`RunService`。运行创建时会固化 `locale`；只有精确的 `zh-CN` 使用中文，
+其他请求头或缺失值均使用英文。

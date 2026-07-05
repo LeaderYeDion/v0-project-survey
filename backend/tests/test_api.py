@@ -139,12 +139,22 @@ async def test_history_analytics_and_export(
 ) -> None:
     run_id = await create_completed_run(client, run_service)
 
+    completed = await client.get(
+        f"/api/runs/{run_id}",
+        headers={"Accept-Language": "zh-CN"},
+    )
+    completed_payload = completed.json()
+    assert completed_payload["locale"] == "en-US"
+    assert completed_payload["respondents"][0]["gender"] in {"Male", "Female"}
+    assert completed_payload["config"]["title"] == "User Experience Survey"
+
     saved = await client.post(
         "/api/history",
         headers=LANGUAGE_HEADERS,
         json={"runId": run_id},
     )
     assert saved.status_code == 201
+    assert saved.json()["locale"] == "en-US"
     history_id = saved.json()["id"]
 
     records = await client.get("/api/history", headers=LANGUAGE_HEADERS)
@@ -157,6 +167,10 @@ async def test_history_analytics_and_export(
     )
     assert analytics.status_code == 200
     assert analytics.json()["groupedQuestionSummaries"]
+    assert analytics.json()["dimensionMetadata"][0]["label"] == "Gender"
+    assert analytics.json()["groupedQuestionSummaries"][0]["label"].startswith(
+        "Work city:"
+    )
 
     exported = await client.get(
         f"/api/runs/{run_id}/exports",
@@ -169,3 +183,13 @@ async def test_history_analytics_and_export(
     assert exported.content.decode("utf-8-sig").startswith(
         "respondentId,name,city,status"
     )
+
+    exported_json = await client.get(
+        f"/api/runs/{run_id}/exports",
+        headers={"Accept-Language": "zh-CN"},
+        params={"format": "json"},
+    )
+    assert exported_json.json()["respondents"][0]["gender"] in {
+        "Male",
+        "Female",
+    }
