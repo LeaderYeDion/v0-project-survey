@@ -1,18 +1,22 @@
 import random
 
+from app.mocks.catalog import MockCatalog
+from app.mocks.engine import MockEngine
 from app.schemas.survey import RespondentConfig, SurveyQuestion
-from app.services.mock_engine import MockEngine, default_survey_config
+
+
+CATALOG = MockCatalog()
 
 
 def test_default_template_matches_existing_demo() -> None:
-    config = default_survey_config()
+    config = CATALOG.default_template("zh-CN")
     assert config.title == "用户体验调研"
     assert len(config.questions) == 5
     assert sum(item.count for item in config.respondentConfigs) == 7
 
 
 def test_generate_respondents_honors_count_and_config() -> None:
-    engine = MockEngine(random.Random(1), delay_scale=0)
+    engine = MockEngine(CATALOG, random.Random(1), delay_scale=0)
     respondents = engine.generate_respondents(
         [
             RespondentConfig(
@@ -24,7 +28,8 @@ def test_generate_respondents_honors_count_and_config() -> None:
                 income="20-30万",
                 count=3,
             )
-        ]
+        ],
+        "zh-CN",
     )
 
     assert len(respondents) == 3
@@ -33,14 +38,36 @@ def test_generate_respondents_honors_count_and_config() -> None:
 
 
 def test_text_answer_keeps_text_type() -> None:
-    engine = MockEngine(random.Random(2), delay_scale=0)
+    engine = MockEngine(CATALOG, random.Random(2), delay_scale=0)
     respondent = engine.generate_respondents(
-        default_survey_config().respondentConfigs
+        CATALOG.default_template("zh-CN").respondentConfigs,
+        "zh-CN",
     )[0]
     message = engine.generate_answer(
         respondent,
         SurveyQuestion(id="text-1", type="text", question="建议？"),
+        "zh-CN",
     )
 
     assert message.answerValue is not None
     assert message.answerValue.type == "text"
+
+
+def test_english_engine_generates_english_profile_and_answer() -> None:
+    engine = MockEngine(CATALOG, random.Random(2), delay_scale=0)
+    config = CATALOG.default_template("en-US")
+    respondent = engine.generate_respondents(
+        config.respondentConfigs,
+        "en-US",
+    )[0]
+    message = engine.generate_answer(
+        respondent,
+        config.questions[2],
+        "en-US",
+    )
+
+    assert respondent.gender in {"Male", "Female"}
+    assert respondent.education in CATALOG.data("en-US").educations
+    assert message.answerValue is not None
+    assert message.answerValue.type == "text"
+    assert "From my perspective" in message.content

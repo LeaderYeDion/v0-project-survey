@@ -28,6 +28,7 @@ class MemoryRepository:
             id=f"history-{uuid4()}",
             runId=run.id,
             mode=run.mode,
+            locale=run.locale,
             savedAt=datetime.now(UTC),
             config=run.config,
             sessions=run.sessions,

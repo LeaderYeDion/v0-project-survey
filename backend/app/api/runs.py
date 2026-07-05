@@ -16,7 +16,7 @@ async def create_run(
     payload: CreateRunRequest,
     request: Request,
 ) -> RunSnapshot:
-    return await runs(request).create_run(payload)
+    return await runs(request).create_run(payload, request.state.locale)
 
 
 @router.get("/{run_id}", response_model=RunSnapshot)

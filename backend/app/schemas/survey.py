@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.locales import Locale
+
 QuestionType = Literal["text", "choice", "scale"]
 SimulationMode = Literal["interview", "survey"]
 Sentiment = Literal["positive", "neutral", "negative"]
@@ -188,6 +190,7 @@ class CreateRunRequest(ApiModel):
 class RunSnapshot(ApiModel):
     id: str
     mode: SimulationMode
+    locale: Locale
     status: RunStatus
     config: SurveyConfig
     respondents: list[RespondentProfile]
@@ -208,12 +211,14 @@ class RunSnapshot(ApiModel):
         cls,
         run_id: str,
         mode: SimulationMode,
+        locale: Locale,
         config: SurveyConfig,
         created_at: datetime,
     ) -> RunSnapshot:
         return cls(
             id=run_id,
             mode=mode,
+            locale=locale,
             status="queued",
             config=config,
             respondents=[],
@@ -241,6 +246,7 @@ class SurveyHistoryRecord(ApiModel):
     id: str
     runId: str
     mode: SimulationMode
+    locale: Locale
     savedAt: datetime
     config: SurveyConfig
     sessions: list[InterviewSession]

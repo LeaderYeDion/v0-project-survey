@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from app.repositories.memory import MemoryRepository
+from app.locales import Locale
 from app.schemas.survey import (
     CreateRunRequest,
     DialogMessage,
@@ -11,14 +12,14 @@ from app.schemas.survey import (
     SurveyProgress,
 )
 from app.services.analytics_service import AnalyticsService
-from app.services.mock_engine import MockEngine
+from app.services.simulation_engine import SimulationEngine
 
 
 class RunService:
     def __init__(
         self,
         repository: MemoryRepository,
-        engine: MockEngine,
+        engine: SimulationEngine,
         analytics: AnalyticsService,
     ) -> None:
         self.repository = repository
@@ -26,10 +27,15 @@ class RunService:
         self.analytics = analytics
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
-    async def create_run(self, request: CreateRunRequest) -> RunSnapshot:
+    async def create_run(
+        self,
+        request: CreateRunRequest,
+        locale: Locale,
+    ) -> RunSnapshot:
         snapshot = RunSnapshot.empty(
             run_id=f"run-{uuid4()}",
             mode=request.mode,
+            locale=locale,
             config=request.config.model_copy(deep=True),
             created_at=datetime.now(UTC),
         )
@@ -85,6 +91,7 @@ class RunService:
             snapshot.sessions,
             snapshot.respondents,
             snapshot.config.questions,
+            snapshot.locale,
         )
         snapshot.responses = self.analytics.build_responses(
             snapshot.sessions,
@@ -100,7 +107,8 @@ class RunService:
             snapshot.status = "running"
             snapshot.startedAt = datetime.now(UTC)
             snapshot.respondents = self.engine.generate_respondents(
-                snapshot.config.respondentConfigs
+                snapshot.config.respondentConfigs,
+                snapshot.locale,
             )
             snapshot.sessions = [
                 InterviewSession(
@@ -142,22 +150,26 @@ class RunService:
                     )
                     session.dialog.append(question_message)
                     await self.repository.put_run(snapshot)
-                    await self.engine.wait(0.3)
+                    await self.engine.wait_before_question()
 
                     if self.engine.respondent_should_terminate(session.dialog):
-                        session.dialog.append(self.engine.termination_message())
+                        session.dialog.append(
+                            self.engine.termination_message(snapshot.locale)
+                        )
                         terminated = True
-                        termination_reason = "受访者主动结束对话"
+                        termination_reason = self.engine.termination_reason(
+                            snapshot.locale,
+                            "respondent",
+                        )
                         self._refresh_analytics(snapshot)
                         await self.repository.put_run(snapshot)
                         break
 
-                    await self.engine.wait(
-                        self.engine.rng.uniform(0.8, 2.3)
-                    )
+                    await self.engine.wait_before_answer()
                     response = self.engine.generate_answer(
                         respondent,
                         question,
+                        snapshot.locale,
                     )
                     session.dialog.append(response)
                     session.completedQuestions += 1
@@ -172,16 +184,20 @@ class RunService:
                         low_quality,
                     ):
                         terminated = True
-                        termination_reason = (
-                            "受访者回答质量较低，调研方决定提前结束"
-                            if low_quality
-                            else "受访者态度消极，调研方决定终止访谈"
+                        termination_reason = self.engine.termination_reason(
+                            snapshot.locale,
+                            "interviewer",
+                            low_quality,
                         )
                         break
 
                 session.status = (
                     "terminated_by_respondent"
-                    if termination_reason == "受访者主动结束对话"
+                    if termination_reason
+                    == self.engine.termination_reason(
+                        snapshot.locale,
+                        "respondent",
+                    )
                     else "terminated_by_interviewer"
                     if terminated
                     else "completed"
