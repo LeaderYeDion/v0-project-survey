@@ -1,4 +1,5 @@
 export type SimulationMode = "interview" | "survey"
+export type Locale = "zh-CN" | "en-US"
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled"
 export type SessionStatus =
   | "pending"
@@ -123,6 +124,7 @@ export interface DemographicAnalysis {
 export interface RunSnapshot {
   id: string
   mode: SimulationMode
+  locale: Locale
   status: RunStatus
   config: SurveyConfig
   respondents: RespondentProfile[]
@@ -143,6 +145,7 @@ export interface SurveyHistoryRecord {
   id: string
   runId: string
   mode: SimulationMode
+  locale: Locale
   savedAt: string
   config: SurveyConfig
   sessions: InterviewSession[]

@@ -241,9 +241,35 @@ test("browser locale synchronization updates document state for both locales", a
 test("locale provider delegates synchronous document updates to the browser helper", async () => {
   const source = await readSource("../components/locale-provider.tsx")
 
-  assert.match(source, /setLocaleState\(locale\)/)
-  assert.match(source, /syncDocumentLocale\(\s*document,\s*locale,/)
+  assert.match(source, /transitionLocale\(current,\s*\{ type: "set", locale \}\)/)
+  assert.match(source, /syncDocumentLocale\(\s*document,\s*next\.locale,/)
   assert.doesNotMatch(source, /router\.refresh/)
+})
+
+test("locale transition becomes immutable after locking", async () => {
+  const { transitionLocale } = await import("../lib/i18n/locale-lock.ts")
+
+  assert.deepEqual(
+    transitionLocale(
+      { locale: "zh-CN", locked: false },
+      { type: "set", locale: "en-US" },
+    ),
+    { locale: "en-US", locked: false },
+  )
+  assert.deepEqual(
+    transitionLocale(
+      { locale: "en-US", locked: false },
+      { type: "lock" },
+    ),
+    { locale: "en-US", locked: true },
+  )
+  assert.deepEqual(
+    transitionLocale(
+      { locale: "en-US", locked: true },
+      { type: "set", locale: "zh-CN" },
+    ),
+    { locale: "en-US", locked: true },
+  )
 })
 
 test("language switcher exposes both language options with a catalog label", async () => {
@@ -261,7 +287,10 @@ test("dashboard and survey configuration use the locale catalog at the UI bounda
     "../components/survey-config-panel.tsx",
   )
 
-  assert.match(dashboard, /const \{ locale, messages \} = useI18n\(\)/)
+  assert.match(
+    dashboard,
+    /const \{ locale, messages, lockLocale \} = useI18n\(\)/,
+  )
   assert.match(dashboard, /<LanguageSwitcher \/>/)
   assert.match(configuration, /const \{ messages \} = useI18n\(\)/)
 })
@@ -292,11 +321,24 @@ test("initial mode chooser is a mandatory modal with an in-dialog language switc
   assert.match(chooser, /<LanguageSwitcher \/>/)
   assert.match(chooser, /handleModeSelection\("survey"\)/)
   assert.match(chooser, /handleModeSelection\("interview"\)/)
+  assert.match(chooser, /disabled=\{loadedTemplateLocale !== locale\}/)
+  assert.match(chooser, /messages\.errors\.template/)
   assert.doesNotMatch(
     chooser,
     /AlertDialog(?:Action|Cancel)|onOpenChange|DialogClose/,
     "mode selection must be the only way to dismiss the chooser",
   )
+})
+
+test("mode selection freezes locale and the workspace header has no switcher", async () => {
+  const source = await readSource("../app/page.tsx")
+  const header = source.match(/<header[\s\S]*?<\/header>/)?.[0]
+
+  assert.ok(header)
+  assert.doesNotMatch(header, /<LanguageSwitcher \/>/)
+  assert.match(source, /const \{ locale, messages, lockLocale \} = useI18n\(\)/)
+  assert.match(source, /handleModeSelection[\s\S]*?lockLocale\(\)/)
+  assert.match(source, /createLatestRequestTracker/)
 })
 
 test("alert dialog content supports a scoped overlay appearance", async () => {

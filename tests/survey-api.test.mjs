@@ -113,12 +113,12 @@ test("shared JSON requests enforce locale across Headers input", async () => {
   assert.equal(capturedHeaders.get("X-Test"), "preserved")
 })
 
-test("dashboard loads the default template only until initialization succeeds", () => {
+test("dashboard reloads the default template for the latest selected locale", () => {
   const source = readFileSync("app/page.tsx", "utf8")
-  assert.match(source, /useRef/)
-  assert.match(source, /templateLoadedRef\s*=\s*useRef\(false\)/)
-  assert.match(source, /if\s*\(templateLoadedRef\.current\)\s*return/)
-  assert.match(source, /templateLoadedRef\.current\s*=\s*true/)
+  assert.match(source, /createLatestRequestTracker/)
+  assert.match(source, /templateRequestsRef\.current\.begin\(\)/)
+  assert.match(source, /templateRequestsRef\.current\.isLatest\(requestId\)/)
+  assert.match(source, /setLoadedTemplateLocale\(locale\)/)
   assert.match(
     source,
     /apiFetchDefaultTemplate\(locale,\s*controller\.signal\)/,

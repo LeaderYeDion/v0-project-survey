@@ -48,6 +48,8 @@ import {
   apiExportSurveyResults,
 } from "@/lib/survey-api"
 import { DESKTOP_WORKSPACE_LAYOUT } from "@/lib/workspace-layout.mjs"
+import { createLatestRequestTracker } from "@/lib/latest-request"
+import type { Locale } from "@/lib/i18n/locale"
 import { useI18n } from "@/components/locale-provider"
 import { LanguageSwitcher } from "@/components/language-switcher"
 
@@ -77,7 +79,7 @@ const EMPTY_SENTIMENT: SentimentData = {
 
 export default function ResearcherDashboard() {
   const layout = useResponsiveLayout()
-  const { locale, messages } = useI18n()
+  const { locale, messages, lockLocale } = useI18n()
   const [config, setConfig] = useState<SurveyConfig>(EMPTY_CONFIG)
   const [currentRun, setCurrentRun] = useState<RunSnapshot | null>(null)
   const [mode, setMode] = useState<SimulationMode>("survey")
@@ -86,23 +88,35 @@ export default function ResearcherDashboard() {
   const [configSheetOpen, setConfigSheetOpen] = useState(false)
   const [analyticsSheetOpen, setAnalyticsSheetOpen] = useState(false)
   const [viewingHistoryRecord, setViewingHistoryRecord] = useState<SurveyHistoryRecord | null>(null)
-  const templateLoadedRef = useRef(false)
+  const templateRequestsRef = useRef(createLatestRequestTracker())
+  const [loadedTemplateLocale, setLoadedTemplateLocale] =
+    useState<Locale | null>(null)
+  const [templateError, setTemplateError] = useState(false)
 
   const isRunning =
     currentRun?.status === "queued" || currentRun?.status === "running"
 
   useEffect(() => {
-    if (templateLoadedRef.current) return
     const controller = new AbortController()
+    const requestId = templateRequestsRef.current.begin()
+    setLoadedTemplateLocale(null)
+    setTemplateError(false)
     apiFetchDefaultTemplate(locale, controller.signal)
       .then(nextConfig => {
-        if (controller.signal.aborted) return
-        templateLoadedRef.current = true
+        if (
+          controller.signal.aborted ||
+          !templateRequestsRef.current.isLatest(requestId)
+        ) return
         setConfig(nextConfig)
+        setLoadedTemplateLocale(locale)
       })
       .catch(error => {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          templateRequestsRef.current.isLatest(requestId)
+        ) {
           console.error("Template error:", error)
+          setTemplateError(true)
         }
       })
     return () => controller.abort()
@@ -191,10 +205,15 @@ export default function ResearcherDashboard() {
     // Could be used for additional actions
   }, [])
 
-  const handleModeSelection = useCallback((selection: SimulationMode) => {
-    setMode(selection)
-    setModeSelected(true)
-  }, [])
+  const handleModeSelection = useCallback(
+    (selection: SimulationMode) => {
+      if (loadedTemplateLocale !== locale) return
+      setMode(selection)
+      lockLocale()
+      setModeSelected(true)
+    },
+    [loadedTemplateLocale, locale, lockLocale],
+  )
 
   const handleLoadHistory = useCallback((record: SurveyHistoryRecord) => {
     setViewingHistoryRecord(record)
@@ -354,7 +373,6 @@ export default function ResearcherDashboard() {
                       : messages.dashboard.idle}
                 </span>
               </div>
-              <LanguageSwitcher />
             </div>
           </div>
         </div>
@@ -530,9 +548,15 @@ export default function ResearcherDashboard() {
           <AlertDialogDescription className="mb-6">
             {messages.dashboard.chooseModeDescription}
           </AlertDialogDescription>
+          {templateError && (
+            <p role="alert" className="mb-4 text-sm text-destructive">
+              {messages.errors.template}
+            </p>
+          )}
           <div className="space-y-4">
             <button
               type="button"
+              disabled={loadedTemplateLocale !== locale}
               onClick={() => handleModeSelection("survey")}
               className="w-full rounded-xl border border-border/60 bg-secondary/40 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
             >
@@ -545,6 +569,7 @@ export default function ResearcherDashboard() {
             </button>
             <button
               type="button"
+              disabled={loadedTemplateLocale !== locale}
               onClick={() => handleModeSelection("interview")}
               className="w-full rounded-xl border border-border/60 bg-background/80 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
             >

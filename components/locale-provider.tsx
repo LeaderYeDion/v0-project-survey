@@ -12,6 +12,10 @@ import {
 import { syncDocumentLocale } from "@/lib/i18n/browser"
 import { LOCALE_COOKIE, type Locale } from "@/lib/i18n/locale"
 import {
+  transitionLocale,
+  type LocaleState,
+} from "@/lib/i18n/locale-lock"
+import {
   messages as messageCatalogs,
   type MessageCatalog,
 } from "@/lib/i18n/messages"
@@ -19,6 +23,8 @@ import {
 export interface I18nContextValue {
   locale: Locale
   setLocale: (locale: Locale) => void
+  isLocaleLocked: boolean
+  lockLocale: () => void
   messages: MessageCatalog
 }
 
@@ -31,25 +37,40 @@ export function LocaleProvider({
   initialLocale: Locale
   children: ReactNode
 }): React.JSX.Element {
-  const [locale, setLocaleState] = useState<Locale>(initialLocale)
+  const [localeState, setLocaleState] = useState<LocaleState>({
+    locale: initialLocale,
+    locked: false,
+  })
 
   const setLocale = useCallback((locale: Locale) => {
-    setLocaleState(locale)
-    syncDocumentLocale(
-      document,
-      locale,
-      messageCatalogs[locale].metadata,
-      LOCALE_COOKIE,
-    )
+    setLocaleState(current => {
+      const next = transitionLocale(current, { type: "set", locale })
+      if (next.locale !== current.locale) {
+        syncDocumentLocale(
+          document,
+          next.locale,
+          messageCatalogs[next.locale].metadata,
+          LOCALE_COOKIE,
+        )
+      }
+      return next
+    })
   }, [])
 
+  const lockLocale = useCallback(() => {
+    setLocaleState(current => transitionLocale(current, { type: "lock" }))
+  }, [])
+
+  const { locale, locked: isLocaleLocked } = localeState
   const value = useMemo<I18nContextValue>(
     () => ({
       locale,
       setLocale,
+      isLocaleLocked,
+      lockLocale,
       messages: messageCatalogs[locale],
     }),
-    [locale, setLocale],
+    [isLocaleLocked, locale, lockLocale, setLocale],
   )
 
   return (
