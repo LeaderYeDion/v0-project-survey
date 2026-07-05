@@ -31,7 +31,11 @@ import type {
 import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/components/locale-provider"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { formatInteger, formatPercentage } from "@/lib/i18n/locale"
+import {
+  formatDecimal,
+  formatInteger,
+  formatPercentage,
+} from "@/lib/i18n/locale"
 
 interface BulkSurveyPanelProps {
   sessions: InterviewSession[]
@@ -112,7 +116,7 @@ export function BulkSurveyPanel({
   const formatStat = (value?: number | null, digits = 1) =>
     value === undefined || value === null || Number.isNaN(value)
       ? "—"
-      : value.toFixed(digits)
+      : formatDecimal(locale, value, digits)
 
   const getQuestionTypeLabel = (type: SurveyQuestion["type"]) => {
     if (type === "choice") return messages.survey.choiceType
@@ -289,6 +293,7 @@ export function BulkSurveyPanel({
               <button
                 type="button"
                 onClick={() => setShowQuestionStats(v => !v)}
+                aria-controls="survey-question-statistics-content"
                 aria-expanded={showQuestionStats}
                 aria-label={
                   showQuestionStats
@@ -312,8 +317,9 @@ export function BulkSurveyPanel({
               </button>
             </div>
 
-            {showQuestionStats && (
-              <ScrollArea className="flex-1 min-h-0 pr-2">
+            <div id="survey-question-statistics-content" className="contents">
+              {showQuestionStats && (
+                <ScrollArea className="flex-1 min-h-0 pr-2">
                 {questionAnalysis.length === 0 ? (
                   <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
                     {messages.survey.noStatistics}
@@ -454,7 +460,7 @@ export function BulkSurveyPanel({
                               <div className="mt-1 text-[11px] text-muted-foreground">
                                 {messages.survey.averageScore}{" "}
                                 <span className="font-semibold text-foreground">
-                                  {qa.averageScore.toFixed(1)}
+                                  {formatDecimal(locale, qa.averageScore, 1)}
                                 </span>
                               </div>
                             )}
@@ -463,8 +469,9 @@ export function BulkSurveyPanel({
                     })}
                   </div>
                 )}
-              </ScrollArea>
-            )}
+                </ScrollArea>
+              )}
+            </div>
           </div>
 
           {/* Response-level detail */}
@@ -473,15 +480,15 @@ export function BulkSurveyPanel({
               showResponseDetail ? "flex-1 min-h-0" : "flex-none"
             }`}
           >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
+            <div className="mb-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-2">
                 <Users className="w-4 h-4 text-primary" />
-                <span className="text-xs font-medium text-foreground">
+                <span className="min-w-0 break-words text-xs font-medium text-foreground">
                   {messages.survey.responseDetails}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-muted-foreground">
+              <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                <span className="min-w-0 text-[11px] text-muted-foreground">
                   {responses.length > 0
                     ? messages.survey.responsePosition(
                         formatInteger(locale, currentResponseIndex + 1),
@@ -514,6 +521,7 @@ export function BulkSurveyPanel({
                 <button
                   type="button"
                   onClick={() => setShowResponseDetail(v => !v)}
+                  aria-controls="survey-response-details-content"
                   aria-expanded={showResponseDetail}
                   aria-label={
                     showResponseDetail
@@ -536,8 +544,9 @@ export function BulkSurveyPanel({
               </div>
             </div>
 
-            {showResponseDetail && (
-              <>
+            <div id="survey-response-details-content" className="contents">
+              {showResponseDetail && (
+                <>
                 {responses.length === 0 || !currentResponse ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-xs text-muted-foreground">
                     <Clock className="w-6 h-6 mb-2 text-muted-foreground" />
@@ -605,8 +614,9 @@ export function BulkSurveyPanel({
                     </ScrollArea>
                   </div>
                 )}
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

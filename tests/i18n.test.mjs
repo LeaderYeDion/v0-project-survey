@@ -4,6 +4,7 @@ import test from "node:test"
 
 import {
   formatDate,
+  formatDecimal,
   formatInteger,
   formatPercentage,
   normalizeLocale,
@@ -95,6 +96,12 @@ test("formats dates deterministically for both locales", () => {
 test("formats grouped integers for both locales", () => {
   assert.equal(formatInteger("zh-CN", 1_234_567), "1,234,567")
   assert.equal(formatInteger("en-US", 1_234_567), "1,234,567")
+})
+
+test("formats decimals with exact locale-aware precision", () => {
+  assert.equal(formatDecimal("zh-CN", 1_234.5, 2), "1,234.50")
+  assert.equal(formatDecimal("en-US", 1_234.5, 2), "1,234.50")
+  assert.equal(formatDecimal("en-US", 1.26, 1), "1.3")
 })
 
 test("formats ratio inputs as percentages for both locales", () => {
@@ -382,6 +389,41 @@ test("survey result panels use the locale catalog at the UI boundary", async () 
   assert.match(chat, /const \{ locale, messages \} = useI18n\(\)/)
   assert.match(bulk, /const \{ locale, messages \} = useI18n\(\)/)
   assert.match(bulk, /formatPercentage\(locale,\s*completedCount \/ total\)/)
+  assert.match(bulk, /formatDecimal\(locale,\s*value,\s*digits\)/)
+  assert.match(bulk, /formatDecimal\(locale,\s*qa\.averageScore,\s*1\)/)
+  assert.doesNotMatch(bulk, /\.toFixed\(/)
+})
+
+test("survey result panels preserve representative backend-provided content", async () => {
+  const chat = await readSource("../components/chat-simulation-panel.tsx")
+  const bulk = await readSource("../components/bulk-survey-panel.tsx")
+
+  assert.match(chat, /\{message\.content\}/)
+  assert.match(chat, /\{respondent\.name\}/)
+  assert.match(chat, /\{selectedRespondent\.name\}/)
+  assert.match(bulk, /\{qa\.questionText\}/)
+  assert.match(bulk, /\{q\.question\}/)
+  assert.match(bulk, /\(props\?\.payload as any\)\?\.label/)
+
+  assert.match(chat, /messages\.common\.completed/)
+  assert.match(chat, /messages\.interview\.conversationDetails/)
+  assert.match(bulk, /messages\.survey\.responseDetails/)
+  assert.match(bulk, /messages\.common\.respondentTerminated/)
+})
+
+test("bulk result disclosure controls identify the regions they control", async () => {
+  const bulk = await readSource("../components/bulk-survey-panel.tsx")
+
+  assert.match(
+    bulk,
+    /aria-controls="survey-question-statistics-content"[\s\S]*?aria-expanded=\{showQuestionStats\}/,
+  )
+  assert.match(bulk, /id="survey-question-statistics-content"/)
+  assert.match(
+    bulk,
+    /aria-controls="survey-response-details-content"[\s\S]*?aria-expanded=\{showResponseDetail\}/,
+  )
+  assert.match(bulk, /id="survey-response-details-content"/)
 })
 
 test("survey result panels contain no fixed Han-script UI literals", async () => {
@@ -403,10 +445,40 @@ test("survey result panel state is not keyed or reset when locale changes", asyn
   const chat = await readSource("../components/chat-simulation-panel.tsx")
   const bulk = await readSource("../components/bulk-survey-panel.tsx")
 
-  assert.match(chat, /useState<string \| null>\(null\)/)
-  assert.match(bulk, /useState\(0\)/)
+  assert.match(
+    chat,
+    /\[selectedRespondentId,\s*setSelectedRespondentId\] = useState<string \| null>\(null\)/,
+  )
+  assert.match(
+    chat,
+    /\[mobileView,\s*setMobileView\] =\s*useState<MobileInterviewView>\("respondents"\)/,
+  )
+  assert.match(
+    bulk,
+    /\[currentResponseIndex,\s*setCurrentResponseIndex\] = useState\(0\)/,
+  )
+  assert.match(
+    bulk,
+    /\[showQuestionStats,\s*setShowQuestionStats\] = useState\(true\)/,
+  )
+  assert.match(
+    bulk,
+    /\[showResponseDetail,\s*setShowResponseDetail\] = useState\(true\)/,
+  )
   assert.doesNotMatch(chat, /key=\{locale\}|setSelectedRespondentId\(null\)/)
   assert.doesNotMatch(bulk, /key=\{locale\}|setCurrentResponseIndex\(0\)/)
+
+  for (const source of [chat, bulk]) {
+    const localeEffects = source.match(
+      /useEffect\(\(\) => \{[\s\S]*?\}, \[[^\]]*\blocale\b[^\]]*\]\)/g,
+    ) ?? []
+    for (const effect of localeEffects) {
+      assert.doesNotMatch(
+        effect,
+        /setSelectedRespondentId|setCurrentResponseIndex|setMobileView|setShowQuestionStats|setShowResponseDetail/,
+      )
+    }
+  }
 })
 
 test("login page keeps redirect sanitization on the server and delegates localized UI", async () => {

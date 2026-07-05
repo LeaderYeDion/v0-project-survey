@@ -390,8 +390,8 @@ export function ChatSimulationPanel({
 
             {/* Footer Stats */}
             <div className="px-4 py-3 border-t border-border/50 bg-secondary/20">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground sm:justify-between">
+                <span className="min-w-0">
                   {messages.interview.questionProgress(
                     formatInteger(
                       locale,
@@ -402,13 +402,13 @@ export function ChatSimulationPanel({
                       : "-",
                   )}
                 </span>
-                <span>
+                <span className="min-w-0">
                   {messages.interview.dialogMessages(
                     formatInteger(locale, selectedSession?.dialog.length || 0),
                   )}
                 </span>
                 {selectedSession && (
-                  <span>
+                  <span className="shrink-0">
                     {messages.interview.status}: {getStatusBadge(selectedSession.status)}
                   </span>
                 )}

@@ -31,6 +31,17 @@ export function formatInteger(locale: Locale, value: number): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value)
 }
 
+export function formatDecimal(
+  locale: Locale,
+  value: number,
+  fractionDigits = 1,
+): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(value)
+}
+
 export function formatPercentage(
   locale: Locale,
   value: number,
