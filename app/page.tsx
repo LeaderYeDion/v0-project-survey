@@ -519,7 +519,7 @@ export default function ResearcherDashboard() {
       <AlertDialog open={!modeSelected}>
         <AlertDialogContent
           overlayClassName="bg-background/95 backdrop-blur-xl"
-          className="w-full max-w-[380px] gap-0 rounded-2xl border-border/70 bg-card/90 p-5 shadow-2xl sm:max-w-[380px] sm:p-6"
+          className="gap-0 rounded-2xl border-border/70 bg-card/90 p-5 shadow-2xl sm:max-w-[380px] sm:p-6"
         >
           <div className="absolute right-5 top-5 sm:right-6 sm:top-6">
             <LanguageSwitcher />

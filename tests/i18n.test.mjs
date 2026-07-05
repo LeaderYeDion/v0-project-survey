@@ -212,6 +212,16 @@ test("initial mode chooser is a mandatory modal with an in-dialog language switc
   )?.[0]
 
   assert.ok(chooser, "mode chooser must use the controlled AlertDialog")
+  const contentClass = chooser.match(
+    /<AlertDialogContent[\s\S]*?\sclassName="([^"]+)"/,
+  )?.[1]
+  assert.ok(contentClass)
+  assert.match(contentClass, /(?:^|\s)sm:max-w-\[380px\](?:\s|$)/)
+  assert.doesNotMatch(
+    contentClass,
+    /(?:^|\s)(?:w-full|max-w-\[380px\])(?:\s|$)/,
+    "base AlertDialogContent must retain its shared mobile gutters",
+  )
   assert.match(
     chooser,
     /<AlertDialogContent[\s\S]*?overlayClassName="bg-background\/95 backdrop-blur-xl"/,
