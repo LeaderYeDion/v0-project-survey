@@ -109,12 +109,16 @@ tail -n 100 deploy/runtime/next.log
 
 ```bash
 source deploy/config/deploy.env
-curl --fail "http://${BACKEND_HOST}:${BACKEND_PORT}/api/health"
+curl --header "Accept-Language: zh-CN" \
+  --fail "http://${BACKEND_HOST}:${BACKEND_PORT}/api/health"
 curl --user "$DEPLOY_USERNAME:$DEPLOY_PASSWORD" \
+  --header "Accept-Language: zh-CN" \
   --fail "http://${LOCAL_HOST}:${LOCAL_PORT}/survey-api/health"
 tail -n 100 deploy/runtime/backend.log
 tail -n 100 deploy/runtime/next.log
 ```
+
+FastAPI 业务接口要求 `Accept-Language` 精确为 `zh-CN` 或 `en-US`；调试 `/survey-api/*` 时也必须携带其中之一。`/api/health` 本身可省略该请求头并默认返回 `Content-Language: zh-CN`，上面的示例显式添加它，以复现部署脚本实际执行的语言契约检查。
 
 如果 FastAPI 已重启，先前保存在内存中的运行和历史记录无法恢复。
 

@@ -38,6 +38,29 @@ test("starts and health-checks FastAPI behind the authenticated Next.js proxy", 
   assert.match(start, /backend\.log/)
 })
 
+test("health curls exercise the supported Chinese request language", async () => {
+  const start = await read("deploy/scripts/start.sh")
+  const directHealthCheck = start.match(
+    /backend_status="\$\(\n([\s\S]*?)\n  \)"/,
+  )?.[1]
+  const sharedHealthConfig = start.match(
+    /chmod 600 "\$HEALTH_CONFIG"\n\{\n([\s\S]*?)\n\} >"\$HEALTH_CONFIG"/,
+  )?.[1]
+
+  assert.ok(directHealthCheck, "direct FastAPI health curl was not found")
+  assert.match(directHealthCheck, /\bcurl\b/)
+  assert.match(
+    directHealthCheck,
+    /^\s*--header\s+["']Accept-Language: zh-CN["']\s*\\$/m,
+  )
+
+  assert.ok(sharedHealthConfig, "shared authenticated curl config was not found")
+  assert.match(
+    sharedHealthConfig,
+    /^\s*printf 'header = "Accept-Language: zh-CN"\\n'\s*$/m,
+  )
+})
+
 test("rolls FastAPI back after Next.js and before releasing the lifecycle lock", async () => {
   const start = await read("deploy/scripts/start.sh")
   const stopNext = start.indexOf('stop_role "next"')

@@ -106,9 +106,9 @@ npm run deploy:start
 1. 获取生命周期锁；
 2. 检查配置；
 3. 构建生产版本；
-4. 启动仅监听 `BACKEND_HOST:BACKEND_PORT`（默认 `127.0.0.1:8000`）的 FastAPI，并检查 `/api/health`；
+4. 启动仅监听 `BACKEND_HOST:BACKEND_PORT`（默认 `127.0.0.1:8000`）的 FastAPI，并携带 `Accept-Language: zh-CN` 检查 `/api/health`；
 5. 启动仅监听 `127.0.0.1:3000` 的 Next.js；
-6. 使用 Basic Authorization 验证本地页面和 `/survey-api/health`，并确认未认证请求返回 401；
+6. 使用 Basic Authorization 与 `Accept-Language: zh-CN` 验证本地页面和 `/survey-api/health`，并确认未认证请求返回 401；
 7. 启动匿名 Quick Tunnel；
 8. 提取随机 HTTPS 地址；
 9. 使用相同健康检查验证公网页面和代理后的 FastAPI；
@@ -134,7 +134,11 @@ npm run deploy:status
 2. 在项目登录页输入账号密码；
 3. 凭据正确后进入应用并获得 12 小时浏览器会话。
 
-错误凭据会留在登录页并显示“用户名或密码不正确”。部署脚本和其他非 HTML 请求的错误凭据仍得到 `401 Authentication required`。
+界面只支持简体中文 `zh-CN` 和英文 `en-US`。第一次访问时，已有 `survey_locale` Cookie 优先；没有 Cookie 时按浏览器语言选择，中文浏览器使用 `zh-CN`，其他语言使用 `en-US`。登录页和工作台右上角始终提供语言切换，选择会写入 Cookie，供后续访问优先使用。
+
+登录 API 与所有 `/survey-api/*` 请求都会发送当前语言的精确 `Accept-Language`。FastAPI 业务接口只接受 `zh-CN` 或 `en-US`，缺少或不支持的值会返回 400；健康接口不要求该请求头，响应语言默认是 `zh-CN`。部署启动脚本仍显式发送 `Accept-Language: zh-CN`，使直连、认证后的本地代理和公网代理健康检查都覆盖语言请求契约。
+
+错误凭据会按当前界面语言留在登录页显示。部署脚本和其他非 HTML 请求的错误凭据仍得到 `401 Authentication required`。语言切换只翻译界面、格式化显示和部分接口错误，不会翻译 FastAPI 已返回的问卷、受访者、回答或导出内容；当前 Mock Engine 生成的内容在英文界面中仍可能是中文。
 
 ## 7. 一键停止
 

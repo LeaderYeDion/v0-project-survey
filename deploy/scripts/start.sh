@@ -100,6 +100,7 @@ for attempt in $(seq 1 80); do
       --output /dev/null \
       --write-out '%{http_code}' \
       --max-time 5 \
+      --header "Accept-Language: zh-CN" \
       "$(backend_origin_url)/api/health" 2>/dev/null || true
   )"
   if [ "$backend_status" = "200" ]; then
@@ -134,6 +135,7 @@ chmod 600 "$HEALTH_CONFIG"
   printf 'connect-timeout = 3\n'
   printf 'max-time = 5\n'
   printf 'header = "Authorization: Basic %s"\n' "$basic_token"
+  printf 'header = "Accept-Language: zh-CN"\n'
 } >"$HEALTH_CONFIG"
 unset basic_token
 
