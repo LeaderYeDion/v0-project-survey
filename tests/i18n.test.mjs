@@ -715,6 +715,21 @@ test("analytics contains no fixed Han-script UI literals beyond its backend prot
   )
 })
 
+test("analytics dialogs and charts use their accessibility wrappers correctly", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(analytics, /DialogDescription/)
+  assert.match(
+    analytics,
+    /<DialogDescription[^>]*>[\s\S]*?messages\.analytics\.historyDescription[\s\S]*?<\/DialogDescription>/,
+  )
+  assert.doesNotMatch(
+    analytics,
+    /<ChartContainer[\s\S]*?<ResponsiveContainer[\s\S]*?<\/ResponsiveContainer>[\s\S]*?<\/ChartContainer>/,
+    "ChartContainer already supplies a ResponsiveContainer",
+  )
+})
+
 test("analytics state is not keyed or reset when locale changes", async () => {
   const analytics = await readSource("../components/analytics-panel.tsx")
 

@@ -9,7 +9,6 @@ import {
   Bar,
   XAxis,
   YAxis,
-  ResponsiveContainer,
   Tooltip,
 } from "recharts"
 import { Progress } from "@/components/ui/progress"
@@ -27,6 +26,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -164,41 +164,39 @@ function renderQuestionBarChart(
       className="w-full"
       style={{ height, paddingBottom: 36, aspectRatio: "auto" }}
     >
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} layout="vertical" margin={{ left: 0, right: 16, top: 6, bottom: 6 }}>
-          <XAxis
-            type="number"
-            domain={[0, "dataMax"]}
-            allowDecimals={false}
-            tick={AXIS_TICK_STYLE}
-            tickFormatter={value => {
-              const normalized = typeof value === "number" ? value : Number(value)
-              return Number.isFinite(normalized)
-                ? formatInteger(locale, normalized)
-                : ""
-            }}
-            label={{
-              value: messages.analytics.answerCount,
-              position: "bottom",
-              offset: 10,
-              fill: "hsl(var(--muted-foreground))",
-              fontSize: 10,
-            }}
-          />
-          <YAxis
-            dataKey="answer"
-            type="category"
-            width={66}
-            tick={AXIS_TICK_STYLE}
-          />
-          <ChartTooltip
-            content={({ payload }) =>
-              renderResponseTooltipContent(locale, messages, payload)
-            }
-          />
-          <Bar dataKey="count" fill={color} radius={[0, 4, 4, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
+      <BarChart data={data} layout="vertical" margin={{ left: 0, right: 16, top: 6, bottom: 6 }}>
+        <XAxis
+          type="number"
+          domain={[0, "dataMax"]}
+          allowDecimals={false}
+          tick={AXIS_TICK_STYLE}
+          tickFormatter={value => {
+            const normalized = typeof value === "number" ? value : Number(value)
+            return Number.isFinite(normalized)
+              ? formatInteger(locale, normalized)
+              : ""
+          }}
+          label={{
+            value: messages.analytics.answerCount,
+            position: "bottom",
+            offset: 10,
+            fill: "hsl(var(--muted-foreground))",
+            fontSize: 10,
+          }}
+        />
+        <YAxis
+          dataKey="answer"
+          type="category"
+          width={66}
+          tick={AXIS_TICK_STYLE}
+        />
+        <ChartTooltip
+          content={({ payload }) =>
+            renderResponseTooltipContent(locale, messages, payload)
+          }
+        />
+        <Bar dataKey="count" fill={color} radius={[0, 4, 4, 0]} />
+      </BarChart>
     </ChartContainer>
   )
 }
@@ -624,6 +622,9 @@ export function AnalyticsPanel({
                 <History className="w-4 h-4 text-primary" />
                 {messages.analytics.historyTitle}
               </DialogTitle>
+              <DialogDescription className="sr-only">
+                {messages.analytics.historyDescription}
+              </DialogDescription>
             </DialogHeader>
             <div className="mt-4">
               {isLoadingHistory ? (
@@ -849,28 +850,26 @@ export function AnalyticsPanel({
                       }}
                       className="h-24 w-24"
                     >
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={sentimentData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={20}
-                            outerRadius={40}
-                            paddingAngle={2}
-                            dataKey="value"
-                          >
-                            {sentimentData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.fill} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            formatter={value =>
-                              formatPercentage(locale, Number(value) / 100)
-                            }
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
+                      <PieChart>
+                        <Pie
+                          data={sentimentData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={20}
+                          outerRadius={40}
+                          paddingAngle={2}
+                          dataKey="value"
+                        >
+                          {sentimentData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={value =>
+                            formatPercentage(locale, Number(value) / 100)
+                          }
+                        />
+                      </PieChart>
                     </ChartContainer>
 
                     <div className="flex-1 space-y-1.5">
