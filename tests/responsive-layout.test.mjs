@@ -60,3 +60,18 @@ test("chat footer wraps long localized statistics without clipping status", asyn
     /<span className="shrink-0">[\s\S]*?messages\.interview\.status/,
   )
 })
+
+test("analytics tabs stack narrowly and wrap long localized labels", async () => {
+  const source = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(
+    source,
+    /<TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-secondary\/30 p-1 sm:grid-cols-3">/,
+  )
+  assert.equal(
+    source.match(
+      /<TabsTrigger value="(?:overview|questions|demographic)" className="min-h-9 whitespace-normal px-2 py-1\.5 text-center text-xs leading-tight">/g,
+    )?.length,
+    3,
+  )
+})

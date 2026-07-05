@@ -494,6 +494,14 @@ test("analytics and history use the locale catalog and presentation formatters",
   assert.match(analytics, /formatPercentage\(\s*locale,/)
   assert.match(
     analytics,
+    /const completionPercentage = Math\.round\(completionRatio \* 100\)/,
+  )
+  assert.match(
+    analytics,
+    /<Progress value=\{completionPercentage\} className="h-2 bg-secondary" \/>/,
+  )
+  assert.match(
+    analytics,
     /formatDecimal\(\s*locale,\s*globalQuestionAnalysis\.averageScore,\s*1,\s*\)/,
   )
   assert.doesNotMatch(analytics, /\.toFixed\(/)

@@ -412,7 +412,7 @@ export function AnalyticsPanel({
   const completionRatio = progress.totalRespondents > 0
     ? progress.completedRespondents / progress.totalRespondents
     : 0
-  const completionPercentage = completionRatio * 100
+  const completionPercentage = Math.round(completionRatio * 100)
 
   const totalMessages = sessions.reduce((acc, s) => acc + s.dialog.length, 0)
 
@@ -672,14 +672,14 @@ export function AnalyticsPanel({
 
           {/* Tabbed Analysis */}
           <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="w-full bg-secondary/30 p-1">
-              <TabsTrigger value="overview" className="flex-1 text-xs">
+            <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-secondary/30 p-1 sm:grid-cols-3">
+              <TabsTrigger value="overview" className="min-h-9 whitespace-normal px-2 py-1.5 text-center text-xs leading-tight">
                 {messages.analytics.overview}
               </TabsTrigger>
-              <TabsTrigger value="questions" className="flex-1 text-xs">
+              <TabsTrigger value="questions" className="min-h-9 whitespace-normal px-2 py-1.5 text-center text-xs leading-tight">
                 {messages.analytics.questionAnalysis}
               </TabsTrigger>
-              <TabsTrigger value="demographic" className="flex-1 text-xs">
+              <TabsTrigger value="demographic" className="min-h-9 whitespace-normal px-2 py-1.5 text-center text-xs leading-tight">
                 {messages.analytics.demographicAnalysis}
               </TabsTrigger>
             </TabsList>
