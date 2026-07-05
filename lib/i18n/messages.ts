@@ -194,8 +194,11 @@ const zhCN = {
     answerCount: "回答数",
     returnToCurrent: "返回当前调研",
     saveSurvey: "保存本次调研",
+    savingSurvey: "正在保存调研...",
     history: "历史记录",
     historyTitle: "调研历史记录",
+    loadingHistory: "正在加载历史记录...",
+    loadingAnalytics: "正在加载分析结果...",
     noHistory: "暂无历史记录",
     completedCount: (count: number | string) => `完成 ${count}`,
     terminatedCount: (count: number | string) => `终止 ${count}`,
@@ -241,6 +244,8 @@ const zhCN = {
     simulation: "模拟失败",
     export: "导出失败",
     analyticsQuery: "分析查询失败",
+    historyLoad: "历史记录加载失败",
+    historySave: "调研保存失败",
   },
 } as const
 
@@ -263,8 +268,10 @@ const enUS = {
     positive: "Positive",
     neutral: "Neutral",
     negative: "Negative",
-    people: (count: number | string) => `${count} people`,
-    responses: (count: number | string) => `${count} responses`,
+    people: (count: number | string) =>
+      `${count} ${String(count) === "1" ? "person" : "people"}`,
+    responses: (count: number | string) =>
+      `${count} ${String(count) === "1" ? "response" : "responses"}`,
   },
   metadata: {
     title: "Survey Agent Simulator - AI Survey Simulation Platform",
@@ -429,8 +436,11 @@ const enUS = {
     answerCount: "Response count",
     returnToCurrent: "Return to current survey",
     saveSurvey: "Save this survey",
+    savingSurvey: "Saving survey...",
     history: "History",
     historyTitle: "Survey history",
+    loadingHistory: "Loading survey history...",
+    loadingAnalytics: "Loading analytics...",
     noHistory: "No history yet",
     completedCount: (count: number | string) => `Completed ${count}`,
     terminatedCount: (count: number | string) => `Terminated ${count}`,
@@ -458,7 +468,8 @@ const enUS = {
     filteredInsights: "Filtered insights",
     noFilteredAnswers: "No responses match the current filters",
     selectedDimensions: "selected dimensions",
-    groupCount: (count: number | string) => `${count} groups`,
+    groupCount: (count: number | string) =>
+      `${count} ${String(count) === "1" ? "group" : "groups"}`,
     noGroupAnswers: "No responses for this dimension combination",
     combinedChartHint: "Combined charts also use response count horizontally and options vertically.",
     byCity: "By city",
@@ -476,6 +487,8 @@ const enUS = {
     simulation: "Simulation failed",
     export: "Export failed",
     analyticsQuery: "Analytics query failed",
+    historyLoad: "Unable to load survey history",
+    historySave: "Unable to save the survey",
   },
 } satisfies MessageShape<typeof zhCN>
 

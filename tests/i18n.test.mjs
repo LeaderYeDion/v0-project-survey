@@ -164,6 +164,12 @@ test("dynamic catalog messages compose already-formatted values", () => {
     "Showing 3 of 10 respondents",
   )
   assert.equal(messages["zh-CN"].analytics.groupCount(2), "2 个分组")
+  assert.equal(messages["en-US"].common.people(1), "1 person")
+  assert.equal(messages["en-US"].common.people("2"), "2 people")
+  assert.equal(messages["en-US"].common.responses("1"), "1 response")
+  assert.equal(messages["en-US"].common.responses(2), "2 responses")
+  assert.equal(messages["en-US"].analytics.groupCount(1), "1 group")
+  assert.equal(messages["en-US"].analytics.groupCount("2"), "2 groups")
   assert.equal(
     messages["en-US"].interview.questionProgress(3, "-"),
     "Question progress: 3 / -",
@@ -526,6 +532,155 @@ test("analytics API calls propagate the current locale", async () => {
   )
 })
 
+test("analytics queries clear stale results and expose localized request state", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(
+    analytics,
+    /\[isLoadingAnalytics,\s*setIsLoadingAnalytics\] = useState\(false\)/,
+  )
+  assert.match(
+    analytics,
+    /\[analyticsError,\s*setAnalyticsError\] = useState\(false\)/,
+  )
+  assert.match(
+    analytics,
+    /setAnalyticsResultState\(null\)[\s\S]*?setAnalyticsError\(false\)[\s\S]*?setIsLoadingAnalytics\(true\)[\s\S]*?window\.setTimeout/,
+  )
+  assert.match(
+    analytics,
+    /catch \(error\) \{[\s\S]*?setAnalyticsResultState\(null\)[\s\S]*?setAnalyticsError\(true\)/,
+  )
+  assert.match(
+    analytics,
+    /role="status"[\s\S]*?messages\.analytics\.loadingAnalytics/,
+  )
+  assert.match(
+    analytics,
+    /role="alert"[\s\S]*?messages\.errors\.analyticsQuery/,
+  )
+})
+
+test("analytics retains dimension metadata across query transitions and resets it for a new source", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(
+    analytics,
+    /\[dimensionMetadataState,\s*setDimensionMetadataState\] = useState<SourceDimensionMetadata \| null>\(null\)/,
+  )
+  assert.match(
+    analytics,
+    /dimensionMetadataState\?\.sourceKey === currentSourceKey[\s\S]*?dimensionMetadataState\.items[\s\S]*?: \[\]/,
+  )
+  assert.match(
+    analytics,
+    /setAnalyticsResultState\(\{ key: queryKey, result \}\)[\s\S]*?setDimensionMetadataState\(\{[\s\S]*?sourceKey,[\s\S]*?items: result\.dimensionMetadata/,
+  )
+  assert.match(
+    analytics,
+    /setDimensionMetadataState\(null\)[\s\S]*?setDimensionFilters\(\{\}\)[\s\S]*?setGroupByDimensions\(\[\]\)/,
+  )
+
+  const queryStart = analytics.match(
+    /setAnalyticsResultState\(null\)[\s\S]*?const timer = window\.setTimeout/,
+  )?.[0]
+  assert.ok(queryStart)
+  assert.doesNotMatch(queryStart, /setDimensionMetadataState/)
+
+  const queryFailure = analytics.match(
+    /catch \(error\) \{[\s\S]*?setAnalyticsError\(true\)[\s\S]*?\}/,
+  )?.[0]
+  assert.ok(queryFailure)
+  assert.doesNotMatch(queryFailure, /setDimensionMetadataState/)
+})
+
+test("analytics loading and errors replace query results without hiding controls", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(
+    analytics,
+    /const analyticsResult =\s*analyticsResultState\?\.key === currentQueryKey[\s\S]*?\? analyticsResultState\.result[\s\S]*?: null/,
+  )
+  assert.match(
+    analytics,
+    /const showAnalyticsResults =\s*analyticsResult !== null &&\s*!isLoadingAnalytics &&\s*!analyticsError/,
+  )
+  assert.match(
+    analytics,
+    /\{dimensionMetadata\.map\(meta => \([\s\S]*?handleDimensionFilterChange/,
+  )
+  assert.match(
+    analytics,
+    /\{showAnalyticsResults && \([\s\S]*?messages\.analytics\.filteredRespondents/,
+  )
+  assert.match(
+    analytics,
+    /\{showAnalyticsResults && \([\s\S]*?globalQuestionAnalysis[\s\S]*?groupedQuestionSummaries/,
+  )
+})
+
+test("analytics results and metadata are synchronously keyed to query and source identity", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(
+    analytics,
+    /const currentSourceKey = createAnalyticsSourceKey\(source\)/,
+  )
+  assert.match(
+    analytics,
+    /const currentQueryKey = createAnalyticsQueryKey\(\{[\s\S]*?sourceKey: currentSourceKey,[\s\S]*?questionId: effectiveQuestionId,[\s\S]*?locale,[\s\S]*?filters: dimensionFilters,[\s\S]*?groupBy: groupByDimensions/,
+  )
+  assert.match(
+    analytics,
+    /\[analyticsResultState,\s*setAnalyticsResultState\] =\s*useState<KeyedAnalyticsResult \| null>\(null\)/,
+  )
+  assert.match(analytics, /const queryKey = currentQueryKey/)
+  assert.match(analytics, /const sourceKey = currentSourceKey/)
+  assert.match(
+    analytics,
+    /setAnalyticsResultState\(\{ key: queryKey, result \}\)/,
+  )
+})
+
+test("history and save failures are localized, visible, and latest-request guarded", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(analytics, /createLatestRequestTracker/)
+  assert.match(
+    analytics,
+    /const requestId = historyRequestTracker\.begin\(\)/,
+  )
+  assert.match(
+    analytics,
+    /historyRequestTracker\.isLatest\(requestId\)/,
+  )
+  assert.match(
+    analytics,
+    /catch \(error\) \{[\s\S]*?setHistoryError\(true\)/,
+  )
+  assert.match(
+    analytics,
+    /catch \(error\) \{[\s\S]*?setSaveError\(true\)/,
+  )
+  assert.match(
+    analytics,
+    /role="status"[\s\S]*?messages\.analytics\.loadingHistory/,
+  )
+  assert.match(
+    analytics,
+    /role="alert"[\s\S]*?messages\.errors\.historyLoad/,
+  )
+  assert.match(
+    analytics,
+    /role="alert"[\s\S]*?messages\.errors\.historySave/,
+  )
+  assert.match(
+    analytics,
+    /\{historyError && \([\s\S]*?messages\.errors\.historyLoad[\s\S]*?\)\}[\s\S]*?<ScrollArea/,
+  )
+  assert.match(analytics, /isSaving[\s\S]*?messages\.analytics\.savingSurvey/)
+})
+
 test("analytics preserves backend-provided labels, questions, groups, and answers", async () => {
   const analytics = await readSource("../components/analytics-panel.tsx")
 
@@ -583,6 +738,34 @@ test("analytics state is not keyed or reset when locale changes", async () => {
       /setSelectedQuestion|setSelectedDemographic|setHistoryDialogOpen|setDimensionFilters|setGroupByDimensions|onReturnToCurrent/,
     )
   }
+})
+
+test("analytics validates question selection before rendering and querying", async () => {
+  const analytics = await readSource("../components/analytics-panel.tsx")
+
+  assert.match(
+    analytics,
+    /useState<string>\(\(\) =>\s*selectValidQuestionId\("", questions\),?\s*\)/,
+  )
+  assert.match(
+    analytics,
+    /const effectiveQuestionId = selectValidQuestionId\(selectedQuestion, questions\)/,
+  )
+  assert.match(
+    analytics,
+    /setSelectedQuestion\(current =>\s*selectValidQuestionId\(current, questions\),?\s*\)/,
+  )
+  assert.match(analytics, /questionId: effectiveQuestionId/)
+  assert.match(
+    analytics,
+    /useEffect\(\(\) => \{[\s\S]*?effectiveQuestionId[\s\S]*?\}, \[[^\]]*effectiveQuestionId[^\]]*\]\)/,
+  )
+  assert.equal(
+    analytics.match(
+      /<Select value=\{effectiveQuestionId\} onValueChange=\{setSelectedQuestion\}>/g,
+    )?.length,
+    2,
+  )
 })
 
 test("login page keeps redirect sanitization on the server and delegates localized UI", async () => {

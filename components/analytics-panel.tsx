@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   PieChart,
   Pie,
@@ -76,6 +76,12 @@ import {
   type Locale,
 } from "@/lib/i18n/locale"
 import type { MessageCatalog } from "@/lib/i18n/messages"
+import { createLatestRequestTracker } from "@/lib/latest-request"
+import { selectValidQuestionId } from "@/lib/question-selection"
+import {
+  createAnalyticsQueryKey,
+  createAnalyticsSourceKey,
+} from "@/lib/analytics-query-key"
 import {
   apiSaveRunToHistory,
   apiFetchSurveyHistory,
@@ -87,6 +93,16 @@ type ResponseDistributionEntry = {
   answer: string
   fullAnswer: string
   count: number
+}
+
+type KeyedAnalyticsResult = {
+  key: string
+  result: AnalyticsQueryResult
+}
+
+type SourceDimensionMetadata = {
+  sourceKey: string
+  items: DimensionMetadata[]
 }
 
 const AXIS_TICK_STYLE = {
@@ -221,18 +237,38 @@ export function AnalyticsPanel({
   source,
 }: AnalyticsPanelProps) {
   const { locale, messages } = useI18n()
-  const [selectedQuestion, setSelectedQuestion] = useState<string>(questions[0]?.id || "")
+  const [selectedQuestion, setSelectedQuestion] = useState<string>(() =>
+    selectValidQuestionId("", questions),
+  )
   const [selectedDemographic, setSelectedDemographic] = useState<string>("city")
   const [historyRecords, setHistoryRecords] = useState<SurveyHistoryRecord[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [historyError, setHistoryError] = useState(false)
+  const [saveError, setSaveError] = useState(false)
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false)
   const [dimensionFilters, setDimensionFilters] = useState<DimensionFilters>({})
   const [groupByDimensions, setGroupByDimensions] = useState<RespondentDimensionKey[]>([])
-  const [analyticsResult, setAnalyticsResult] =
-    useState<AnalyticsQueryResult | null>(null)
+  const [analyticsResultState, setAnalyticsResultState] =
+    useState<KeyedAnalyticsResult | null>(null)
+  const [dimensionMetadataState, setDimensionMetadataState] = useState<SourceDimensionMetadata | null>(null)
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false)
+  const [analyticsError, setAnalyticsError] = useState(false)
+  const historyRequestTracker = useRef(createLatestRequestTracker()).current
+  const effectiveQuestionId = selectValidQuestionId(selectedQuestion, questions)
+  const currentSourceKey = createAnalyticsSourceKey(source)
+  const currentQueryKey = createAnalyticsQueryKey({
+    sourceKey: currentSourceKey,
+    questionId: effectiveQuestionId,
+    locale,
+    filters: dimensionFilters,
+    groupBy: groupByDimensions,
+  })
+  const dimensionMetadata =
+    dimensionMetadataState?.sourceKey === currentSourceKey
+      ? dimensionMetadataState.items
+      : []
 
-  const dimensionMetadata = analyticsResult?.dimensionMetadata ?? []
   const dimensionMetadataMap = useMemo(() => {
     const map = new Map<RespondentDimensionKey, DimensionMetadata>()
     dimensionMetadata.forEach(meta => map.set(meta.key, meta))
@@ -240,9 +276,10 @@ export function AnalyticsPanel({
   }, [dimensionMetadata])
 
   useEffect(() => {
+    setDimensionMetadataState(null)
     setDimensionFilters({})
     setGroupByDimensions([])
-  }, [source?.id])
+  }, [source?.type, source?.id])
 
   const CLEAR_DIMENSION_VALUE = "__ALL__"
 
@@ -268,15 +305,22 @@ export function AnalyticsPanel({
   }, [])
 
   useEffect(() => {
-    if (!source || !selectedQuestion) {
-      setAnalyticsResult(null)
+    if (!source || !effectiveQuestionId) {
+      setAnalyticsResultState(null)
+      setAnalyticsError(false)
+      setIsLoadingAnalytics(false)
       return
     }
     let cancelled = false
+    const queryKey = currentQueryKey
+    const sourceKey = currentSourceKey
+    setAnalyticsResultState(null)
+    setAnalyticsError(false)
+    setIsLoadingAnalytics(true)
     const timer = window.setTimeout(async () => {
       try {
         const query = {
-          questionId: selectedQuestion,
+          questionId: effectiveQuestionId,
           filters: dimensionFilters,
           groupBy: groupByDimensions,
         }
@@ -284,19 +328,40 @@ export function AnalyticsPanel({
           source.type === "run"
             ? await apiQueryRunAnalytics(locale, source.id, query)
             : await apiQueryHistoryAnalytics(locale, source.id, query)
-        if (!cancelled) setAnalyticsResult(result)
+        if (!cancelled) {
+          setAnalyticsResultState({ key: queryKey, result })
+          setDimensionMetadataState({
+            sourceKey,
+            items: result.dimensionMetadata,
+          })
+          setAnalyticsError(false)
+        }
       } catch (error) {
-        if (!cancelled) console.error("Analytics query error:", error)
+        if (!cancelled) {
+          console.error("Analytics query error:", error)
+          setAnalyticsResultState(null)
+          setAnalyticsError(true)
+        }
+      } finally {
+        if (!cancelled) setIsLoadingAnalytics(false)
       }
     }, 100)
     return () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [source?.type, source?.id, selectedQuestion, dimensionFilters, groupByDimensions, locale])
+  }, [currentQueryKey, currentSourceKey, source?.type, source?.id, effectiveQuestionId, dimensionFilters, groupByDimensions, locale])
 
+  const analyticsResult =
+    analyticsResultState?.key === currentQueryKey
+      ? analyticsResultState.result
+      : null
   const filteredRespondentCount =
     analyticsResult?.filteredRespondentCount ?? respondents.length
+  const showAnalyticsResults =
+    analyticsResult !== null &&
+    !isLoadingAnalytics &&
+    !analyticsError
   const filteredQuestionAnalysisForSelected =
     analyticsResult?.filteredQuestionAnalysis ?? null
   const groupedQuestionSummaries = (
@@ -320,27 +385,42 @@ export function AnalyticsPanel({
     .join(" • ")
 
   useEffect(() => {
-    if (questions.length > 0 && !selectedQuestion) {
-      setSelectedQuestion(questions[0].id)
-    }
-  }, [questions, selectedQuestion])
+    setSelectedQuestion(current =>
+      selectValidQuestionId(current, questions),
+    )
+  }, [questions])
 
   const loadHistoryList = async () => {
+    const requestId = historyRequestTracker.begin()
     setIsLoadingHistory(true)
+    setHistoryError(false)
     try {
       const records = await apiFetchSurveyHistory(locale)
-      setHistoryRecords(records)
+      if (historyRequestTracker.isLatest(requestId)) {
+        setHistoryRecords(records)
+      }
+    } catch (error) {
+      if (historyRequestTracker.isLatest(requestId)) {
+        console.error("History load error:", error)
+        setHistoryError(true)
+      }
     } finally {
-      setIsLoadingHistory(false)
+      if (historyRequestTracker.isLatest(requestId)) {
+        setIsLoadingHistory(false)
+      }
     }
   }
 
   const handleSave = async () => {
     if (!source || source.type !== "run" || sessions.length === 0) return
     setIsSaving(true)
+    setSaveError(false)
     try {
       await apiSaveRunToHistory(locale, source.id)
       await loadHistoryList()
+    } catch (error) {
+      console.error("History save error:", error)
+      setSaveError(true)
     } finally {
       setIsSaving(false)
     }
@@ -385,7 +465,9 @@ export function AnalyticsPanel({
     },
   ].filter(d => d.value > 0)
 
-  const globalQuestionAnalysis = questionAnalysis.find(q => q.questionId === selectedQuestion)
+  const globalQuestionAnalysis = questionAnalysis.find(
+    q => q.questionId === effectiveQuestionId,
+  )
 
   const globalQuestionResponseData = globalQuestionAnalysis
     ? mapResponseDistributionEntries(globalQuestionAnalysis.responseDistribution)
@@ -397,7 +479,7 @@ export function AnalyticsPanel({
 
   const getDemographicData = () => {
     const filtered = demographicAnalysis.filter(d => 
-      d.questionId === selectedQuestion
+      d.questionId === effectiveQuestionId
     )
     
     if (selectedDemographic === "city") {
@@ -506,11 +588,21 @@ export function AnalyticsPanel({
             className="flex-1 h-8 text-xs bg-primary/10 border-primary/30 hover:bg-primary/20 text-primary"
           >
             {isSaving ? (
-              <div className="w-3 h-3 mr-1 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <>
+                <div
+                  aria-hidden="true"
+                  className="w-3 h-3 mr-1 border-2 border-primary/30 border-t-primary rounded-full animate-spin"
+                />
+                <span role="status" aria-live="polite">
+                  {messages.analytics.savingSurvey}
+                </span>
+              </>
             ) : (
-              <Save className="w-3 h-3 mr-1" />
+              <>
+                <Save className="w-3 h-3 mr-1" />
+                {messages.analytics.saveSurvey}
+              </>
             )}
-            {messages.analytics.saveSurvey}
           </Button>
         )}
         
@@ -535,8 +627,23 @@ export function AnalyticsPanel({
             </DialogHeader>
             <div className="mt-4">
               {isLoadingHistory ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"
+                >
+                  <div
+                    aria-hidden="true"
+                    className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin"
+                  />
+                  <span>{messages.analytics.loadingHistory}</span>
+                </div>
+              ) : historyError ? (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+                >
+                  {messages.errors.historyLoad}
                 </div>
               ) : historyRecords.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
@@ -602,6 +709,23 @@ export function AnalyticsPanel({
           </DialogContent>
         </Dialog>
       </div>
+
+      {saveError && (
+        <div
+          role="alert"
+          className="mx-3 mt-2 shrink-0 rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive sm:mx-4"
+        >
+          {messages.errors.historySave}
+        </div>
+      )}
+      {historyError && (
+        <div
+          role="alert"
+          className="mx-3 mt-2 shrink-0 rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive sm:mx-4"
+        >
+          {messages.errors.historyLoad}
+        </div>
+      )}
 
       <ScrollArea className="min-h-0 flex-1 p-3 sm:p-4">
         <div className="space-y-5">
@@ -669,6 +793,24 @@ export function AnalyticsPanel({
             </div>
             <Progress value={completionPercentage} className="h-2 bg-secondary" />
           </div>
+
+          {isLoadingAnalytics && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="rounded-lg border border-border/30 bg-secondary/20 p-3 text-xs text-muted-foreground"
+            >
+              {messages.analytics.loadingAnalytics}
+            </div>
+          )}
+          {analyticsError && (
+            <div
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"
+            >
+              {messages.errors.analyticsQuery}
+            </div>
+          )}
 
           {/* Tabbed Analysis */}
           <Tabs defaultValue="overview" className="w-full">
@@ -785,7 +927,7 @@ export function AnalyticsPanel({
 
             {/* Questions Tab */}
             <TabsContent value="questions" className="mt-4 space-y-4">
-              <Select value={selectedQuestion} onValueChange={setSelectedQuestion}>
+              <Select value={effectiveQuestionId} onValueChange={setSelectedQuestion}>
                 <SelectTrigger className="w-full h-8 text-xs bg-secondary/30 border-border/30">
                   <SelectValue placeholder={messages.analytics.selectQuestion} />
                 </SelectTrigger>
@@ -825,12 +967,14 @@ export function AnalyticsPanel({
                     ))}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] text-muted-foreground">
-                      {messages.analytics.filteredRespondents(
-                        formatInteger(locale, filteredRespondentCount),
-                        formatInteger(locale, respondents.length),
-                      )}
-                    </span>
+                    {showAnalyticsResults && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {messages.analytics.filteredRespondents(
+                          formatInteger(locale, filteredRespondentCount),
+                          formatInteger(locale, respondents.length),
+                        )}
+                      </span>
+                    )}
                     {activeFilterEntries.map(([key, value]) => (
                       <Badge key={`${key}-${value}`} variant="outline" className="text-[10px]">
                         {dimensionMetadataMap.get(key)?.label ?? key}: {value}
@@ -866,6 +1010,8 @@ export function AnalyticsPanel({
                   </div>
                 </div>
 
+                {showAnalyticsResults && (
+                  <>
                 {globalQuestionAnalysis ? (
                   <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1003,13 +1149,15 @@ export function AnalyticsPanel({
                 <p className="text-[10px] text-muted-foreground">
                   {messages.analytics.combinedChartHint}
                 </p>
+                  </>
+                )}
               </div>
             </TabsContent>
 
             {/* Demographic Tab */}
             <TabsContent value="demographic" className="mt-4 space-y-4">
               <div className="flex flex-wrap gap-2">
-                <Select value={selectedQuestion} onValueChange={setSelectedQuestion}>
+                <Select value={effectiveQuestionId} onValueChange={setSelectedQuestion}>
                   <SelectTrigger className="min-w-0 flex-1 h-8 text-xs bg-secondary/30 border-border/30">
                     <SelectValue placeholder={messages.analytics.selectQuestion} />
                   </SelectTrigger>
