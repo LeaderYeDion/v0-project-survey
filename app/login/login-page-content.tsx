@@ -2,6 +2,7 @@
 
 import { Cpu, ShieldCheck, Sparkles } from "lucide-react"
 import { LanguageSwitcher } from "@/components/language-switcher"
+import { ThemeSwitcher } from "@/components/theme-switcher"
 import { useI18n } from "@/components/locale-provider"
 import { LoginForm } from "./login-form"
 
@@ -16,7 +17,8 @@ export function LoginPageContent({
 
   return (
     <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background p-4">
-      <div className="absolute right-4 top-4 z-20">
+      <div className="absolute right-4 top-4 z-20 flex flex-wrap justify-end gap-2">
+        <ThemeSwitcher />
         <LanguageSwitcher />
       </div>
 

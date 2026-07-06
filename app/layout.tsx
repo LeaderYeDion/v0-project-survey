@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { LocaleProvider } from '@/components/locale-provider'
+import { ThemeProvider } from '@/components/theme-provider'
 import { messages } from '@/lib/i18n/messages'
 import { getRequestLocale } from '@/lib/i18n/server'
 import './globals.css'
@@ -45,12 +46,19 @@ export default async function RootLayout({
   const locale = await getRequestLocale()
 
   return (
-    <html lang={locale} className="dark">
+    <html lang={locale} suppressHydrationWarning>
       <body className="font-sans antialiased bg-background text-foreground">
-        <LocaleProvider initialLocale={locale}>
-          {children}
-          <Analytics />
-        </LocaleProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="light"
+          enableSystem={false}
+          disableTransitionOnChange
+        >
+          <LocaleProvider initialLocale={locale}>
+            {children}
+            <Analytics />
+          </LocaleProvider>
+        </ThemeProvider>
       </body>
     </html>
   )
