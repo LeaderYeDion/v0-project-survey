@@ -10,6 +10,8 @@ node_modules/
 .DS_Store
 *.tsbuildinfo
 .worktrees/
+**/.idea/
+.superpowers/
 
 # Local zero-cost deployment secrets and runtime state
 deploy/config/deploy.env
