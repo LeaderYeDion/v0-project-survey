@@ -12,6 +12,7 @@ node_modules/
 .worktrees/
 **/.idea/
 .superpowers/
+task_examples/
 
 # Local zero-cost deployment secrets and runtime state
 deploy/config/deploy.env
