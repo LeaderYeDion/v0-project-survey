@@ -7,6 +7,62 @@ export type SessionStatus =
   | "completed"
   | "terminated_by_respondent"
   | "terminated_by_interviewer"
+export type InferenceKind = "profile" | "attitude"
+export type InferenceTaskStatus = "completed" | "skipped" | "failed"
+
+export interface ProfileInferenceTask {
+  id: string
+  name: string
+  options: string[]
+  multiple: boolean
+  enabled: boolean
+}
+
+export interface AttitudeInferenceTask {
+  id: string
+  name: string
+  options: string[]
+  enabled: boolean
+}
+
+export interface InferenceConfig {
+  enabled: boolean
+  profileEnabled: boolean
+  attitudeEnabled: boolean
+  profileTasks: ProfileInferenceTask[]
+  attitudeTasks: AttitudeInferenceTask[]
+}
+
+export interface InferenceEvidence {
+  questionId?: string | null
+  messageId?: string | null
+  excerpt?: string | null
+}
+
+export interface InferenceResult {
+  id: string
+  runId: string
+  respondentId: string
+  taskId: string
+  taskName: string
+  kind: InferenceKind
+  value: string | string[] | null
+  reason?: string | null
+  evidence: InferenceEvidence[]
+  status: InferenceTaskStatus
+  error?: string | null
+}
+
+export interface InferenceSummaryItem {
+  taskId: string
+  taskName: string
+  kind: InferenceKind
+  total: number
+  completed: number
+  skipped: number
+  failed: number
+  distribution: Record<string, number>
+}
 
 export interface SurveyConfig {
   title: string
@@ -14,6 +70,7 @@ export interface SurveyConfig {
   questions: SurveyQuestion[]
   maxResponseTime: number
   respondentConfigs: RespondentConfig[]
+  inferenceConfig?: InferenceConfig | null
 }
 
 export interface RespondentConfig {
@@ -133,6 +190,8 @@ export interface RunSnapshot {
   sentiment: SentimentData
   questionAnalysis: QuestionAnalysis[]
   demographicAnalysis: DemographicAnalysis[]
+  inferenceResults: InferenceResult[]
+  inferenceSummary: InferenceSummaryItem[]
   responses: SurveyResponse[]
   activeRespondentId: string | null
   createdAt: string
@@ -154,6 +213,8 @@ export interface SurveyHistoryRecord {
   sentiment: SentimentData
   questionAnalysis: QuestionAnalysis[]
   demographicAnalysis: DemographicAnalysis[]
+  inferenceResults: InferenceResult[]
+  inferenceSummary: InferenceSummaryItem[]
   responses: SurveyResponse[]
 }
 

@@ -24,6 +24,8 @@ ResponseStatus = Literal[
     "terminated_by_interviewer",
 ]
 RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+InferenceKind = Literal["profile", "attitude"]
+InferenceTaskStatus = Literal["completed", "skipped", "failed"]
 
 
 class ApiModel(BaseModel):
@@ -67,12 +69,50 @@ class RespondentConfig(ApiModel):
     count: Annotated[int, Field(gt=0)]
 
 
+class ProfileInferenceTask(ApiModel):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    options: list[str]
+    multiple: bool = False
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_options(self) -> ProfileInferenceTask:
+        if not self.options:
+            raise ValueError("profile inference task requires options")
+        return self
+
+
+class AttitudeInferenceTask(ApiModel):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    options: list[str] = Field(
+        default_factory=lambda: ["积极", "中立", "消极"],
+    )
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_options(self) -> AttitudeInferenceTask:
+        if not self.options:
+            raise ValueError("attitude inference task requires options")
+        return self
+
+
+class InferenceConfig(ApiModel):
+    enabled: bool = False
+    profileEnabled: bool = False
+    attitudeEnabled: bool = False
+    profileTasks: list[ProfileInferenceTask] = Field(default_factory=list)
+    attitudeTasks: list[AttitudeInferenceTask] = Field(default_factory=list)
+
+
 class SurveyConfig(ApiModel):
     title: str
     description: str
     questions: list[SurveyQuestion]
     maxResponseTime: Annotated[int, Field(gt=0)]
     respondentConfigs: list[RespondentConfig]
+    inferenceConfig: InferenceConfig | None = None
 
     @model_validator(mode="after")
     def validate_non_empty(self) -> SurveyConfig:
@@ -182,6 +222,37 @@ class DemographicAnalysis(ApiModel):
     respondentCount: int
 
 
+class InferenceEvidence(ApiModel):
+    questionId: str | None = None
+    messageId: str | None = None
+    excerpt: str | None = None
+
+
+class InferenceResult(ApiModel):
+    id: str
+    runId: str
+    respondentId: str
+    taskId: str
+    taskName: str
+    kind: InferenceKind
+    value: str | list[str] | None = None
+    reason: str | None = None
+    evidence: list[InferenceEvidence] = Field(default_factory=list)
+    status: InferenceTaskStatus
+    error: str | None = None
+
+
+class InferenceSummaryItem(ApiModel):
+    taskId: str
+    taskName: str
+    kind: InferenceKind
+    total: int
+    completed: int
+    skipped: int
+    failed: int
+    distribution: dict[str, int]
+
+
 class CreateRunRequest(ApiModel):
     mode: SimulationMode
     config: SurveyConfig
@@ -199,6 +270,8 @@ class RunSnapshot(ApiModel):
     sentiment: SentimentData
     questionAnalysis: list[QuestionAnalysis]
     demographicAnalysis: list[DemographicAnalysis]
+    inferenceResults: list[InferenceResult] = Field(default_factory=list)
+    inferenceSummary: list[InferenceSummaryItem] = Field(default_factory=list)
     responses: list[SurveyResponse]
     activeRespondentId: str | None
     createdAt: datetime
@@ -233,6 +306,8 @@ class RunSnapshot(ApiModel):
             sentiment=SentimentData(positive=0, neutral=0, negative=0),
             questionAnalysis=[],
             demographicAnalysis=[],
+            inferenceResults=[],
+            inferenceSummary=[],
             responses=[],
             activeRespondentId=None,
             createdAt=created_at,
@@ -255,6 +330,8 @@ class SurveyHistoryRecord(ApiModel):
     sentiment: SentimentData
     questionAnalysis: list[QuestionAnalysis]
     demographicAnalysis: list[DemographicAnalysis]
+    inferenceResults: list[InferenceResult] = Field(default_factory=list)
+    inferenceSummary: list[InferenceSummaryItem] = Field(default_factory=list)
     responses: list[SurveyResponse]
 
 
