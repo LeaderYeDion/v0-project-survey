@@ -38,6 +38,8 @@ class MemoryRepository:
             questionAnalysis=run.questionAnalysis,
             demographicAnalysis=run.demographicAnalysis,
             responses=run.responses,
+            inferenceResults=run.inferenceResults,
+            inferenceSummary=run.inferenceSummary,
         )
         async with self._lock:
             self._history.insert(0, record.model_copy(deep=True))

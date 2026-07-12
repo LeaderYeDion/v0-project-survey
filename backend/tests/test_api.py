@@ -59,6 +59,34 @@ async def create_completed_run(
     return run_id
 
 
+def inference_enabled_template() -> dict:
+    payload = CATALOG.default_template("en-US").model_dump(mode="json")
+    payload["respondentConfigs"][0]["count"] = 1
+    payload["inferenceConfig"] = {
+        "enabled": True,
+        "profileEnabled": True,
+        "attitudeEnabled": True,
+        "profileTasks": [
+            {
+                "id": "profile-income",
+                "name": "家庭年收入",
+                "options": ["5万以下", "5万-20万", "20万-50万"],
+                "multiple": False,
+                "enabled": True,
+            }
+        ],
+        "attitudeTasks": [
+            {
+                "id": "attitude-common-prosperity",
+                "name": "共同富裕倾向",
+                "options": ["积极", "中立", "消极"],
+                "enabled": True,
+            }
+        ],
+    }
+    return payload
+
+
 @pytest.mark.asyncio
 async def test_default_template(client: httpx.AsyncClient) -> None:
     missing = await client.get("/api/templates/default")
@@ -193,3 +221,57 @@ async def test_history_analytics_and_export(
         "Male",
         "Female",
     }
+
+
+@pytest.mark.asyncio
+async def test_history_and_exports_preserve_inference(
+    client: httpx.AsyncClient,
+    run_service: RunService,
+) -> None:
+    created = await client.post(
+        "/api/runs",
+        headers=LANGUAGE_HEADERS,
+        json={
+            "mode": "interview",
+            "config": inference_enabled_template(),
+        },
+    )
+    assert created.status_code == 201
+    run_id = created.json()["id"]
+    await run_service.wait(run_id)
+
+    completed = await client.get(f"/api/runs/{run_id}", headers=LANGUAGE_HEADERS)
+    assert completed.json()["inferenceResults"]
+    assert completed.json()["inferenceSummary"]
+
+    saved = await client.post(
+        "/api/history",
+        headers=LANGUAGE_HEADERS,
+        json={"runId": run_id},
+    )
+    assert saved.status_code == 201
+    assert saved.json()["inferenceResults"]
+    history_id = saved.json()["id"]
+
+    history_record = await client.get(
+        f"/api/history/{history_id}",
+        headers=LANGUAGE_HEADERS,
+    )
+    assert history_record.json()["inferenceSummary"]
+
+    exported_json = await client.get(
+        f"/api/runs/{run_id}/exports",
+        headers=LANGUAGE_HEADERS,
+        params={"format": "json"},
+    )
+    assert exported_json.status_code == 200
+    assert exported_json.json()["inferenceResults"]
+
+    exported_csv = await client.get(
+        f"/api/runs/{run_id}/exports",
+        headers=LANGUAGE_HEADERS,
+        params={"format": "csv"},
+    )
+    csv_text = exported_csv.content.decode("utf-8-sig")
+    assert "inference.profile.家庭年收入" in csv_text
+    assert "inference.attitude.共同富裕倾向.status" in csv_text

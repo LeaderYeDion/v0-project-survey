@@ -36,6 +36,8 @@ def history_as_snapshot(record: SurveyHistoryRecord) -> RunSnapshot:
         questionAnalysis=record.questionAnalysis,
         demographicAnalysis=record.demographicAnalysis,
         responses=record.responses,
+        inferenceResults=record.inferenceResults,
+        inferenceSummary=record.inferenceSummary,
         activeRespondentId=None,
         createdAt=record.savedAt,
         startedAt=None,
