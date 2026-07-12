@@ -64,6 +64,63 @@ export interface InferenceSummaryItem {
   distribution: Record<string, number>
 }
 
+export function createDefaultInferenceConfig(): InferenceConfig {
+  return {
+    enabled: false,
+    profileEnabled: false,
+    attitudeEnabled: false,
+    profileTasks: [
+      {
+        id: "profile-income",
+        name: "家庭年收入",
+        options: ["5万以下", "5万-20万", "20万-50万", "50万-100万", "100万以上"],
+        multiple: false,
+        enabled: true,
+      },
+      {
+        id: "profile-family-members",
+        name: "家庭成员关系",
+        options: ["父母", "配偶", "子女", "兄弟姐妹", "祖父母/外祖父母", "孙子女/外孙子女", "其他亲属", "其他非亲属"],
+        multiple: true,
+        enabled: true,
+      },
+      {
+        id: "profile-monthly-spending",
+        name: "家庭月消费主要支出项目",
+        options: ["住房支出（房贷、租房等）", "日常生活消费（食品、衣物等）", "教育支出（学费、教辅等）", "交通支出（交通工具、油费、公交等）", "医疗健康支出（医疗保险、药品、就医等）", "休闲娱乐消费（旅游、娱乐、外出就餐等）", "其他家庭支出"],
+        multiple: true,
+        enabled: true,
+      },
+    ],
+    attitudeTasks: [
+      {
+        id: "attitude-common-prosperity",
+        name: "共同富裕倾向",
+        options: ["积极", "中立", "消极"],
+        enabled: true,
+      },
+      {
+        id: "attitude-public-service",
+        name: "公共服务评价",
+        options: ["积极", "中立", "消极"],
+        enabled: true,
+      },
+      {
+        id: "attitude-upward-mobility",
+        name: "向上流动倾向",
+        options: ["积极", "中立", "消极"],
+        enabled: true,
+      },
+      {
+        id: "attitude-parent-comparison",
+        name: "和父辈相比",
+        options: ["积极", "中立", "消极"],
+        enabled: true,
+      },
+    ],
+  }
+}
+
 export interface SurveyConfig {
   title: string
   description: string

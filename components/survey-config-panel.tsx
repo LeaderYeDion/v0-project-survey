@@ -1,13 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Slider } from "@/components/ui/slider"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import {
   Select,
   SelectContent,
@@ -22,7 +24,15 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Play, Plus, Trash2, FileJson, Settings2, UserPlus, Users, ClipboardList } from "lucide-react"
-import type { SurveyConfig, SurveyQuestion, RespondentConfig } from "@/lib/survey-api"
+import type {
+  AttitudeInferenceTask,
+  InferenceConfig,
+  ProfileInferenceTask,
+  RespondentConfig,
+  SurveyConfig,
+  SurveyQuestion,
+} from "@/lib/survey-api"
+import { createDefaultInferenceConfig } from "@/lib/survey-api"
 import { useI18n } from "@/components/locale-provider"
 
 interface SurveyConfigPanelProps {
@@ -43,6 +53,7 @@ export function SurveyConfigPanel({
   const { messages } = useI18n()
   const [jsonMode, setJsonMode] = useState(false)
   const [jsonError, setJsonError] = useState(false)
+  const inferenceConfig = config.inferenceConfig ?? createDefaultInferenceConfig()
 
   const updateQuestion = (index: number, updates: Partial<SurveyQuestion>) => {
     const newQuestions = [...config.questions]
@@ -89,6 +100,56 @@ export function SurveyConfigPanel({
   const removeRespondentConfig = (index: number) => {
     const newConfigs = config.respondentConfigs.filter((_, i) => i !== index)
     onConfigChange({ ...config, respondentConfigs: newConfigs })
+  }
+
+  const updateInferenceConfig = (updates: Partial<InferenceConfig>) => {
+    const nextConfig = { ...inferenceConfig, ...updates }
+    onConfigChange({ ...config, inferenceConfig: nextConfig })
+  }
+
+  const updateProfileTask = (index: number, updates: Partial<ProfileInferenceTask>) => {
+    const profileTasks = [...inferenceConfig.profileTasks]
+    profileTasks[index] = { ...profileTasks[index], ...updates }
+    updateInferenceConfig({ profileTasks })
+  }
+
+  const updateAttitudeTask = (index: number, updates: Partial<AttitudeInferenceTask>) => {
+    const attitudeTasks = [...inferenceConfig.attitudeTasks]
+    attitudeTasks[index] = { ...attitudeTasks[index], ...updates }
+    updateInferenceConfig({ attitudeTasks })
+  }
+
+  const addProfileTask = () => {
+    const defaultOptions =
+      createDefaultInferenceConfig().profileTasks[0]?.options.slice(0, 2) ?? []
+    updateInferenceConfig({
+      profileTasks: [
+        ...inferenceConfig.profileTasks,
+        {
+          id: `profile-${Date.now()}`,
+          name: "",
+          options: defaultOptions,
+          multiple: false,
+          enabled: true,
+        },
+      ],
+    })
+  }
+
+  const addAttitudeTask = () => {
+    const defaultOptions =
+      createDefaultInferenceConfig().attitudeTasks[0]?.options ?? []
+    updateInferenceConfig({
+      attitudeTasks: [
+        ...inferenceConfig.attitudeTasks,
+        {
+          id: `attitude-${Date.now()}`,
+          name: "",
+          options: defaultOptions,
+          enabled: true,
+        },
+      ],
+    })
   }
 
   const totalRespondents = config.respondentConfigs.reduce((sum, c) => sum + c.count, 0)
@@ -491,6 +552,108 @@ export function SurveyConfigPanel({
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
+
+            {mode === "interview" && (
+              <Accordion type="single" collapsible>
+                <AccordionItem
+                  value="inference-tasks"
+                  className="rounded-lg border border-border/30 bg-secondary/10"
+                >
+                  <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                    <div className="flex w-full items-center justify-between pr-2">
+                      <div className="flex items-center gap-2">
+                        <Settings2 className="h-4 w-4 text-primary" />
+                        <span className="font-medium text-foreground">
+                          {messages.config.inferenceTasks}
+                        </span>
+                      </div>
+                      <Badge variant="secondary" className="bg-primary/20 text-primary">
+                        {inferenceConfig.enabled
+                          ? messages.common.enabled
+                          : messages.common.disabled}
+                      </Badge>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="space-y-4 px-4 pb-4">
+                    <div className="flex items-center justify-between gap-3 rounded-md border border-border/30 bg-background/40 p-3">
+                      <div>
+                        <Label className="text-sm text-foreground">
+                          {messages.config.inferenceTasks}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          {messages.config.inferenceDescription}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={inferenceConfig.enabled}
+                        onCheckedChange={(enabled) => updateInferenceConfig({ enabled })}
+                      />
+                    </div>
+
+                    {inferenceConfig.enabled && (
+                      <div className="space-y-4">
+                        <InferenceTaskGroup
+                          title={messages.config.profileInference}
+                          enabled={inferenceConfig.profileEnabled}
+                          onEnabledChange={(profileEnabled) => updateInferenceConfig({ profileEnabled })}
+                          onAdd={addProfileTask}
+                          addLabel={messages.config.addProfileTask}
+                        >
+                          {inferenceConfig.profileTasks.map((task, index) => (
+                            <InferenceTaskEditor
+                              key={task.id}
+                              name={task.name}
+                              enabled={task.enabled}
+                              options={task.options}
+                              multiple={task.multiple}
+                              showMultiple
+                              optionsLabel={messages.config.taskOptions}
+                              multipleLabel={messages.config.allowMultipleValues}
+                              onNameChange={(name) => updateProfileTask(index, { name })}
+                              onEnabledChange={(enabled) => updateProfileTask(index, { enabled })}
+                              onOptionsChange={(options) => updateProfileTask(index, { options })}
+                              onMultipleChange={(multiple) => updateProfileTask(index, { multiple })}
+                              onRemove={() =>
+                                updateInferenceConfig({
+                                  profileTasks: inferenceConfig.profileTasks.filter((_, taskIndex) => taskIndex !== index),
+                                })
+                              }
+                            />
+                          ))}
+                        </InferenceTaskGroup>
+
+                        <InferenceTaskGroup
+                          title={messages.config.attitudeInference}
+                          enabled={inferenceConfig.attitudeEnabled}
+                          onEnabledChange={(attitudeEnabled) => updateInferenceConfig({ attitudeEnabled })}
+                          onAdd={addAttitudeTask}
+                          addLabel={messages.config.addAttitudeTask}
+                        >
+                          {inferenceConfig.attitudeTasks.map((task, index) => (
+                            <InferenceTaskEditor
+                              key={task.id}
+                              name={task.name}
+                              enabled={task.enabled}
+                              options={task.options}
+                              optionsLabel={messages.config.taskOptions}
+                              multipleLabel={messages.config.allowMultipleValues}
+                              onNameChange={(name) => updateAttitudeTask(index, { name })}
+                              onEnabledChange={(enabled) => updateAttitudeTask(index, { enabled })}
+                              onOptionsChange={(options) => updateAttitudeTask(index, { options })}
+                              onRemove={() =>
+                                updateInferenceConfig({
+                                  attitudeTasks: inferenceConfig.attitudeTasks.filter((_, taskIndex) => taskIndex !== index),
+                                })
+                              }
+                            />
+                          ))}
+                        </InferenceTaskGroup>
+                      </div>
+                    )}
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            )}
           </div>
         )}
       </ScrollArea>
@@ -519,6 +682,112 @@ export function SurveyConfigPanel({
           )}
         </Button>
       </div>
+    </div>
+  )
+}
+
+function InferenceTaskGroup({
+  title,
+  enabled,
+  onEnabledChange,
+  onAdd,
+  addLabel,
+  children,
+}: {
+  title: string
+  enabled: boolean
+  onEnabledChange: (enabled: boolean) => void
+  onAdd: () => void
+  addLabel: string
+  children: ReactNode
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-border/30 bg-secondary/20 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Switch checked={enabled} onCheckedChange={onEnabledChange} />
+          <Label className="text-sm text-foreground">{title}</Label>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onAdd}>
+          <Plus className="mr-1 h-4 w-4" />
+          {addLabel}
+        </Button>
+      </div>
+      {enabled && <div className="space-y-3">{children}</div>}
+    </div>
+  )
+}
+
+function InferenceTaskEditor({
+  name,
+  enabled,
+  options,
+  multiple,
+  showMultiple = false,
+  optionsLabel,
+  multipleLabel,
+  onNameChange,
+  onEnabledChange,
+  onOptionsChange,
+  onMultipleChange,
+  onRemove,
+}: {
+  name: string
+  enabled: boolean
+  options: string[]
+  multiple?: boolean
+  showMultiple?: boolean
+  optionsLabel: string
+  multipleLabel: string
+  onNameChange: (name: string) => void
+  onEnabledChange: (enabled: boolean) => void
+  onOptionsChange: (options: string[]) => void
+  onMultipleChange?: (multiple: boolean) => void
+  onRemove: () => void
+}) {
+  return (
+    <div className="space-y-2 rounded-md border border-border/30 bg-background/40 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Checkbox checked={enabled} onCheckedChange={(value) => onEnabledChange(value === true)} />
+          <Input
+            value={name}
+            onChange={(event) => onNameChange(event.target.value)}
+            className="h-8 bg-background/50 text-xs"
+          />
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onRemove}
+          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">
+          {optionsLabel}
+        </Label>
+        <Textarea
+          value={options.join("\n")}
+          onChange={(event) =>
+            onOptionsChange(
+              event.target.value
+                .split("\n")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            )
+          }
+          className="min-h-20 bg-background/50 text-xs"
+        />
+      </div>
+      {showMultiple && onMultipleChange && (
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Checkbox checked={multiple} onCheckedChange={(value) => onMultipleChange(value === true)} />
+          {multipleLabel}
+        </label>
+      )}
     </div>
   )
 }
