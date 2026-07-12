@@ -8,6 +8,8 @@ from app.mocks.engine import MockEngine
 from app.repositories.memory import MemoryRepository
 from app.services.analytics_service import AnalyticsService
 from app.services.export_service import ExportService
+from app.services.inference_analysis_service import InferenceAnalysisService
+from app.services.inference_service import InferenceService
 from app.services.run_service import RunService
 
 
@@ -19,13 +21,19 @@ def create_app(
     store = repository or MemoryRepository()
     mock_catalog = MockCatalog()
     analytics_service = AnalyticsService(mock_catalog)
+    inference_service = InferenceService()
+    inference_analysis_service = InferenceAnalysisService()
     service = run_service or RunService(
         repository=store,
         engine=MockEngine(mock_catalog),
         analytics=analytics_service,
+        inference=inference_service,
+        inference_analysis=inference_analysis_service,
     )
     application.state.repository = store
     application.state.analytics = analytics_service
+    application.state.inference_service = inference_service
+    application.state.inference_analysis = inference_analysis_service
     application.state.template_provider = mock_catalog
     application.state.run_service = service
     application.state.exporter = ExportService()

@@ -7,11 +7,14 @@ from app.locales import Locale
 from app.schemas.survey import (
     CreateRunRequest,
     DialogMessage,
+    InferenceConfig,
     InterviewSession,
     RunSnapshot,
     SurveyProgress,
 )
 from app.services.analytics_service import AnalyticsService
+from app.services.inference_analysis_service import InferenceAnalysisService
+from app.services.inference_service import InferenceService
 from app.services.simulation_engine import SimulationEngine
 
 
@@ -21,10 +24,14 @@ class RunService:
         repository: MemoryRepository,
         engine: SimulationEngine,
         analytics: AnalyticsService,
+        inference: InferenceService | None = None,
+        inference_analysis: InferenceAnalysisService | None = None,
     ) -> None:
         self.repository = repository
         self.engine = engine
         self.analytics = analytics
+        self.inference = inference or InferenceService()
+        self.inference_analysis = inference_analysis or InferenceAnalysisService()
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     async def create_run(
@@ -32,11 +39,16 @@ class RunService:
         request: CreateRunRequest,
         locale: Locale,
     ) -> RunSnapshot:
+        config = request.config.model_copy(deep=True)
+        if isinstance(config.inferenceConfig, dict):
+            config.inferenceConfig = InferenceConfig.model_validate(
+                config.inferenceConfig
+            )
         snapshot = RunSnapshot.empty(
             run_id=f"run-{uuid4()}",
             mode=request.mode,
             locale=locale,
-            config=request.config.model_copy(deep=True),
+            config=config,
             created_at=datetime.now(UTC),
         )
         await self.repository.put_run(snapshot)
@@ -97,6 +109,9 @@ class RunService:
             snapshot.sessions,
             snapshot.id,
             snapshot.config.questions,
+        )
+        snapshot.inferenceSummary = self.inference_analysis.summarize(
+            snapshot.inferenceResults
         )
 
     async def _execute(self, run_id: str) -> None:
@@ -209,6 +224,19 @@ class RunService:
                     snapshot.progress.terminatedRespondents += 1
                 else:
                     snapshot.progress.completedRespondents += 1
+                if (
+                    snapshot.mode == "interview"
+                    and snapshot.config.inferenceConfig is not None
+                    and snapshot.config.inferenceConfig.enabled
+                ):
+                    inference_results = await self.inference.infer_for_session(
+                        run_id=snapshot.id,
+                        respondent=respondent,
+                        session=session,
+                        config=snapshot.config.inferenceConfig,
+                        locale=snapshot.locale,
+                    )
+                    snapshot.inferenceResults.extend(inference_results)
                 self._refresh_analytics(snapshot)
                 await self.repository.put_run(snapshot)
 
