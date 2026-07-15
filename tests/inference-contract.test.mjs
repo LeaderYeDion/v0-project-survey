@@ -26,3 +26,12 @@ test("default inference config is disabled with editable presets", async () => {
   assert.ok(config.attitudeTasks.some(task => task.name === "共同富裕倾向"))
   assert.deepEqual(config.attitudeTasks[0].options, ["积极", "中立", "消极"])
 })
+
+test("renderInferenceValue handles scalar, multi-value, and empty values", async () => {
+  const { renderInferenceValue } = await loadSurveyContract()
+
+  assert.equal(renderInferenceValue("积极"), "积极")
+  assert.equal(renderInferenceValue(["父母", "子女"]), "父母, 子女")
+  assert.equal(renderInferenceValue(["父母", "子女"], "、"), "父母、子女")
+  assert.equal(renderInferenceValue(null), "")
+})

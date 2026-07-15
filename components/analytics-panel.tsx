@@ -65,6 +65,8 @@ import type {
   AnalyticsQueryResult,
   DimensionFilters,
   DimensionMetadata,
+  InferenceResult,
+  InferenceSummaryItem,
   RespondentDimensionKey,
 } from "@/lib/survey-api"
 import { useI18n } from "@/components/locale-provider"
@@ -87,6 +89,7 @@ import {
   apiFetchSurveyHistory,
   apiQueryRunAnalytics,
   apiQueryHistoryAnalytics,
+  renderInferenceValue,
 } from "@/lib/survey-api"
 
 type ResponseDistributionEntry = {
@@ -209,6 +212,8 @@ interface AnalyticsPanelProps {
   questions: SurveyQuestion[]
   questionAnalysis: QuestionAnalysis[]
   demographicAnalysis: DemographicAnalysis[]
+  inferenceResults: InferenceResult[]
+  inferenceSummary: InferenceSummaryItem[]
   config: SurveyConfig
   onExport: (format: "json" | "csv") => void
   isRunning: boolean
@@ -226,6 +231,8 @@ export function AnalyticsPanel({
   questions,
   questionAnalysis,
   demographicAnalysis,
+  inferenceResults,
+  inferenceSummary,
   config,
   onExport,
   isRunning,
@@ -255,6 +262,7 @@ export function AnalyticsPanel({
   const historyRequestTracker = useRef(createLatestRequestTracker()).current
   const effectiveQuestionId = selectValidQuestionId(selectedQuestion, questions)
   const currentSourceKey = createAnalyticsSourceKey(source)
+  const inferenceValueSeparator = locale === "zh-CN" ? "、" : ", "
   const currentQueryKey = createAnalyticsQueryKey({
     sourceKey: currentSourceKey,
     questionId: effectiveQuestionId,
@@ -815,7 +823,7 @@ export function AnalyticsPanel({
 
           {/* Tabbed Analysis */}
           <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-secondary/30 p-1 sm:grid-cols-3">
+            <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-secondary/30 p-1 sm:grid-cols-4">
               <TabsTrigger value="overview" className="min-h-9 whitespace-normal px-2 py-1.5 text-center text-xs leading-tight">
                 {messages.analytics.overview}
               </TabsTrigger>
@@ -824,6 +832,9 @@ export function AnalyticsPanel({
               </TabsTrigger>
               <TabsTrigger value="demographic" className="min-h-9 whitespace-normal px-2 py-1.5 text-center text-xs leading-tight">
                 {messages.analytics.demographicAnalysis}
+              </TabsTrigger>
+              <TabsTrigger value="inference" className="min-h-9 whitespace-normal px-2 py-1.5 text-center text-xs leading-tight">
+                {messages.analytics.inference}
               </TabsTrigger>
             </TabsList>
 
@@ -1227,6 +1238,69 @@ export function AnalyticsPanel({
                   ))
                 )}
               </div>
+            </TabsContent>
+
+            <TabsContent value="inference" className="mt-4 space-y-4">
+              {inferenceSummary.length === 0 ? (
+                <div className="rounded-lg border border-border/30 bg-secondary/20 p-4 text-sm text-muted-foreground">
+                  {messages.analytics.noInferenceResults}
+                </div>
+              ) : (
+                <>
+                  <div className="grid gap-3">
+                    {inferenceSummary.map((item) => (
+                      <div key={item.taskId} className="rounded-lg border border-border/30 bg-secondary/20 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div>
+                            <h4 className="text-sm font-medium text-foreground">{item.taskName}</h4>
+                            <p className="text-xs text-muted-foreground">
+                              {messages.analytics.inferenceTaskSummary(
+                                formatInteger(locale, item.completed),
+                                formatInteger(locale, item.total),
+                                formatInteger(locale, item.failed),
+                              )}
+                            </p>
+                          </div>
+                          <Badge variant="outline">{item.kind}</Badge>
+                        </div>
+                        <div className="space-y-1">
+                          {Object.entries(item.distribution).map(([value, count]) => (
+                            <div key={value} className="flex items-center justify-between gap-2 text-xs">
+                              <span className="min-w-0 truncate text-muted-foreground">{value}</span>
+                              <span className="font-medium text-foreground">{formatInteger(locale, count)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="max-h-72 overflow-auto rounded-lg border border-border/30">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-card">
+                        <tr className="border-b border-border/30 text-left text-muted-foreground">
+                          <th className="p-2">{messages.analytics.respondent}</th>
+                          <th className="p-2">{messages.analytics.task}</th>
+                          <th className="p-2">{messages.analytics.value}</th>
+                          <th className="p-2">{messages.interview.status}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inferenceResults.map((result) => {
+                          const respondent = respondents.find(item => item.id === result.respondentId)
+                          return (
+                            <tr key={result.id} className="border-b border-border/20">
+                              <td className="p-2 text-muted-foreground">{respondent?.name || result.respondentId}</td>
+                              <td className="p-2 text-muted-foreground">{result.taskName}</td>
+                              <td className="p-2 text-foreground">{renderInferenceValue(result.value, inferenceValueSeparator)}</td>
+                              <td className="p-2 text-muted-foreground">{result.status}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </TabsContent>
           </Tabs>
 

@@ -152,6 +152,7 @@ const zhCN = {
     status: "状态",
     selectRespondent: "选择一位受访者查看对话详情",
     respondentInterviewHint: "每位受访者的完整访谈过程将在此显示",
+    inferenceResults: "推断结果",
   },
   survey: {
     unanswered: "未作答",
@@ -224,6 +225,13 @@ const zhCN = {
     overview: "概览",
     questionAnalysis: "问题分析",
     demographicAnalysis: "人群分析",
+    inference: "推断",
+    noInferenceResults: "暂无推断结果",
+    inferenceTaskSummary: (completed: number | string, total: number | string, failed: number | string) =>
+      `${completed}/${total} 已完成 · ${failed} 失败`,
+    respondent: "受访者",
+    task: "任务",
+    value: "结果",
     sentimentDistribution: "情感分布",
     interviewStatusDistribution: "访谈状态分布",
     selectQuestion: "选择问题",
@@ -408,6 +416,7 @@ const enUS = {
     status: "Status",
     selectRespondent: "Select a respondent to view the conversation",
     respondentInterviewHint: "The complete interview for each respondent appears here",
+    inferenceResults: "Inference results",
   },
   survey: {
     unanswered: "Unanswered",
@@ -480,6 +489,13 @@ const enUS = {
     overview: "Overview",
     questionAnalysis: "Question analysis",
     demographicAnalysis: "Audience analysis",
+    inference: "Inference",
+    noInferenceResults: "No inference results yet",
+    inferenceTaskSummary: (completed: number | string, total: number | string, failed: number | string) =>
+      `${completed}/${total} completed · ${failed} failed`,
+    respondent: "Respondent",
+    task: "Task",
+    value: "Value",
     sentimentDistribution: "Sentiment distribution",
     interviewStatusDistribution: "Interview status distribution",
     selectQuestion: "Select a question",

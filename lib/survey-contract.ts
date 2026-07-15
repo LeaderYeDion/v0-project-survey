@@ -121,6 +121,13 @@ export function createDefaultInferenceConfig(): InferenceConfig {
   }
 }
 
+export function renderInferenceValue(value: string | string[] | null, separator = ", "): string {
+  if (Array.isArray(value)) {
+    return value.join(separator)
+  }
+  return value ?? ""
+}
+
 export interface SurveyConfig {
   title: string
   description: string

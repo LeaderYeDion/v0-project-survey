@@ -164,6 +164,10 @@ export default function ResearcherDashboard() {
   const displayConfig = viewingHistoryRecord ? viewingHistoryRecord.config : config
   const displayResponses =
     viewingHistoryRecord?.responses ?? currentRun?.responses ?? []
+  const displayInferenceResults =
+    viewingHistoryRecord?.inferenceResults ?? currentRun?.inferenceResults ?? []
+  const displayInferenceSummary =
+    viewingHistoryRecord?.inferenceSummary ?? currentRun?.inferenceSummary ?? []
   const displaySource = viewingHistoryRecord
     ? { type: "history" as const, id: viewingHistoryRecord.id }
     : currentRun
@@ -242,6 +246,7 @@ export default function ResearcherDashboard() {
         respondents={displayRespondents}
         isRunning={isRunning}
         currentRespondentId={currentRun?.activeRespondentId ?? null}
+        inferenceResults={displayInferenceResults}
         onSelectRespondent={handleSelectRespondent}
       />
     ) : (
@@ -265,6 +270,8 @@ export default function ResearcherDashboard() {
       questions={displayQuestions}
       questionAnalysis={displayQuestionAnalysis}
       demographicAnalysis={displayDemographicAnalysis}
+      inferenceResults={displayInferenceResults}
+      inferenceSummary={displayInferenceSummary}
       config={displayConfig}
       onExport={handleExport}
       isRunning={isRunning}

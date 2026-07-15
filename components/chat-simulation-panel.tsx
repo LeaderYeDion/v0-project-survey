@@ -4,7 +4,8 @@ import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { MessageSquare, Sparkles, User, MapPin, Briefcase, DollarSign, AlertCircle } from "lucide-react"
-import type { InterviewSession, RespondentProfile } from "@/lib/survey-contract"
+import type { InferenceResult, InterviewSession, RespondentProfile } from "@/lib/survey-contract"
+import { renderInferenceValue } from "@/lib/survey-contract"
 import { useI18n } from "@/components/locale-provider"
 import { formatDate, formatInteger } from "@/lib/i18n/locale"
 import { cn } from "@/lib/utils"
@@ -14,6 +15,7 @@ interface ChatSimulationPanelProps {
   respondents: RespondentProfile[]
   isRunning: boolean
   currentRespondentId: string | null
+  inferenceResults: InferenceResult[]
   onSelectRespondent: (id: string) => void
 }
 
@@ -24,6 +26,7 @@ export function ChatSimulationPanel({
   respondents,
   isRunning,
   currentRespondentId,
+  inferenceResults,
   onSelectRespondent
 }: ChatSimulationPanelProps) {
   const { locale, messages } = useI18n()
@@ -41,6 +44,10 @@ export function ChatSimulationPanel({
 
   const selectedRespondent = respondents.find(r => r.id === selectedRespondentId)
   const selectedSession = sessions.find(s => s.respondentId === selectedRespondentId)
+  const inferenceValueSeparator = locale === "zh-CN" ? "、" : ", "
+  const selectedInferenceResults = inferenceResults.filter(
+    result => result.respondentId === selectedRespondentId,
+  )
 
   const getSentimentColor = (sentiment?: "positive" | "neutral" | "negative" | null) => {
     switch (sentiment) {
@@ -280,6 +287,32 @@ export function ChatSimulationPanel({
                       </Badge>
                     ))}
                   </div>
+                  {selectedInferenceResults.length > 0 && (
+                    <div className="mt-3 space-y-2 rounded-md border border-border/30 bg-background/40 p-2">
+                      <div className="text-[11px] font-medium text-muted-foreground">
+                        {messages.interview.inferenceResults}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedInferenceResults.map((result) => (
+                          <Badge
+                            key={result.id}
+                            variant="outline"
+                            className="max-w-full border-primary/30 bg-primary/10 text-[10px] text-primary"
+                            title={result.reason || result.error || undefined}
+                          >
+                            {result.taskName}: {renderInferenceValue(result.value, inferenceValueSeparator) || result.status}
+                          </Badge>
+                        ))}
+                      </div>
+                      <div className="space-y-1">
+                        {selectedInferenceResults.map((result) => (
+                          <p key={`${result.id}-reason`} className="text-xs leading-relaxed text-muted-foreground">
+                            {result.taskName}: {result.reason || result.error || result.status}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
