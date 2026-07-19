@@ -32,9 +32,10 @@ async function request<T>(
 
 export function apiFetchDefaultTemplate(
   locale: Locale,
+  mode: SimulationMode = "survey",
   signal?: AbortSignal,
 ): Promise<SurveyConfig> {
-  return request(locale, "/templates/default", { signal })
+  return request(locale, `/templates/default?mode=${mode}`, { signal })
 }
 
 export function apiCreateRun(

@@ -153,6 +153,13 @@ export function SurveyConfigPanel({
   }
 
   const totalRespondents = config.respondentConfigs.reduce((sum, c) => sum + c.count, 0)
+  const countEnabledTasks = (tasks: { enabled: boolean }[]) =>
+    tasks.filter((task) => task.enabled).length
+  const enabledInferenceTasks =
+    countEnabledTasks(inferenceConfig.profileTasks) +
+    countEnabledTasks(inferenceConfig.attitudeTasks)
+  const totalInferenceTasks =
+    inferenceConfig.profileTasks.length + inferenceConfig.attitudeTasks.length
 
   const handleJsonChange = (value: string) => {
     try {
@@ -554,18 +561,26 @@ export function SurveyConfigPanel({
             </Accordion>
 
             {mode === "interview" && (
-              <Accordion type="single" collapsible>
+              <Accordion type="single" collapsible defaultValue="inference-tasks">
                 <AccordionItem
                   value="inference-tasks"
                   className="rounded-lg border border-border/30 bg-secondary/10"
                 >
                   <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                    <div className="flex w-full items-center justify-between pr-2">
-                      <div className="flex items-center gap-2">
+                    <div className="flex w-full min-w-0 items-center justify-between gap-3 pr-2">
+                      <div className="flex min-w-0 items-center gap-2">
                         <Settings2 className="h-4 w-4 text-primary" />
-                        <span className="font-medium text-foreground">
-                          {messages.config.inferenceTasks}
-                        </span>
+                        <div className="min-w-0 text-left">
+                          <span className="block font-medium text-foreground">
+                            {messages.config.inferenceTasks}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {messages.config.enabledTaskCount(
+                              enabledInferenceTasks,
+                              totalInferenceTasks,
+                            )}
+                          </span>
+                        </div>
                       </div>
                       <Badge variant="secondary" className="bg-primary/20 text-primary">
                         {inferenceConfig.enabled
@@ -575,26 +590,41 @@ export function SurveyConfigPanel({
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="space-y-4 px-4 pb-4">
-                    <div className="flex items-center justify-between gap-3 rounded-md border border-border/30 bg-background/40 p-3">
-                      <div>
-                        <Label className="text-sm text-foreground">
-                          {messages.config.inferenceTasks}
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          {messages.config.inferenceDescription}
-                        </p>
+                    <div className="space-y-3 rounded-md border border-border/30 bg-background/40 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <Label className="text-sm text-foreground">
+                            {messages.config.enableInferenceTasks}
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            {messages.config.inferenceDescription}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={inferenceConfig.enabled}
+                          onCheckedChange={(enabled) => updateInferenceConfig({ enabled })}
+                        />
                       </div>
-                      <Switch
-                        checked={inferenceConfig.enabled}
-                        onCheckedChange={(enabled) => updateInferenceConfig({ enabled })}
-                      />
+                      <p className="rounded-md bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+                        {messages.config.inferenceOutputHint}
+                      </p>
+                      {inferenceConfig.enabled && enabledInferenceTasks === 0 && (
+                        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                          {messages.config.noEnabledTasks}
+                        </p>
+                      )}
                     </div>
 
                     {inferenceConfig.enabled && (
                       <div className="space-y-4">
                         <InferenceTaskGroup
                           title={messages.config.profileInference}
+                          description={messages.config.profileInferenceDescription}
                           enabled={inferenceConfig.profileEnabled}
+                          enabledTaskCount={countEnabledTasks(inferenceConfig.profileTasks)}
+                          totalTaskCount={inferenceConfig.profileTasks.length}
+                          enabledTaskCountLabel={messages.config.enabledTaskCount}
+                          noEnabledTasks={messages.config.noEnabledTasks}
                           onEnabledChange={(profileEnabled) => updateInferenceConfig({ profileEnabled })}
                           onAdd={addProfileTask}
                           addLabel={messages.config.addProfileTask}
@@ -607,6 +637,7 @@ export function SurveyConfigPanel({
                               options={task.options}
                               multiple={task.multiple}
                               showMultiple
+                              taskNameLabel={messages.config.taskName}
                               optionsLabel={messages.config.taskOptions}
                               multipleLabel={messages.config.allowMultipleValues}
                               onNameChange={(name) => updateProfileTask(index, { name })}
@@ -624,7 +655,12 @@ export function SurveyConfigPanel({
 
                         <InferenceTaskGroup
                           title={messages.config.attitudeInference}
+                          description={messages.config.attitudeInferenceDescription}
                           enabled={inferenceConfig.attitudeEnabled}
+                          enabledTaskCount={countEnabledTasks(inferenceConfig.attitudeTasks)}
+                          totalTaskCount={inferenceConfig.attitudeTasks.length}
+                          enabledTaskCountLabel={messages.config.enabledTaskCount}
+                          noEnabledTasks={messages.config.noEnabledTasks}
                           onEnabledChange={(attitudeEnabled) => updateInferenceConfig({ attitudeEnabled })}
                           onAdd={addAttitudeTask}
                           addLabel={messages.config.addAttitudeTask}
@@ -635,6 +671,7 @@ export function SurveyConfigPanel({
                               name={task.name}
                               enabled={task.enabled}
                               options={task.options}
+                              taskNameLabel={messages.config.taskName}
                               optionsLabel={messages.config.taskOptions}
                               multipleLabel={messages.config.allowMultipleValues}
                               onNameChange={(name) => updateAttitudeTask(index, { name })}
@@ -688,14 +725,24 @@ export function SurveyConfigPanel({
 
 function InferenceTaskGroup({
   title,
+  description,
   enabled,
+  enabledTaskCount,
+  totalTaskCount,
+  enabledTaskCountLabel,
+  noEnabledTasks,
   onEnabledChange,
   onAdd,
   addLabel,
   children,
 }: {
   title: string
+  description: string
   enabled: boolean
+  enabledTaskCount: number
+  totalTaskCount: number
+  enabledTaskCountLabel: (enabled: number | string, total: number | string) => string
+  noEnabledTasks: string
   onEnabledChange: (enabled: boolean) => void
   onAdd: () => void
   addLabel: string
@@ -703,16 +750,31 @@ function InferenceTaskGroup({
 }) {
   return (
     <div className="space-y-3 rounded-lg border border-border/30 bg-secondary/20 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Switch checked={enabled} onCheckedChange={onEnabledChange} />
-          <Label className="text-sm text-foreground">{title}</Label>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <Switch
+            checked={enabled}
+            onCheckedChange={onEnabledChange}
+            className="mt-0.5"
+          />
+          <div className="min-w-0 space-y-1">
+            <Label className="text-sm text-foreground">{title}</Label>
+            <p className="text-xs text-muted-foreground">{description}</p>
+            <Badge variant="outline" className="text-[10px] font-normal">
+              {enabledTaskCountLabel(enabledTaskCount, totalTaskCount)}
+            </Badge>
+          </div>
         </div>
         <Button variant="ghost" size="sm" onClick={onAdd}>
           <Plus className="mr-1 h-4 w-4" />
           {addLabel}
         </Button>
       </div>
+      {enabled && enabledTaskCount === 0 && (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          {noEnabledTasks}
+        </p>
+      )}
       {enabled && <div className="space-y-3">{children}</div>}
     </div>
   )
@@ -724,6 +786,7 @@ function InferenceTaskEditor({
   options,
   multiple,
   showMultiple = false,
+  taskNameLabel,
   optionsLabel,
   multipleLabel,
   onNameChange,
@@ -737,6 +800,7 @@ function InferenceTaskEditor({
   options: string[]
   multiple?: boolean
   showMultiple?: boolean
+  taskNameLabel: string
   optionsLabel: string
   multipleLabel: string
   onNameChange: (name: string) => void
@@ -747,14 +811,23 @@ function InferenceTaskEditor({
 }) {
   return (
     <div className="space-y-2 rounded-md border border-border/30 bg-background/40 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Checkbox checked={enabled} onCheckedChange={(value) => onEnabledChange(value === true)} />
-          <Input
-            value={name}
-            onChange={(event) => onNameChange(event.target.value)}
-            className="h-8 bg-background/50 text-xs"
+      <div className="flex items-start justify-between gap-2">
+        <div className="grid min-w-0 flex-1 grid-cols-[auto_1fr] gap-2">
+          <Checkbox
+            checked={enabled}
+            onCheckedChange={(value) => onEnabledChange(value === true)}
+            className="mt-7"
           />
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">
+              {taskNameLabel}
+            </Label>
+            <Input
+              value={name}
+              onChange={(event) => onNameChange(event.target.value)}
+              className="h-8 bg-background/50 text-xs"
+            />
+          </div>
         </div>
         <Button
           variant="ghost"

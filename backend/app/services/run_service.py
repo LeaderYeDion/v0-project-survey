@@ -185,6 +185,7 @@ class RunService:
                         respondent,
                         question,
                         snapshot.locale,
+                        snapshot.mode,
                     )
                     session.dialog.append(response)
                     session.completedQuestions += 1

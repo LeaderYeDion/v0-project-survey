@@ -102,7 +102,7 @@ export default function ResearcherDashboard() {
     const requestId = templateRequestsRef.current.begin()
     setLoadedTemplateLocale(null)
     setTemplateError(false)
-    apiFetchDefaultTemplate(locale, controller.signal)
+    apiFetchDefaultTemplate(locale, mode, controller.signal)
       .then(nextConfig => {
         if (
           controller.signal.aborted ||
@@ -121,7 +121,7 @@ export default function ResearcherDashboard() {
         }
       })
     return () => controller.abort()
-  }, [locale])
+  }, [locale, mode])
 
   useEffect(() => {
     if (!currentRun || !isRunning) return

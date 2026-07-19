@@ -52,7 +52,7 @@ test("every survey API request sends the required locale", async () => {
   try {
     const locale = "en-US"
     const signal = new AbortController().signal
-    await api.apiFetchDefaultTemplate(locale, signal)
+    await api.apiFetchDefaultTemplate(locale, "survey", signal)
     await api.apiCreateRun(locale, "survey", { title: "test" })
     await api.apiFetchRun(locale, "run-1", signal)
     await api.apiCancelRun(locale, "run-1")
@@ -121,8 +121,9 @@ test("dashboard reloads the default template for the latest selected locale", ()
   assert.match(source, /setLoadedTemplateLocale\(locale\)/)
   assert.match(
     source,
-    /apiFetchDefaultTemplate\(locale,\s*controller\.signal\)/,
+    /apiFetchDefaultTemplate\(locale,\s*mode,\s*controller\.signal\)/,
   )
+  assert.match(source, /\[locale,\s*mode\]/)
 })
 
 test("Next rewrites survey API requests", () => {

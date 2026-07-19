@@ -92,7 +92,7 @@ async def test_default_template(client: httpx.AsyncClient) -> None:
     missing = await client.get("/api/templates/default")
     assert missing.status_code == 200
     assert missing.headers["content-language"] == "en-US"
-    assert missing.json()["title"] == "User Experience Survey"
+    assert missing.json()["title"] == "Common Prosperity Perception Survey"
 
     response = await client.get(
         "/api/templates/default",
@@ -101,7 +101,7 @@ async def test_default_template(client: httpx.AsyncClient) -> None:
 
     assert response.status_code == 200
     assert response.headers["content-language"] == "en-US"
-    assert response.json()["title"] == "User Experience Survey"
+    assert response.json()["title"] == "Common Prosperity Perception Survey"
 
     unsupported = await client.get(
         "/api/templates/default",
@@ -109,7 +109,7 @@ async def test_default_template(client: httpx.AsyncClient) -> None:
     )
     assert unsupported.status_code == 200
     assert unsupported.headers["content-language"] == "en-US"
-    assert unsupported.json()["title"] == "User Experience Survey"
+    assert unsupported.json()["title"] == "Common Prosperity Perception Survey"
 
     chinese = await client.get(
         "/api/templates/default",
@@ -117,7 +117,38 @@ async def test_default_template(client: httpx.AsyncClient) -> None:
     )
     assert chinese.status_code == 200
     assert chinese.headers["content-language"] == "zh-CN"
-    assert chinese.json()["title"] == "用户体验调研"
+    assert chinese.json()["title"] == "共同富裕可感可知问卷"
+
+
+@pytest.mark.asyncio
+async def test_default_template_can_be_selected_by_mode(
+    client: httpx.AsyncClient,
+) -> None:
+    survey = await client.get(
+        "/api/templates/default",
+        headers={"Accept-Language": "zh-CN"},
+        params={"mode": "survey"},
+    )
+    interview = await client.get(
+        "/api/templates/default",
+        headers={"Accept-Language": "zh-CN"},
+        params={"mode": "interview"},
+    )
+    english_interview = await client.get(
+        "/api/templates/default",
+        headers=LANGUAGE_HEADERS,
+        params={"mode": "interview"},
+    )
+
+    assert survey.status_code == 200
+    assert survey.json()["title"] == "共同富裕可感可知问卷"
+    assert survey.json()["questions"][0]["question"] == "您多大程度上认为您所在县（市、区）经济是快速发展的？"
+    assert interview.status_code == 200
+    assert interview.json()["title"] == "共同富裕可感可知访谈"
+    assert interview.json()["questions"][0]["question"] == "您觉得什么是共同富裕？"
+    assert english_interview.status_code == 200
+    assert english_interview.json()["title"] == "Common Prosperity Perception Interview"
+    assert english_interview.json()["questions"][0]["question"] == "What does common prosperity mean to you?"
 
 
 @pytest.mark.asyncio
@@ -174,7 +205,7 @@ async def test_history_analytics_and_export(
     completed_payload = completed.json()
     assert completed_payload["locale"] == "en-US"
     assert completed_payload["respondents"][0]["gender"] in {"Male", "Female"}
-    assert completed_payload["config"]["title"] == "User Experience Survey"
+    assert completed_payload["config"]["title"] == "Common Prosperity Perception Survey"
 
     saved = await client.post(
         "/api/history",

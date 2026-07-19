@@ -12,6 +12,7 @@ from app.schemas.survey import (
     RespondentConfig,
     RespondentProfile,
     ScaleAnswer,
+    SimulationMode,
     SurveyQuestion,
     TextAnswer,
 )
@@ -94,6 +95,7 @@ class MockEngine:
         respondent: RespondentProfile,
         question: SurveyQuestion,
         locale: Locale,
+        mode: SimulationMode,
     ) -> DialogMessage:
         data = self._catalog.data(locale)
         sentiment = self._rng.choices(
@@ -101,7 +103,15 @@ class MockEngine:
             weights=[0.4, 0.35, 0.25],
             k=1,
         )[0]
-        if question.type == "scale":
+        example_answers = self._catalog.example_answers(
+            locale,
+            mode,
+            question.id,
+        )
+        if example_answers:
+            content = self._rng.choice(example_answers)
+            answer = self._answer_value_from_example(question, content)
+        elif question.type == "scale":
             assert question.scale is not None
             if sentiment == "positive":
                 score = self._rng.randint(max(question.scale.min, question.scale.max - 2), question.scale.max)
@@ -138,6 +148,25 @@ class MockEngine:
             sentiment=sentiment,
             answerValue=answer,
         )
+
+    def _answer_value_from_example(
+        self,
+        question: SurveyQuestion,
+        content: str,
+    ) -> TextAnswer | ChoiceAnswer | ScaleAnswer:
+        if question.type == "scale":
+            assert question.scale is not None
+            match = re.search(r"\d+(?:\.\d+)?", content)
+            if match:
+                score = float(match.group(0))
+                if score.is_integer():
+                    score = int(score)
+                return ScaleAnswer(value=score)
+            return ScaleAnswer(value=question.scale.min)
+        if question.type == "choice":
+            selected = re.sub(r"^[A-Z]\.\s*", "", content).strip()
+            return ChoiceAnswer(value=selected)
+        return TextAnswer(value=content)
 
     def termination_message(self, locale: Locale) -> DialogMessage:
         return DialogMessage(

@@ -10,8 +10,8 @@ CATALOG = MockCatalog()
 
 def test_default_template_matches_existing_demo() -> None:
     config = CATALOG.default_template("zh-CN")
-    assert config.title == "用户体验调研"
-    assert len(config.questions) == 5
+    assert config.title == "共同富裕可感可知问卷"
+    assert len(config.questions) >= 20
     assert sum(item.count for item in config.respondentConfigs) == 7
 
 
@@ -47,6 +47,7 @@ def test_text_answer_keeps_text_type() -> None:
         respondent,
         SurveyQuestion(id="text-1", type="text", question="建议？"),
         "zh-CN",
+        "survey",
     )
 
     assert message.answerValue is not None
@@ -55,7 +56,7 @@ def test_text_answer_keeps_text_type() -> None:
 
 def test_english_engine_generates_english_profile_and_answer() -> None:
     engine = MockEngine(CATALOG, random.Random(2), delay_scale=0)
-    config = CATALOG.default_template("en-US")
+    config = CATALOG.default_template("en-US", "interview")
     respondent = engine.generate_respondents(
         config.respondentConfigs,
         "en-US",
@@ -64,10 +65,15 @@ def test_english_engine_generates_english_profile_and_answer() -> None:
         respondent,
         config.questions[2],
         "en-US",
+        "interview",
     )
 
     assert respondent.gender in {"Male", "Female"}
     assert respondent.education in CATALOG.data("en-US").educations
     assert message.answerValue is not None
     assert message.answerValue.type == "text"
-    assert "From my perspective" in message.content
+    assert message.content in CATALOG.example_answers(
+        "en-US",
+        "interview",
+        config.questions[2].id,
+    )
