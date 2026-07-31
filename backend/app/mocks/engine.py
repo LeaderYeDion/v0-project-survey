@@ -24,10 +24,12 @@ class MockEngine:
         catalog: MockCatalog,
         rng: random.Random | None = None,
         delay_scale: float = 1.0,
+        termination_enabled: bool = False,
     ) -> None:
         self._catalog = catalog
         self._rng = rng or random.Random()
         self._delay_scale = delay_scale
+        self._termination_enabled = termination_enabled
 
     async def wait_before_question(self) -> None:
         await asyncio.sleep(0.3 * self._delay_scale)
@@ -196,6 +198,8 @@ class MockEngine:
         self,
         previous_dialog: list[DialogMessage],
     ) -> bool:
+        if not self._termination_enabled:
+            return False
         return len(previous_dialog) > 2 and self._rng.random() < 0.1
 
     def response_is_low_quality(
@@ -209,6 +213,8 @@ class MockEngine:
         dialog: list[DialogMessage],
         low_quality: bool,
     ) -> bool:
+        if not self._termination_enabled:
+            return False
         if low_quality and self._rng.random() < 0.5:
             return True
         negative_count = sum(

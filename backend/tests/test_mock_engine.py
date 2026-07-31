@@ -1,11 +1,55 @@
 import random
+from datetime import UTC, datetime
 
 from app.mocks.catalog import MockCatalog
 from app.mocks.engine import MockEngine
-from app.schemas.survey import RespondentConfig, SurveyQuestion
+from app.schemas.survey import DialogMessage, RespondentConfig, SurveyQuestion
 
 
 CATALOG = MockCatalog()
+
+
+class AlwaysTerminateRandom(random.Random):
+    def random(self) -> float:
+        return 0.0
+
+
+def negative_dialog() -> list[DialogMessage]:
+    return [
+        DialogMessage(
+            id=f"message-{index}",
+            role="respondent",
+            content="negative",
+            timestamp=datetime.now(UTC),
+            sentiment="negative",
+        )
+        for index in range(6)
+    ]
+
+
+def test_termination_is_disabled_by_default() -> None:
+    engine = MockEngine(
+        CATALOG,
+        AlwaysTerminateRandom(),
+        delay_scale=0,
+    )
+    dialog = negative_dialog()
+
+    assert engine.respondent_should_terminate(dialog) is False
+    assert engine.interviewer_should_terminate(dialog, low_quality=True) is False
+
+
+def test_termination_can_be_enabled() -> None:
+    engine = MockEngine(
+        CATALOG,
+        AlwaysTerminateRandom(),
+        delay_scale=0,
+        termination_enabled=True,
+    )
+    dialog = negative_dialog()
+
+    assert engine.respondent_should_terminate(dialog) is True
+    assert engine.interviewer_should_terminate(dialog, low_quality=True) is True
 
 
 def test_default_template_matches_existing_demo() -> None:

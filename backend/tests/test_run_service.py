@@ -14,6 +14,38 @@ from app.services.run_service import RunService
 CATALOG = MockCatalog()
 
 
+@pytest.mark.parametrize("mode", ["survey", "interview"])
+@pytest.mark.asyncio
+async def test_disabled_termination_completes_every_question(
+    mode: str,
+) -> None:
+    repository = MemoryRepository()
+    catalog = MockCatalog()
+    config = catalog.default_template("zh-CN", mode).model_copy(deep=True)
+    config.respondentConfigs = [
+        config.respondentConfigs[0].model_copy(update={"count": 1})
+    ]
+    service = RunService(
+        repository=repository,
+        engine=MockEngine(catalog, random.Random(1), delay_scale=0),
+        analytics=AnalyticsService(catalog),
+    )
+
+    created = await service.create_run(
+        CreateRunRequest(mode=mode, config=config),
+        "zh-CN",
+    )
+    completed = await service.wait(created.id)
+
+    assert completed.progress.completedRespondents == 1
+    assert completed.progress.terminatedRespondents == 0
+    assert all(
+        session.status == "completed"
+        and session.completedQuestions == session.totalQuestions
+        for session in completed.sessions
+    )
+
+
 @pytest.mark.asyncio
 async def test_run_progresses_to_completed() -> None:
     repository = MemoryRepository()
