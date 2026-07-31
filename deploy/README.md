@@ -30,6 +30,11 @@ npm run deploy:init
 $EDITOR deploy/config/deploy.env
 ```
 
+生成的配置中 `SIMULATION_TERMINATION_ENABLED=false` 会关闭模拟受访者和
+调研方的两类随机提前终止，使问卷与调研默认回答全部问题。需要恢复原有
+随机终止行为时，将它改为 `true`，再停止并重新启动部署。该参数只接受
+小写的 `true` 或 `false`。
+
 检查并启动：
 
 ```bash

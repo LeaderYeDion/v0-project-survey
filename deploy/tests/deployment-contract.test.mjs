@@ -1,9 +1,50 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { readFile, stat } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 
 const read = path =>
   readFile(new URL(`../../${path}`, import.meta.url), "utf8")
+const execFileAsync = promisify(execFile)
+const projectRoot = fileURLToPath(new URL("../..", import.meta.url))
+
+async function loadDeployEnvWith(setting) {
+  const tempDir = await mkdtemp(join(tmpdir(), "survey-deploy-env-"))
+  const envFile = join(tempDir, "deploy.env")
+  const settings = [
+    "LOCAL_HOST=127.0.0.1",
+    "LOCAL_PORT=3000",
+    "BACKEND_HOST=127.0.0.1",
+    "BACKEND_PORT=8000",
+    "SURVEY_BACKEND_URL=http://127.0.0.1:8000",
+    "DEPLOY_AUTH_ENABLED=true",
+    "DEPLOY_USERNAME=survey",
+    "DEPLOY_PASSWORD=0123456789abcdef0123456789abcdef",
+  ]
+  if (setting !== undefined) {
+    settings.push(`SIMULATION_TERMINATION_ENABLED=${setting}`)
+  }
+  await writeFile(envFile, `${settings.join("\n")}\n`)
+
+  try {
+    return await execFileAsync(
+      "bash",
+      [
+        "-c",
+        'source deploy/scripts/common.sh; ENV_FILE="$1"; load_deploy_env; printf "%s" "$SIMULATION_TERMINATION_ENABLED"',
+        "load-deploy-env",
+        envFile,
+      ],
+      { cwd: projectRoot },
+    )
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
+}
 
 test("starts a Quick Tunnel to the loopback-only origin", async () => {
   const start = await read("deploy/scripts/start.sh")
@@ -139,9 +180,28 @@ test("deployment configuration and prerequisites require the local Python backen
     assert.match(source, /BACKEND_PORT/)
     assert.match(source, /SURVEY_BACKEND_URL/)
   }
+  for (const source of [init, example]) {
+    assert.match(source, /SIMULATION_TERMINATION_ENABLED=false/)
+  }
   assert.match(prerequisites, /backend\/\.venv\/bin\/python/)
   assert.match(prerequisites, /backend\/scripts\/bootstrap\.sh/)
   assert.match(prerequisites, /3,\s*14,\s*6/)
+})
+
+test("loads valid simulation termination settings", async () => {
+  assert.equal((await loadDeployEnvWith("false")).stdout, "false")
+  assert.equal((await loadDeployEnvWith("true")).stdout, "true")
+})
+
+test("rejects missing or invalid simulation termination settings", async () => {
+  await assert.rejects(
+    loadDeployEnvWith(undefined),
+    /Missing required setting: SIMULATION_TERMINATION_ENABLED/,
+  )
+  await assert.rejects(
+    loadDeployEnvWith("TRUE"),
+    /SIMULATION_TERMINATION_ENABLED must be true or false/,
+  )
 })
 
 test("allows a configurable backend port while keeping the backend loopback-only", async () => {

@@ -62,6 +62,7 @@ LOCAL_PORT=3000
 BACKEND_HOST=127.0.0.1
 BACKEND_PORT=8000
 SURVEY_BACKEND_URL=http://127.0.0.1:8000
+SIMULATION_TERMINATION_ENABLED=false
 DEPLOY_AUTH_ENABLED=true
 DEPLOY_USERNAME=survey
 DEPLOY_PASSWORD=<48位随机十六进制密码>
@@ -77,6 +78,8 @@ chmod 600 deploy/config/deploy.env
 用户名只能包含字母、数字、点、下划线和连字符；密码至少 20 个字符。不要把该文件发到聊天、Issue 或 Git。
 
 8000 被占用时，可以把 `BACKEND_PORT` 和 `SURVEY_BACKEND_URL` 改为同一个空闲端口，例如 8010；`BACKEND_HOST` 必须保持 `127.0.0.1`。
+
+`SIMULATION_TERMINATION_ENABLED=false` 是默认设置：问卷和调研中的模拟受访者会回答全部问题，受访者主动终止和调研方终止均不触发。设置为 `true` 会同时恢复这两类随机终止规则；参数只接受小写的 `true` 或 `false`。修改后先执行 `npm stop`，再运行 `npm run deploy:start`，让新值随 FastAPI 启动生效。
 
 ## 4. 部署前检查
 

@@ -40,6 +40,7 @@ load_deploy_env() {
     BACKEND_HOST \
     BACKEND_PORT \
     SURVEY_BACKEND_URL \
+    SIMULATION_TERMINATION_ENABLED \
     DEPLOY_AUTH_ENABLED \
     DEPLOY_USERNAME \
     DEPLOY_PASSWORD; do
@@ -59,6 +60,9 @@ load_deploy_env() {
     die "BACKEND_PORT must differ from LOCAL_PORT"
   [ "$SURVEY_BACKEND_URL" = "http://$BACKEND_HOST:$BACKEND_PORT" ] ||
     die "SURVEY_BACKEND_URL must be http://$BACKEND_HOST:$BACKEND_PORT"
+  [[ "$SIMULATION_TERMINATION_ENABLED" == "true" ||
+    "$SIMULATION_TERMINATION_ENABLED" == "false" ]] ||
+    die "SIMULATION_TERMINATION_ENABLED must be true or false"
   [ "$DEPLOY_AUTH_ENABLED" = "true" ] ||
     die "DEPLOY_AUTH_ENABLED must be true for public deployment"
   [[ "$DEPLOY_USERNAME" =~ ^[A-Za-z0-9._-]{1,64}$ ]] ||

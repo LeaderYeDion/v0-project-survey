@@ -408,10 +408,11 @@ Expected: all backend tests PASS.
 Run:
 
 ```bash
-npm test
+npm run test:frontend
+node --test deploy/tests/*.test.mjs
 ```
 
-Expected: all Node.js tests PASS.
+Expected: all frontend and deployment Node.js tests PASS.
 
 - [ ] **Step 3: Run static checks**
 
