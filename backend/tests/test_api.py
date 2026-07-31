@@ -3,7 +3,7 @@ import random
 import httpx
 import pytest
 
-from app.main import create_app
+from app.main import create_app, simulation_termination_enabled
 from app.mocks.catalog import MockCatalog
 from app.mocks.engine import MockEngine
 from app.repositories.memory import MemoryRepository
@@ -12,6 +12,35 @@ from app.services.run_service import RunService
 
 LANGUAGE_HEADERS = {"Accept-Language": "en-US"}
 CATALOG = MockCatalog()
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [(None, False), ("false", False), ("true", True)],
+)
+def test_simulation_termination_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str | None,
+    expected: bool,
+) -> None:
+    if raw_value is None:
+        monkeypatch.delenv("SIMULATION_TERMINATION_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("SIMULATION_TERMINATION_ENABLED", raw_value)
+
+    assert simulation_termination_enabled() is expected
+
+
+def test_simulation_termination_setting_rejects_invalid_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SIMULATION_TERMINATION_ENABLED", "TRUE")
+
+    with pytest.raises(
+        RuntimeError,
+        match="SIMULATION_TERMINATION_ENABLED must be true or false",
+    ):
+        simulation_termination_enabled()
 
 
 @pytest.fixture

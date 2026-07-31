@@ -1,3 +1,4 @@
+import os
 import sys
 
 from fastapi import FastAPI, Request, Response
@@ -13,6 +14,15 @@ from app.services.inference_service import InferenceService
 from app.services.run_service import RunService
 
 
+def simulation_termination_enabled() -> bool:
+    value = os.environ.get("SIMULATION_TERMINATION_ENABLED", "false")
+    if value not in {"true", "false"}:
+        raise RuntimeError(
+            "SIMULATION_TERMINATION_ENABLED must be true or false"
+        )
+    return value == "true"
+
+
 def create_app(
     repository: MemoryRepository | None = None,
     run_service: RunService | None = None,
@@ -25,7 +35,10 @@ def create_app(
     inference_analysis_service = InferenceAnalysisService()
     service = run_service or RunService(
         repository=store,
-        engine=MockEngine(mock_catalog),
+        engine=MockEngine(
+            mock_catalog,
+            termination_enabled=simulation_termination_enabled(),
+        ),
         analytics=analytics_service,
         inference=inference_service,
         inference_analysis=inference_analysis_service,
