@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Callable
 from uuid import UUID, uuid4
 
 from app.db.models import (
@@ -49,6 +52,7 @@ class FakeResearchRepository:
         self.questionnaires: dict[UUID, QuestionnaireRow] = {}
         self.questionnaire_versions: dict[UUID, QuestionnaireVersionRow] = {}
         self.config_versions: dict[UUID, ConfigVersionRow] = {}
+        self.before_freeze: Callable[[QuestionnaireRow], None] | None = None
 
     async def create_project(self, owner_id: UUID, payload) -> ProjectRow:
         now = datetime.now(UTC)
@@ -198,6 +202,23 @@ class FakeResearchRepository:
             questionnaire_id,
         )
         if questionnaire is None:
+            return None
+        if self.before_freeze is not None:
+            self.before_freeze(questionnaire)
+        expected_revision = getattr(
+            payload,
+            "expected_draft_revision",
+            questionnaire.draft_revision,
+        )
+        expected_hash = getattr(
+            payload,
+            "expected_draft_content_hash",
+            _content_hash(questionnaire.draft_config),
+        )
+        if (
+            questionnaire.draft_revision != expected_revision
+            or _content_hash(questionnaire.draft_config) != expected_hash
+        ):
             return None
 
         questionnaire_version = next(
@@ -361,3 +382,13 @@ class FakeAuthRepository:
         session = self.sessions.get(token_hash)
         if session is not None:
             session.revoked_at = datetime.now(UTC)
+
+
+def _content_hash(value) -> str:
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

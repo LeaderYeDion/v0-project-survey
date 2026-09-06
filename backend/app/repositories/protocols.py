@@ -29,6 +29,8 @@ RetryKind = Literal["failed", "incomplete"]
 @dataclass(frozen=True, slots=True)
 class VersionFreezePayload:
     schema_version: int
+    expected_draft_revision: int
+    expected_draft_content_hash: str
     questions_json: Sequence[Mapping[str, Any]]
     respondent_plan_json: Sequence[Mapping[str, Any]]
     inference_config_json: Mapping[str, Any] | None

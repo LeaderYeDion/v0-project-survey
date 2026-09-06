@@ -4,7 +4,13 @@ from datetime import datetime
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.schemas.survey import SurveyConfig, SurveyQuestion
 
@@ -39,6 +45,13 @@ class UpdateProject(ResearchModel):
         min_length=1,
         max_length=255,
     )
+
+    @field_validator("name", "research_goal", "principal_name")
+    @classmethod
+    def reject_explicit_null(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("project fields cannot be null")
+        return value
 
     @model_validator(mode="after")
     def require_a_change(self) -> Self:

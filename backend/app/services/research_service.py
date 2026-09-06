@@ -162,6 +162,8 @@ class ResearchService:
         questions = [question.model_dump(mode="json") for question in config.questions]
         payload = VersionFreezePayload(
             schema_version=questionnaire.draft_schema_version,
+            expected_draft_revision=questionnaire.draft_revision,
+            expected_draft_content_hash=_content_hash(snapshot),
             questions_json=questions,
             respondent_plan_json=[
                 respondent.model_dump(mode="json")
@@ -183,7 +185,19 @@ class ResearchService:
             payload,
         )
         if rows is None:
-            raise _not_found()
+            if (
+                await self._repository.get_questionnaire_for_owner(
+                    owner_id,
+                    questionnaire_id,
+                )
+                is None
+            ):
+                raise _not_found()
+            raise ApiError(
+                409,
+                "DRAFT_CONFLICT",
+                "The questionnaire draft changed while it was frozen",
+            )
         return FrozenConfig(
             questionnaireVersionId=rows.questionnaire_version.id,
             configVersionId=rows.config_version.id,

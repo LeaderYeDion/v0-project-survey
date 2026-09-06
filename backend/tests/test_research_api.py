@@ -18,7 +18,10 @@ async def client():
         research_service=ResearchService(FakeResearchRepository()),
     )
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=application),
+        transport=httpx.ASGITransport(
+            app=application,
+            raise_app_exceptions=False,
+        ),
         base_url="https://survey.test",
     ) as api_client:
         logged_in = await api_client.post(
@@ -110,3 +113,31 @@ async def test_business_routes_require_authentication_and_csrf() -> None:
         assert logged_in.status_code == 200
         assert missing_csrf.status_code == 403
         assert missing_csrf.json()["code"] == "AUTH_CSRF_INVALID"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["name", "researchGoal", "principalName"])
+async def test_project_update_rejects_explicit_null(
+    client: httpx.AsyncClient,
+    field: str,
+) -> None:
+    created = await client.post(
+        "/api/projects",
+        json={
+            "name": "Original",
+            "researchGoal": "Original goal",
+            "principalName": "Alice",
+        },
+    )
+    project_id = created.json()["id"]
+
+    rejected = await client.patch(
+        f"/api/projects/{project_id}",
+        json={field: None},
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["code"] == "REQUEST_VALIDATION_ERROR"
+    unchanged = await client.get(f"/api/projects/{project_id}")
+    assert unchanged.status_code == 200
+    assert unchanged.json() == created.json()

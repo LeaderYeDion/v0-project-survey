@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -196,6 +198,13 @@ class ResearchRepository:
                 )
                 if questionnaire is None:
                     return None
+                if (
+                    questionnaire.draft_revision
+                    != payload.expected_draft_revision
+                    or _content_hash(questionnaire.draft_config)
+                    != payload.expected_draft_content_hash
+                ):
+                    return None
 
                 project = await session.scalar(
                     select(ProjectRow)
@@ -209,13 +218,24 @@ class ResearchRepository:
                     return None
 
                 questionnaire_version = await session.scalar(
-                    select(QuestionnaireVersionRow).where(
+                    select(QuestionnaireVersionRow)
+                    .join(
+                        QuestionnaireRow,
+                        QuestionnaireRow.id
+                        == QuestionnaireVersionRow.questionnaire_id,
+                    )
+                    .join(
+                        ProjectRow,
+                        ProjectRow.id == QuestionnaireRow.project_id,
+                    )
+                    .where(
                         QuestionnaireVersionRow.questionnaire_id
                         == questionnaire_id,
                         QuestionnaireVersionRow.schema_version
                         == payload.schema_version,
                         QuestionnaireVersionRow.content_hash
                         == payload.questionnaire_content_hash,
+                        ProjectRow.owner_user_id == owner_id,
                     )
                 )
                 if questionnaire_version is None:
@@ -225,9 +245,20 @@ class ResearchRepository:
                                 func.max(
                                     QuestionnaireVersionRow.version_number
                                 )
-                            ).where(
+                            )
+                            .join(
+                                QuestionnaireRow,
+                                QuestionnaireRow.id
+                                == QuestionnaireVersionRow.questionnaire_id,
+                            )
+                            .join(
+                                ProjectRow,
+                                ProjectRow.id == QuestionnaireRow.project_id,
+                            )
+                            .where(
                                 QuestionnaireVersionRow.questionnaire_id
-                                == questionnaire_id
+                                == questionnaire_id,
+                                ProjectRow.owner_user_id == owner_id,
                             )
                         )
                         or 0
@@ -246,7 +277,12 @@ class ResearchRepository:
                     await session.flush()
 
                 config_version = await session.scalar(
-                    select(ConfigVersionRow).where(
+                    select(ConfigVersionRow)
+                    .join(
+                        ProjectRow,
+                        ProjectRow.id == ConfigVersionRow.project_id,
+                    )
+                    .where(
                         ConfigVersionRow.project_id == project.id,
                         ConfigVersionRow.questionnaire_version_id
                         == questionnaire_version.id,
@@ -254,13 +290,20 @@ class ResearchRepository:
                         == payload.schema_version,
                         ConfigVersionRow.content_hash
                         == payload.config_content_hash,
+                        ProjectRow.owner_user_id == owner_id,
                     )
                 )
                 if config_version is None:
                     next_number = 1 + (
                         await session.scalar(
-                            select(func.max(ConfigVersionRow.version_number)).where(
-                                ConfigVersionRow.project_id == project.id
+                            select(func.max(ConfigVersionRow.version_number))
+                            .join(
+                                ProjectRow,
+                                ProjectRow.id == ConfigVersionRow.project_id,
+                            )
+                            .where(
+                                ConfigVersionRow.project_id == project.id,
+                                ProjectRow.owner_user_id == owner_id,
                             )
                         )
                         or 0
@@ -335,3 +378,13 @@ class ResearchRepository:
         )
         async with self._session_factory() as session:
             return tuple((await session.scalars(statement)).all())
+
+
+def _content_hash(value: Mapping[str, Any]) -> str:
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
