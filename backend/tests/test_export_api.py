@@ -133,6 +133,31 @@ async def test_full_json_export_returns_every_respondent(export_api) -> None:
 
 
 @pytest.mark.asyncio
+async def test_unicode_filename_has_constructible_header_before_success(
+    export_api,
+) -> None:
+    _application, alice, _bob, round_id = export_api
+
+    response = await alice.post(
+        f"/api/rounds/{round_id}/exports",
+        headers={"X-CSRF-Token": alice.cookies["survey_csrf"]},
+        json={"format": "json", "scope": "full", "filename": "报告.csv"},
+    )
+    records = (await alice.get(f"/api/rounds/{round_id}/exports")).json()
+    record = records[0]
+
+    assert response.status_code == 200
+    disposition = response.headers["content-disposition"]
+    assert (
+        f'filename="research-round-{round_id[:8]}.json"'
+        in disposition
+    )
+    assert "filename*=UTF-8''%E6%8A%A5%E5%91%8A.json" in disposition
+    assert record["filename"] == "报告.json"
+    assert record["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
 async def test_empty_export_scope_returns_stable_error(export_api) -> None:
     _application, alice, _bob, round_id = export_api
 

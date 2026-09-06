@@ -25,9 +25,7 @@ async def generate_export(
         content=generated.content,
         media_type=generated.media_type,
         headers={
-            "Content-Disposition": (
-                f'attachment; filename="{generated.filename}"'
-            ),
+            "Content-Disposition": generated.content_disposition,
             "Content-Language": current_user.locale,
             "X-Export-Record-Id": generated.record_id,
         },

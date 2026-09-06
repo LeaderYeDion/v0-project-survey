@@ -42,4 +42,5 @@ class GeneratedExport:
     content: bytes
     media_type: str
     filename: str
+    content_disposition: str
     record_id: str

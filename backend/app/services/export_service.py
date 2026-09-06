@@ -5,6 +5,7 @@ import io
 import json
 import re
 from datetime import UTC, datetime
+from urllib.parse import quote
 from uuid import UUID
 
 from app.api.errors import ApiError
@@ -53,21 +54,27 @@ class ExportService:
             snapshot = await self.run_service.get(owner_id, round_id)
             selected = self._select(snapshot, request)
             if not selected.respondents:
-                await self.repository.mark_failed(
-                    owner_id,
-                    record.id,
-                    "EXPORT_SCOPE_EMPTY",
-                    "The selected export scope has no respondents",
-                    datetime.now(UTC),
-                )
-                raise ApiError(
-                    422,
-                    "EXPORT_SCOPE_EMPTY",
-                    "The selected export scope has no respondents",
-                )
+                raise _EmptyExportScopeError
             content, media_type = self._render(selected, request.format)
-        except ApiError:
-            raise
+            content_disposition = self._content_disposition(
+                filename,
+                round_id,
+                request.format,
+            )
+            content_disposition.encode("latin-1")
+        except _EmptyExportScopeError:
+            await self.repository.mark_failed(
+                owner_id,
+                record.id,
+                "EXPORT_SCOPE_EMPTY",
+                "The selected export scope has no respondents",
+                datetime.now(UTC),
+            )
+            raise ApiError(
+                422,
+                "EXPORT_SCOPE_EMPTY",
+                "The selected export scope has no respondents",
+            ) from None
         except Exception as error:
             await self.repository.mark_failed(
                 owner_id,
@@ -98,6 +105,7 @@ class ExportService:
             content=content,
             media_type=media_type,
             filename=filename,
+            content_disposition=content_disposition,
             record_id=str(record.id),
         )
 
@@ -141,6 +149,22 @@ class ExportService:
         max_stem_length = 255 - len(format) - 1
         stem = stem[:max_stem_length].rstrip()
         return f"{stem}.{format}"
+
+    @staticmethod
+    def _content_disposition(
+        filename: str,
+        round_id: UUID,
+        format: str,
+    ) -> str:
+        try:
+            filename.encode("ascii")
+        except UnicodeEncodeError:
+            fallback = f"research-round-{str(round_id)[:8]}.{format}"
+            return (
+                f'attachment; filename="{fallback}"; '
+                f"filename*=UTF-8''{quote(filename, safe='')}"
+            )
+        return f'attachment; filename="{filename}"'
 
     def _select(
         self,
@@ -318,3 +342,7 @@ def _not_found() -> ApiError:
         "RESOURCE_NOT_FOUND",
         "The requested resource was not found",
     )
+
+
+class _EmptyExportScopeError(Exception):
+    pass

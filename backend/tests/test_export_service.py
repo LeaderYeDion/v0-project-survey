@@ -132,6 +132,27 @@ class SnapshotRunService:
         return self.snapshot
 
 
+class UpstreamErrorRunService:
+    def __init__(
+        self,
+        export_repository: ExportRepository,
+        owner_id: UUID,
+        round_id: UUID,
+    ) -> None:
+        self.export_repository = export_repository
+        self.owner_id = owner_id
+        self.round_id = round_id
+        self.observed_statuses: list[str] = []
+
+    async def get(self, owner_id: UUID, round_id: UUID) -> RunSnapshot:
+        rows = await self.export_repository.list_exports_for_owner(
+            owner_id,
+            round_id,
+        )
+        self.observed_statuses = [row.status for row in rows]
+        raise ApiError(409, "UPSTREAM_CONFLICT", "Snapshot changed")
+
+
 @pytest.fixture
 def export_harness():
     owner_id = uuid4()
@@ -253,6 +274,38 @@ async def test_generation_exception_is_persisted_as_failed(export_harness) -> No
             ExportRequest(format="json", scope="full"),
         )
 
+    assert (captured.value.status_code, captured.value.code) == (
+        500,
+        "EXPORT_GENERATION_FAILED",
+    )
+    records = await repository.list_exports_for_owner(owner_id, round_id)
+    assert [(row.status, row.error_code) for row in records] == [
+        ("failed", "EXPORT_GENERATION_FAILED")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_upstream_api_error_transitions_processing_record_to_failed() -> None:
+    owner_id = uuid4()
+    round_id = uuid4()
+    repository = ExportRepository(
+        round_repository=OwnedRoundRepository(owner_id, round_id)
+    )
+    run_service = UpstreamErrorRunService(
+        repository,
+        owner_id,
+        round_id,
+    )
+    service = ExportService(repository=repository, run_service=run_service)
+
+    with pytest.raises(ApiError) as captured:
+        await service.generate(
+            owner_id,
+            round_id,
+            ExportRequest(format="json", scope="full"),
+        )
+
+    assert run_service.observed_statuses == ["processing"]
     assert (captured.value.status_code, captured.value.code) == (
         500,
         "EXPORT_GENERATION_FAILED",
