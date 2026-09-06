@@ -8,6 +8,7 @@ from fastapi import Depends, Request
 from app.api.errors import ApiError
 from app.schemas.auth import CurrentUser
 from app.services.auth_service import AuthService
+from app.services.export_service import ExportService
 from app.services.research_service import ResearchService
 from app.services.run_service import RunService
 
@@ -46,6 +47,17 @@ def run_service(request: Request) -> RunService:
             503,
             "STORAGE_UNAVAILABLE",
             "Round storage is not configured",
+        )
+    return service
+
+
+def export_service(request: Request) -> ExportService:
+    service = getattr(request.app.state, "export_service", None)
+    if service is None:
+        raise ApiError(
+            503,
+            "STORAGE_UNAVAILABLE",
+            "Export storage is not configured",
         )
     return service
 

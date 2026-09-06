@@ -2,6 +2,8 @@ import httpx
 import pytest
 
 from app.main import create_app, simulation_termination_enabled
+from app.services.auth_service import AuthService
+from research_support import FakeAuthRepository
 
 
 LANGUAGE_HEADERS = {"Accept-Language": "en-US"}
@@ -120,3 +122,20 @@ async def test_default_template_can_be_selected_by_mode(
         english_interview.json()["questions"][0]["question"]
         == "What does common prosperity mean to you?"
     )
+
+
+@pytest.mark.asyncio
+async def test_round_exports_require_authentication() -> None:
+    application = create_app(
+        auth_service=AuthService(FakeAuthRepository()),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/api/rounds/00000000-0000-0000-0000-000000000000/exports"
+        )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "AUTH_SESSION_EXPIRED"

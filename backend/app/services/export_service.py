@@ -1,22 +1,224 @@
+from __future__ import annotations
+
 import csv
 import io
 import json
+import re
 from datetime import UTC, datetime
+from uuid import UUID
 
-from app.schemas.survey import RunSnapshot, SurveyHistoryRecord
+from app.api.errors import ApiError
+from app.repositories.protocols import ExportRepositoryProtocol
+from app.schemas.analytics import DimensionKey
+from app.schemas.exports import ExportRecord, ExportRequest, GeneratedExport
+from app.schemas.survey import RespondentProfile, RunSnapshot
+from app.services.exception_service import EXCEPTION_STATUSES
+from app.services.run_service import RunService
 
 
 class ExportService:
-    def json_bytes(
+    def __init__(
         self,
-        snapshot: RunSnapshot | SurveyHistoryRecord,
-    ) -> bytes:
+        repository: ExportRepositoryProtocol,
+        run_service: RunService,
+    ) -> None:
+        self.repository = repository
+        self.run_service = run_service
+
+    async def generate(
+        self,
+        owner_id: UUID,
+        round_id: UUID,
+        request: ExportRequest,
+    ) -> GeneratedExport:
+        filename = self._safe_filename(
+            request.filename,
+            round_id,
+            request.format,
+        )
+        record = await self.repository.create_export(
+            owner_id,
+            round_id,
+            {
+                "format": request.format,
+                "scope": request.scope,
+                "filters_json": request.filters,
+                "filename": filename,
+            },
+        )
+        if record is None:
+            raise _not_found()
+
+        try:
+            snapshot = await self.run_service.get(owner_id, round_id)
+            selected = self._select(snapshot, request)
+            if not selected.respondents:
+                await self.repository.mark_failed(
+                    owner_id,
+                    record.id,
+                    "EXPORT_SCOPE_EMPTY",
+                    "The selected export scope has no respondents",
+                    datetime.now(UTC),
+                )
+                raise ApiError(
+                    422,
+                    "EXPORT_SCOPE_EMPTY",
+                    "The selected export scope has no respondents",
+                )
+            content, media_type = self._render(selected, request.format)
+        except ApiError:
+            raise
+        except Exception as error:
+            await self.repository.mark_failed(
+                owner_id,
+                record.id,
+                "EXPORT_GENERATION_FAILED",
+                str(error),
+                datetime.now(UTC),
+            )
+            raise ApiError(
+                500,
+                "EXPORT_GENERATION_FAILED",
+                "Export generation failed",
+            ) from error
+
+        succeeded = await self.repository.mark_succeeded(
+            owner_id,
+            record.id,
+            filename,
+            datetime.now(UTC),
+        )
+        if succeeded is None:
+            raise ApiError(
+                500,
+                "EXPORT_GENERATION_FAILED",
+                "Export generation state could not be persisted",
+            )
+        return GeneratedExport(
+            content=content,
+            media_type=media_type,
+            filename=filename,
+            record_id=str(record.id),
+        )
+
+    async def list(self, owner_id: UUID, round_id: UUID) -> list[ExportRecord]:
+        owned = await self.run_service.repository.get_for_owner(
+            owner_id,
+            round_id,
+        )
+        if owned is None:
+            raise _not_found()
+        rows = await self.repository.list_exports_for_owner(owner_id, round_id)
+        return [
+            ExportRecord(
+                id=str(row.id),
+                roundId=str(row.round_id),
+                requestedByUserId=str(row.requested_by_user_id),
+                format=row.format,
+                scope=row.scope,
+                filters=row.filters_json,
+                filename=row.filename,
+                status=row.status,
+                createdAt=row.created_at,
+                finishedAt=row.finished_at,
+                errorCode=row.error_code,
+                errorMessage=row.error_message,
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    def _safe_filename(
+        requested: str,
+        round_id: UUID,
+        format: str,
+    ) -> str:
+        stem = re.sub(r"[\x00-\x1f\x7f/\\\";]", "", requested)
+        stem = re.sub(r"\s+", " ", stem).strip().lstrip(".")
+        stem = re.sub(r"\.[^.\s]+$", "", stem).strip().rstrip(".")
+        if not stem:
+            stem = f"research-round-{str(round_id)[:8]}"
+        max_stem_length = 255 - len(format) - 1
+        stem = stem[:max_stem_length].rstrip()
+        return f"{stem}.{format}"
+
+    def _select(
+        self,
+        snapshot: RunSnapshot,
+        request: ExportRequest,
+    ) -> RunSnapshot:
+        if request.scope == "full":
+            selected_ids = {item.id for item in snapshot.respondents}
+        elif request.scope == "exceptions":
+            selected_ids = {
+                session.respondentId
+                for session in snapshot.sessions
+                if session.status in EXCEPTION_STATUSES
+            }
+        else:
+            selected_ids = {
+                respondent.id
+                for respondent in snapshot.respondents
+                if self._matches_filters(snapshot, respondent, request.filters)
+            }
+        return snapshot.model_copy(
+            deep=True,
+            update={
+                "respondents": [
+                    item for item in snapshot.respondents if item.id in selected_ids
+                ],
+                "sessions": [
+                    item
+                    for item in snapshot.sessions
+                    if item.respondentId in selected_ids
+                ],
+                "responses": [
+                    item
+                    for item in snapshot.responses
+                    if item.respondentId in selected_ids
+                ],
+                "inferenceResults": [
+                    item
+                    for item in snapshot.inferenceResults
+                    if item.respondentId in selected_ids
+                ],
+            },
+        )
+
+    @staticmethod
+    def _matches_filters(
+        snapshot: RunSnapshot,
+        respondent: RespondentProfile,
+        filters: dict[DimensionKey, str],
+    ) -> bool:
+        configs = {item.id: item for item in snapshot.config.respondentConfigs}
+        config = configs.get(respondent.configId)
+        for key, expected in filters.items():
+            if not expected:
+                continue
+            if key == "ageRange":
+                actual = config.ageRange if config is not None else "Unknown"
+            else:
+                actual = getattr(respondent, key, None) or getattr(
+                    config,
+                    key,
+                    "Unknown",
+                )
+            if str(actual or "Unknown") != expected:
+                return False
+        return True
+
+    def _render(self, snapshot: RunSnapshot, format: str) -> tuple[bytes, str]:
+        if format == "json":
+            return self.json_bytes(snapshot), "application/json"
+        return self.csv_bytes(snapshot), "text/csv; charset=utf-8"
+
+    def json_bytes(self, snapshot: RunSnapshot) -> bytes:
         payload = {
             "exportedAt": datetime.now(UTC).isoformat(),
             "totalRespondents": len(snapshot.respondents),
             "completedInterviews": sum(
-                session.status == "completed"
-                for session in snapshot.sessions
+                session.status == "completed" for session in snapshot.sessions
             ),
             "sessions": [
                 {
@@ -32,28 +234,18 @@ class ExportService:
                 for session in snapshot.sessions
             ],
             "respondents": [
-                item.model_dump(mode="json")
-                for item in snapshot.respondents
+                item.model_dump(mode="json") for item in snapshot.respondents
             ],
             "inferenceResults": [
-                item.model_dump(mode="json")
-                for item in snapshot.inferenceResults
+                item.model_dump(mode="json") for item in snapshot.inferenceResults
             ],
             "inferenceSummary": [
-                item.model_dump(mode="json")
-                for item in snapshot.inferenceSummary
+                item.model_dump(mode="json") for item in snapshot.inferenceSummary
             ],
         }
-        return json.dumps(
-            payload,
-            ensure_ascii=False,
-            indent=2,
-        ).encode("utf-8")
+        return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
-    def csv_bytes(
-        self,
-        snapshot: RunSnapshot | SurveyHistoryRecord,
-    ) -> bytes:
+    def csv_bytes(self, snapshot: RunSnapshot) -> bytes:
         output = io.StringIO(newline="")
         writer = csv.writer(output)
         inference_tasks = []
@@ -74,7 +266,9 @@ class ExportService:
         inference_headers: list[str] = []
         for task in inference_tasks:
             prefix = f"inference.{task.kind}.{task.taskName}"
-            inference_headers.extend([prefix, f"{prefix}.reason", f"{prefix}.status"])
+            inference_headers.extend(
+                [prefix, f"{prefix}.reason", f"{prefix}.status"]
+            )
         writer.writerow(base_headers + inference_headers)
         respondents = {item.id: item for item in snapshot.respondents}
         inference_by_respondent_task = {
@@ -116,3 +310,11 @@ class ExportService:
                 + inference_cells
             )
         return ("\ufeff" + output.getvalue()).encode("utf-8")
+
+
+def _not_found() -> ApiError:
+    return ApiError(
+        404,
+        "RESOURCE_NOT_FOUND",
+        "The requested resource was not found",
+    )

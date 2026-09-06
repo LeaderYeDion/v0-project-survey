@@ -1,62 +1,46 @@
-from typing import Literal
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response
+from uuid import UUID
 
-from app.api.helpers import not_found, repository, runs
-from app.api.language import require_language
+from fastapi import APIRouter, Depends, Response
 
-router = APIRouter(
-    tags=["exports"],
-    dependencies=[Depends(require_language)],
-)
+from app.api.dependencies import export_service, get_current_user, require_csrf
+from app.schemas.auth import CurrentUser
+from app.schemas.exports import ExportRecord, ExportRequest
+from app.services.export_service import ExportService
 
 
-def file_response(
-    request: Request,
-    value,
-    format: Literal["json", "csv"],
+router = APIRouter(tags=["exports"])
+
+
+@router.post("/api/rounds/{round_id}/exports")
+async def generate_export(
+    round_id: UUID,
+    payload: ExportRequest,
+    current_user: CurrentUser = Depends(require_csrf),
+    service: ExportService = Depends(export_service),
 ) -> Response:
-    exporter = request.app.state.exporter
-    content = (
-        exporter.json_bytes(value)
-        if format == "json"
-        else exporter.csv_bytes(value)
-    )
+    generated = await service.generate(current_user.id, round_id, payload)
     return Response(
-        content=content,
-        media_type=(
-            "application/json"
-            if format == "json"
-            else "text/csv; charset=utf-8"
-        ),
+        content=generated.content,
+        media_type=generated.media_type,
         headers={
             "Content-Disposition": (
-                f'attachment; filename="survey-results.{format}"'
+                f'attachment; filename="{generated.filename}"'
             ),
-            "Content-Language": request.state.locale,
+            "Content-Language": current_user.locale,
+            "X-Export-Record-Id": generated.record_id,
         },
     )
 
 
-@router.get("/api/runs/{run_id}/exports")
-async def export_run(
-    run_id: str,
-    format: Literal["json", "csv"],
-    request: Request,
-) -> Response:
-    run = await runs(request).get(run_id)
-    if run is None:
-        raise not_found("RUN_NOT_FOUND", "运行记录不存在")
-    return file_response(request, run, format)
-
-
-@router.get("/api/history/{history_id}/exports")
-async def export_history(
-    history_id: str,
-    format: Literal["json", "csv"],
-    request: Request,
-) -> Response:
-    record = await repository(request).get_history(history_id)
-    if record is None:
-        raise not_found("HISTORY_NOT_FOUND", "历史记录不存在")
-    return file_response(request, record, format)
+@router.get(
+    "/api/rounds/{round_id}/exports",
+    response_model=list[ExportRecord],
+)
+async def list_exports(
+    round_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: ExportService = Depends(export_service),
+) -> list[ExportRecord]:
+    return await service.list(current_user.id, round_id)

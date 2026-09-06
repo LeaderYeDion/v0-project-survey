@@ -9,6 +9,7 @@ from app.api import (
     analytics,
     auth,
     exceptions,
+    exports,
     projects,
     questionnaires,
     runs,
@@ -23,6 +24,7 @@ from app.db.session import DatabaseSettings, create_session_factory
 from app.mocks.catalog import MockCatalog
 from app.mocks.engine import MockEngine
 from app.repositories.auth import AuthRepository
+from app.repositories.exports import ExportRepository
 from app.repositories.memory import MemoryRepository
 from app.repositories.research import ResearchRepository
 from app.repositories.rounds import RoundRepository
@@ -104,7 +106,17 @@ def create_app(
     application.state.inference_analysis = inference_analysis_service
     application.state.template_provider = mock_catalog
     application.state.run_service = service
-    application.state.exporter = ExportService()
+    application.state.export_service = (
+        ExportService(
+            repository=ExportRepository(
+                session_factory=session_factory,
+                round_repository=store,
+            ),
+            run_service=service,
+        )
+        if service is not None
+        else None
+    )
     application.state.auth_service = auth_service or (
         AuthService(AuthRepository(session_factory))
         if session_factory is not None
@@ -141,5 +153,6 @@ def create_app(
     application.include_router(runs.router)
     application.include_router(analytics.router)
     application.include_router(exceptions.router)
+    application.include_router(exports.router)
     return application
 app = create_app()
