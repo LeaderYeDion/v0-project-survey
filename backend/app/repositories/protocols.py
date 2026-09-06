@@ -102,6 +102,12 @@ class AuthRepositoryProtocol(Protocol):
 
     async def revoke_session(self, token_hash: str) -> None: ...
 
+    async def update_password_hash(
+        self,
+        username: str,
+        password_hash: str,
+    ) -> bool: ...
+
 
 class ResearchRepositoryProtocol(Protocol):
     async def create_project(

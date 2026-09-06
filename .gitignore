@@ -16,6 +16,7 @@ task_examples/
 
 # Local zero-cost deployment secrets and runtime state
 deploy/config/deploy.env
+deploy/config/seed-users.json
 deploy/runtime/
 deploy/**/*.credentials.json
 
