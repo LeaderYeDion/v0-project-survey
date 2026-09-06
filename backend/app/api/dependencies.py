@@ -8,6 +8,7 @@ from fastapi import Depends, Request
 from app.api.errors import ApiError
 from app.schemas.auth import CurrentUser
 from app.services.auth_service import AuthService
+from app.services.research_service import ResearchService
 
 
 SESSION_COOKIE = "survey_session"
@@ -22,6 +23,17 @@ def auth_service(request: Request) -> AuthService:
             503,
             "AUTH_UNAVAILABLE",
             "Authentication storage is not configured",
+        )
+    return service
+
+
+def research_service(request: Request) -> ResearchService:
+    service = getattr(request.app.state, "research_service", None)
+    if service is None:
+        raise ApiError(
+            503,
+            "STORAGE_UNAVAILABLE",
+            "Research storage is not configured",
         )
     return service
 

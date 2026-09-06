@@ -4,7 +4,16 @@ import sys
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 
-from app.api import analytics, auth, exports, history, runs, templates
+from app.api import (
+    analytics,
+    auth,
+    exports,
+    history,
+    projects,
+    questionnaires,
+    runs,
+    templates,
+)
 from app.api.errors import (
     ApiError,
     api_error_handler,
@@ -15,12 +24,14 @@ from app.mocks.catalog import MockCatalog
 from app.mocks.engine import MockEngine
 from app.repositories.auth import AuthRepository
 from app.repositories.memory import MemoryRepository
+from app.repositories.research import ResearchRepository
 from app.services.analytics_service import AnalyticsService
 from app.services.auth_service import AuthService
 from app.services.export_service import ExportService
 from app.services.inference_analysis_service import InferenceAnalysisService
 from app.services.inference_service import InferenceService
 from app.services.run_service import RunService
+from app.services.research_service import ResearchService
 
 
 def simulation_termination_enabled() -> bool:
@@ -36,6 +47,7 @@ def create_app(
     repository: MemoryRepository | None = None,
     run_service: RunService | None = None,
     auth_service: AuthService | None = None,
+    research_service: ResearchService | None = None,
 ) -> FastAPI:
     application = FastAPI(title="Survey Mock Backend", version="0.1.0")
     store = repository or MemoryRepository()
@@ -61,6 +73,9 @@ def create_app(
     application.state.run_service = service
     application.state.exporter = ExportService()
     application.state.auth_service = auth_service or _auth_service_from_env()
+    application.state.research_service = (
+        research_service or _research_service_from_env()
+    )
     application.add_exception_handler(ApiError, api_error_handler)
     application.add_exception_handler(
         RequestValidationError,
@@ -85,6 +100,8 @@ def create_app(
         }
 
     application.include_router(auth.router)
+    application.include_router(projects.router)
+    application.include_router(questionnaires.router)
     application.include_router(templates.router)
     application.include_router(runs.router)
     application.include_router(history.router)
@@ -99,6 +116,14 @@ def _auth_service_from_env() -> AuthService | None:
     settings = DatabaseSettings.from_env()
     repository = AuthRepository(create_session_factory(settings.url))
     return AuthService(repository)
+
+
+def _research_service_from_env() -> ResearchService | None:
+    if not os.environ.get("DATABASE_URL", "").strip():
+        return None
+    settings = DatabaseSettings.from_env()
+    repository = ResearchRepository(create_session_factory(settings.url))
+    return ResearchService(repository)
 
 
 app = create_app()

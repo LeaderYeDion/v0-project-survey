@@ -124,6 +124,13 @@ class ResearchRepositoryProtocol(Protocol):
         project_id: UUID,
     ) -> ProjectRow | None: ...
 
+    async def update_project(
+        self,
+        owner_id: UUID,
+        project_id: UUID,
+        payload: Mapping[str, Any],
+    ) -> ProjectRow | None: ...
+
     async def create_questionnaire(
         self,
         owner_id: UUID,
