@@ -1,19 +1,78 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from app.db.models import (
     ConfigVersionRow,
     ExportRecordRow,
+    InferenceResultRow,
+    MessageRow,
     ProjectRow,
     QuestionnaireRow,
+    QuestionnaireVersionRow,
     ResearchRoundRow,
+    ResponseRow,
+    RoundRespondentRow,
+    SessionRow,
     UserRow,
     UserSessionRow,
 )
+
+
+RetryKind = Literal["failed", "incomplete"]
+
+
+@dataclass(frozen=True, slots=True)
+class VersionFreezePayload:
+    schema_version: int
+    questions_json: Sequence[Mapping[str, Any]]
+    respondent_plan_json: Sequence[Mapping[str, Any]]
+    inference_config_json: Mapping[str, Any] | None
+    run_settings_json: Mapping[str, Any]
+    full_snapshot_json: Mapping[str, Any]
+    questionnaire_content_hash: str
+    config_content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenVersionRows:
+    questionnaire_version: QuestionnaireVersionRow
+    config_version: ConfigVersionRow
+
+
+@dataclass(frozen=True, slots=True)
+class RoundCheckpoint:
+    status: str
+    active_respondent_id: UUID | None
+    total_respondents: int
+    completed_respondents: int
+    terminated_respondents: int
+    failed_respondents: int
+    incomplete_respondents: int
+    pause_requested_at: datetime | None
+    lease_owner: str | None
+    lease_expires_at: datetime | None
+    respondent: RoundRespondentRow
+    session: SessionRow
+    messages: Sequence[MessageRow] = ()
+    responses: Sequence[ResponseRow] = ()
+    inference_results: Sequence[InferenceResultRow] = ()
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RoundResultRows:
+    round: ResearchRoundRow
+    respondents: Sequence[RoundRespondentRow]
+    sessions: Sequence[SessionRow]
+    messages: Sequence[MessageRow]
+    responses: Sequence[ResponseRow]
+    inference_results: Sequence[InferenceResultRow]
 
 
 class AuthRepositoryProtocol(Protocol):
@@ -72,6 +131,12 @@ class ResearchRepositoryProtocol(Protocol):
         questionnaire_id: UUID,
     ) -> QuestionnaireRow | None: ...
 
+    async def list_questionnaires_for_owner(
+        self,
+        owner_id: UUID,
+        project_id: UUID,
+    ) -> Sequence[QuestionnaireRow]: ...
+
     async def save_draft(
         self,
         owner_id: UUID,
@@ -85,6 +150,25 @@ class ResearchRepositoryProtocol(Protocol):
         owner_id: UUID,
         config_version_id: UUID,
     ) -> ConfigVersionRow | None: ...
+
+    async def freeze_versions(
+        self,
+        owner_id: UUID,
+        questionnaire_id: UUID,
+        payload: VersionFreezePayload,
+    ) -> FrozenVersionRows | None: ...
+
+    async def list_questionnaire_versions_for_owner(
+        self,
+        owner_id: UUID,
+        questionnaire_id: UUID,
+    ) -> Sequence[QuestionnaireVersionRow]: ...
+
+    async def list_config_versions_for_owner(
+        self,
+        owner_id: UUID,
+        project_id: UUID,
+    ) -> Sequence[ConfigVersionRow]: ...
 
 
 class RoundRepositoryProtocol(Protocol):
@@ -114,6 +198,49 @@ class RoundRepositoryProtocol(Protocol):
         from_statuses: frozenset[str],
         to_status: str,
     ) -> ResearchRoundRow | None: ...
+
+    async def acquire_lease(
+        self,
+        owner_id: UUID,
+        round_id: UUID,
+        lease_owner: str,
+        lease_expires_at: datetime,
+        expected_version: int,
+    ) -> ResearchRoundRow | None: ...
+
+    async def release_lease(
+        self,
+        owner_id: UUID,
+        round_id: UUID,
+        lease_owner: str,
+        expected_version: int,
+    ) -> ResearchRoundRow | None: ...
+
+    async def checkpoint(
+        self,
+        owner_id: UUID,
+        round_id: UUID,
+        expected_version: int,
+        checkpoint: RoundCheckpoint,
+    ) -> ResearchRoundRow | None: ...
+
+    async def get_result_rows_for_owner(
+        self,
+        owner_id: UUID,
+        round_id: UUID,
+    ) -> RoundResultRows | None: ...
+
+    async def list_retryable_respondents_for_owner(
+        self,
+        owner_id: UUID,
+        round_id: UUID,
+        retry_kind: RetryKind,
+    ) -> Sequence[RoundRespondentRow]: ...
+
+    async def reconcile_interrupted_rounds(
+        self,
+        stale_before: datetime,
+    ) -> Sequence[ResearchRoundRow]: ...
 
 
 class ExportRepositoryProtocol(Protocol):
