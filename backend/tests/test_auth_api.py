@@ -143,6 +143,30 @@ async def test_bad_credentials_use_the_stable_error_shape(
 
 
 @pytest.mark.asyncio
+async def test_login_request_validation_uses_the_stable_error_shape(
+    client: httpx.AsyncClient,
+) -> None:
+    missing_password = await client.post(
+        "/api/auth/login",
+        json={"username": "researcher01"},
+    )
+    malformed_json = await client.post(
+        "/api/auth/login",
+        content="{",
+        headers={"Content-Type": "application/json"},
+    )
+
+    for response in (missing_password, malformed_json):
+        assert response.status_code == 422
+        payload = response.json()
+        assert payload["code"] == "REQUEST_VALIDATION_ERROR"
+        assert payload["message"] == "Request validation failed"
+        assert isinstance(payload["details"], list)
+        assert payload["details"]
+        assert "detail" not in payload
+
+
+@pytest.mark.asyncio
 async def test_missing_session_uses_the_stable_expired_error(
     client: httpx.AsyncClient,
 ) -> None:

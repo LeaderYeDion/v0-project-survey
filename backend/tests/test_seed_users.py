@@ -18,6 +18,17 @@ ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_USERNAMES = [f"researcher0{i}" for i in range(1, 6)]
 
 
+def _valid_seed_payload(prefix: str) -> list[dict[str, str]]:
+    return [
+        {
+            "username": username,
+            "password": f"{prefix}-generated-password-{index:02d}",
+            "locale": "zh-CN",
+        }
+        for index, username in enumerate(EXPECTED_USERNAMES, start=1)
+    ]
+
+
 class FakeSeedRepository:
     def __init__(self) -> None:
         self.users: dict[str, SimpleNamespace] = {}
@@ -135,36 +146,58 @@ async def test_seed_synchronization_is_idempotent_and_preserves_passwords(
 ) -> None:
     repository = FakeSeedRepository()
     seed_file = tmp_path / "seed-users.json"
-    seed_file.write_text(
-        json.dumps(
-            [
-                {
-                    "username": "researcher01",
-                    "password": "first-generated-password",
-                    "locale": "zh-CN",
-                }
-            ]
-        )
-    )
+    seed_file.write_text(json.dumps(_valid_seed_payload("first")))
 
-    assert await synchronize_seed_users(repository, seed_file) == 1
+    assert await synchronize_seed_users(repository, seed_file) == 5
     original_hash = repository.users["researcher01"].password_hash
-    seed_file.write_text(
-        json.dumps(
-            [
-                {
-                    "username": "researcher01",
-                    "password": "different-generated-password",
-                    "locale": "en-US",
-                }
-            ]
-        )
-    )
+    seed_file.write_text(json.dumps(_valid_seed_payload("different")))
 
     assert await synchronize_seed_users(repository, seed_file) == 0
     assert repository.users["researcher01"].password_hash == original_hash
-    assert verify_password("first-generated-password", original_hash)
+    assert verify_password("first-generated-password-01", original_hash)
     assert repository.users["researcher01"].locale == "zh-CN"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [_valid_seed_payload("one")[0]],
+        [
+            *_valid_seed_payload("duplicate")[:4],
+            _valid_seed_payload("duplicate")[0],
+        ],
+        [
+            *_valid_seed_payload("six")[:4],
+            {
+                "username": "researcher06",
+                "password": "six-generated-password-06",
+                "locale": "zh-CN",
+            },
+        ],
+        [
+            *_valid_seed_payload("locale")[:4],
+            {
+                "username": "researcher05",
+                "password": "locale-generated-password-05",
+                "locale": "en-US",
+            },
+        ],
+    ],
+    ids=["one-user", "duplicate", "researcher06", "wrong-locale"],
+)
+async def test_invalid_seed_sets_are_rejected_before_any_user_is_created(
+    tmp_path: Path,
+    payload: list[dict[str, str]],
+) -> None:
+    repository = FakeSeedRepository()
+    seed_file = tmp_path / "seed-users.json"
+    seed_file.write_text(json.dumps(payload))
+
+    with pytest.raises(ValueError):
+        await synchronize_seed_users(repository, seed_file)
+
+    assert repository.users == {}
 
 
 @pytest.mark.asyncio

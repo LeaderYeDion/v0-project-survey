@@ -2,9 +2,14 @@ import os
 import sys
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 
 from app.api import analytics, auth, exports, history, runs, templates
-from app.api.errors import ApiError, api_error_handler
+from app.api.errors import (
+    ApiError,
+    api_error_handler,
+    request_validation_error_handler,
+)
 from app.db.session import DatabaseSettings, create_session_factory
 from app.mocks.catalog import MockCatalog
 from app.mocks.engine import MockEngine
@@ -57,6 +62,10 @@ def create_app(
     application.state.exporter = ExportService()
     application.state.auth_service = auth_service or _auth_service_from_env()
     application.add_exception_handler(ApiError, api_error_handler)
+    application.add_exception_handler(
+        RequestValidationError,
+        request_validation_error_handler,
+    )
 
     @application.middleware("http")
     async def echo_content_language(request: Request, call_next):

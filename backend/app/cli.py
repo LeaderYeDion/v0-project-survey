@@ -6,12 +6,10 @@ import json
 from pathlib import Path
 from typing import Protocol, Sequence
 
-from pydantic import TypeAdapter
-
 from app.db.session import DatabaseSettings, create_session_factory
 from app.repositories.auth import AuthRepository
 from app.repositories.protocols import AuthRepositoryProtocol
-from app.schemas.auth import SeedUser
+from app.schemas.auth import SeedUsers
 from app.security.passwords import hash_password
 
 
@@ -28,7 +26,7 @@ async def synchronize_seed_users(
     path: Path,
 ) -> int:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    users = TypeAdapter(list[SeedUser]).validate_python(payload)
+    users = SeedUsers.model_validate(payload).root
     created = 0
     for seed_user in users:
         existing = await repository.get_user_by_username(seed_user.username)
