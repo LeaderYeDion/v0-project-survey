@@ -19,6 +19,7 @@ from app.schemas.survey import (
     SurveyResponse,
 )
 from app.services.analytics_service import AnalyticsService
+from app.services.exception_service import ExceptionService
 from app.services.inference_analysis_service import InferenceAnalysisService
 from app.services.inference_service import InferenceService
 from app.services.research_service import ResearchService
@@ -48,6 +49,7 @@ class RunService:
         inference: InferenceService | None = None,
         inference_analysis: InferenceAnalysisService | None = None,
         executor: RoundExecutor | None = None,
+        exception_service: ExceptionService | None = None,
     ) -> None:
         self.repository = repository
         self.research = research
@@ -55,6 +57,7 @@ class RunService:
         self.analytics = analytics
         self.inference = inference or InferenceService()
         self.inference_analysis = inference_analysis or InferenceAnalysisService()
+        self.exception_service = exception_service or ExceptionService()
         self.executor = executor or RoundExecutor(
             repository,
             research,
@@ -334,7 +337,10 @@ class RunService:
                 InterviewSession(
                     respondentId=profile.id,
                     status=row.status,
+                    terminationCode=row.termination_code,
                     terminationReason=row.termination_reason,
+                    errorCode=row.error_code,
+                    errorMessage=row.error_message,
                     dialog=messages_by_session[row.id],
                     completedQuestions=respondent.completed_questions,
                     totalQuestions=respondent.total_questions,

@@ -6,7 +6,9 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 
 from app.api import (
+    analytics,
     auth,
+    exceptions,
     projects,
     questionnaires,
     runs,
@@ -137,5 +139,7 @@ def create_app(
     application.include_router(questionnaires.router)
     application.include_router(templates.router)
     application.include_router(runs.router)
+    application.include_router(analytics.router)
+    application.include_router(exceptions.router)
     return application
 app = create_app()

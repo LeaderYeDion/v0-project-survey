@@ -184,7 +184,10 @@ class DialogMessage(ApiModel):
 class InterviewSession(ApiModel):
     respondentId: str
     status: SessionStatus
+    terminationCode: str | None = None
     terminationReason: str | None = None
+    errorCode: str | None = None
+    errorMessage: str | None = None
     dialog: list[DialogMessage] = Field(default_factory=list)
     completedQuestions: int
     totalQuestions: int

@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 
-from app.schemas.analytics import AnalyticsQuery
 from app.mocks.catalog import MockCatalog
 from app.schemas.survey import (
     DialogMessage,
@@ -180,12 +179,10 @@ def test_filter_and_multi_dimension_group() -> None:
     snapshot = build_snapshot()
     result = AnalyticsService(MockCatalog()).query(
         snapshot,
-        AnalyticsQuery(
-            questionId="scale-1",
-            filters={"city": "北京"},
-            groupBy=["gender", "income"],
-        ),
+        question_id="scale-1",
+        filters={"city": "北京"},
+        group_by=["gender", "income"],
     )
 
-    assert result.filteredRespondentCount == 1
+    assert result.scope.filteredRespondentCount == 1
     assert result.groupedQuestionSummaries[0].respondentCount == 1

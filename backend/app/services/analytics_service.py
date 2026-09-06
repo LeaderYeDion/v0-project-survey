@@ -1,8 +1,9 @@
 from collections import Counter
 
 from app.schemas.analytics import (
-    AnalyticsQuery,
+    AnalysisScope,
     AnalyticsQueryResult,
+    DimensionKey,
     DimensionMetadata,
     GroupedQuestionSummary,
 )
@@ -55,14 +56,9 @@ class AnalyticsService:
     ) -> list[QuestionAnalysis]:
         result: list[QuestionAnalysis] = []
         for question in questions:
-            values = [
-                message.answerValue.value
-                for session in sessions
-                for message in session.dialog
-                if message.role == "respondent"
-                and message.questionId == question.id
-                and message.answerValue is not None
-            ]
+            values = list(
+                self._answer_values_by_respondent(sessions, question.id).values()
+            )
             distribution = Counter(str(value) for value in values)
             average = None
             if question.type == "scale" and values:
@@ -193,7 +189,10 @@ class AnalyticsService:
     def query(
         self,
         snapshot: RunSnapshot,
-        query: AnalyticsQuery,
+        *,
+        question_id: str,
+        filters: dict[DimensionKey, str],
+        group_by: list[DimensionKey],
     ) -> AnalyticsQueryResult:
         configs = snapshot.config.respondentConfigs
         dimension_labels = self.labels.dimension_labels(snapshot.locale)
@@ -206,13 +205,14 @@ class AnalyticsService:
                 )
             )
             metadata.append(DimensionMetadata(key=key, label=label, values=values))
+        population = list({item.id: item for item in snapshot.respondents}.values())
+        applied_filters = {key: value for key, value in filters.items() if value}
         filtered = [
             respondent
-            for respondent in snapshot.respondents
+            for respondent in population
             if all(
                 self._dimension_value(respondent, configs, key) == value
-                for key, value in query.filters.items()
-                if value
+                for key, value in applied_filters.items()
             )
         ]
         ids = {item.id for item in filtered}
@@ -221,6 +221,7 @@ class AnalyticsService:
             for session in snapshot.sessions
             if session.respondentId in ids
         ]
+        valid_ids = set(self._answer_values_by_respondent(sessions, question_id))
         selected = next(
             (
                 item
@@ -228,7 +229,7 @@ class AnalyticsService:
                     sessions,
                     snapshot.config.questions,
                 )
-                if item.questionId == query.questionId
+                if item.questionId == question_id
             ),
             None,
         )
@@ -236,7 +237,7 @@ class AnalyticsService:
         for respondent in filtered:
             key = tuple(
                 self._dimension_value(respondent, configs, dimension)
-                for dimension in query.groupBy
+                for dimension in group_by
             )
             if key:
                 buckets.setdefault(key, []).append(respondent)
@@ -255,26 +256,73 @@ class AnalyticsService:
                         member_sessions,
                         snapshot.config.questions,
                     )
-                    if item.questionId == query.questionId
+                    if item.questionId == question_id
                 ),
                 None,
             )
             label = " / ".join(
                 f"{dimension_labels[dimension]}: {value}"
-                for dimension, value in zip(query.groupBy, values, strict=True)
+                for dimension, value in zip(group_by, values, strict=True)
             )
             grouped.append(
                 GroupedQuestionSummary(
                     label=label,
                     respondentCount=len(members),
-                    totalResponses=analysis.totalResponses if analysis else 0,
+                    validResponseCount=len(member_ids & valid_ids),
                     analysis=analysis,
                 )
             )
+        valid_count = len(valid_ids)
         return AnalyticsQueryResult(
             dimensionMetadata=metadata,
-            filteredRespondentCount=len(filtered),
-            totalRespondentCount=len(snapshot.respondents),
+            scope=AnalysisScope(
+                populationCount=len(population),
+                filteredRespondentCount=len(ids),
+                validResponseCount=valid_count,
+                excludedResponseCount=len(ids - valid_ids),
+                filters=applied_filters,
+                groupBy=group_by,
+                label=self._scope_label(
+                    snapshot.locale,
+                    applied_filters,
+                    dimension_labels,
+                ),
+                smallSample=valid_count < 30,
+            ),
             filteredQuestionAnalysis=selected,
             groupedQuestionSummaries=grouped,
+        )
+
+    @staticmethod
+    def _answer_values_by_respondent(
+        sessions: list[InterviewSession],
+        question_id: str,
+    ) -> dict[str, object]:
+        answers: dict[str, object] = {}
+        for session in sessions:
+            answer = next(
+                (
+                    message.answerValue.value
+                    for message in reversed(session.dialog)
+                    if message.role == "respondent"
+                    and message.questionId == question_id
+                    and message.answerValue is not None
+                ),
+                None,
+            )
+            if answer is not None:
+                answers[session.respondentId] = answer
+        return answers
+
+    @staticmethod
+    def _scope_label(
+        locale: Locale,
+        filters: dict[DimensionKey, str],
+        dimension_labels,
+    ) -> str:
+        if not filters:
+            return "总体" if locale == "zh-CN" else "Overall"
+        return " / ".join(
+            f"{dimension_labels[key]}: {value}"
+            for key, value in filters.items()
         )

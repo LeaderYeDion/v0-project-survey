@@ -1,48 +1,43 @@
-from fastapi import APIRouter, Depends, Request
+from __future__ import annotations
 
-from app.api.helpers import (
-    history_as_snapshot,
-    not_found,
-    repository,
-    runs,
-)
-from app.api.language import require_language
+from uuid import UUID
+
+from fastapi import APIRouter, Depends
+
+from app.api.dependencies import get_current_user, run_service
+from app.api.errors import ApiError
 from app.schemas.analytics import AnalyticsQuery, AnalyticsQueryResult
-
-router = APIRouter(
-    tags=["analytics"],
-    dependencies=[Depends(require_language)],
-)
+from app.schemas.auth import CurrentUser
+from app.services.run_service import RunService
 
 
-@router.post(
-    "/api/runs/{run_id}/analytics/query",
-    response_model=AnalyticsQueryResult,
-)
-async def query_run(
-    run_id: str,
-    payload: AnalyticsQuery,
-    request: Request,
-) -> AnalyticsQueryResult:
-    run = await runs(request).get(run_id)
-    if run is None:
-        raise not_found("RUN_NOT_FOUND", "运行记录不存在")
-    return request.app.state.analytics.query(run, payload)
+router = APIRouter(tags=["analytics"])
 
 
 @router.post(
-    "/api/history/{history_id}/analytics/query",
+    "/api/rounds/{round_id}/analytics/query",
     response_model=AnalyticsQueryResult,
 )
-async def query_history(
-    history_id: str,
+async def query_round(
+    round_id: UUID,
     payload: AnalyticsQuery,
-    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: RunService = Depends(run_service),
 ) -> AnalyticsQueryResult:
-    record = await repository(request).get_history(history_id)
-    if record is None:
-        raise not_found("HISTORY_NOT_FOUND", "历史记录不存在")
-    return request.app.state.analytics.query(
-        history_as_snapshot(record),
-        payload,
+    if await service.repository.get_for_owner(current_user.id, round_id) is None:
+        raise _not_found()
+    snapshot = await service.get(current_user.id, round_id)
+    return service.analytics.query(
+        snapshot,
+        question_id=payload.questionId,
+        filters=payload.filters,
+        group_by=payload.groupBy,
+    )
+
+
+def _not_found() -> ApiError:
+    return ApiError(
+        404,
+        "RESOURCE_NOT_FOUND",
+        "The requested resource was not found",
     )
