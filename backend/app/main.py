@@ -1,14 +1,12 @@
 import os
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 
 from app.api import (
-    analytics,
     auth,
-    exports,
-    history,
     projects,
     questionnaires,
     runs,
@@ -25,6 +23,7 @@ from app.mocks.engine import MockEngine
 from app.repositories.auth import AuthRepository
 from app.repositories.memory import MemoryRepository
 from app.repositories.research import ResearchRepository
+from app.repositories.rounds import RoundRepository
 from app.services.analytics_service import AnalyticsService
 from app.services.auth_service import AuthService
 from app.services.export_service import ExportService
@@ -44,26 +43,54 @@ def simulation_termination_enabled() -> bool:
 
 
 def create_app(
-    repository: MemoryRepository | None = None,
+    repository: MemoryRepository | RoundRepository | None = None,
     run_service: RunService | None = None,
     auth_service: AuthService | None = None,
     research_service: ResearchService | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="Survey Mock Backend", version="0.1.0")
-    store = repository or MemoryRepository()
     mock_catalog = MockCatalog()
     analytics_service = AnalyticsService(mock_catalog)
     inference_service = InferenceService()
     inference_analysis_service = InferenceAnalysisService()
-    service = run_service or RunService(
-        repository=store,
-        engine=MockEngine(
-            mock_catalog,
-            termination_enabled=simulation_termination_enabled(),
-        ),
-        analytics=analytics_service,
-        inference=inference_service,
-        inference_analysis=inference_analysis_service,
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    session_factory = None
+    if database_url:
+        settings = DatabaseSettings.from_env()
+        session_factory = create_session_factory(settings.url)
+    configured_research = research_service or (
+        ResearchService(ResearchRepository(session_factory))
+        if session_factory is not None
+        else None
+    )
+    store = repository or (
+        RoundRepository(session_factory)
+        if session_factory is not None
+        else MemoryRepository()
+    )
+    service = run_service
+    if service is None and configured_research is not None:
+        service = RunService(
+            repository=store,
+            research=configured_research,
+            engine=MockEngine(
+                mock_catalog,
+                termination_enabled=simulation_termination_enabled(),
+            ),
+            analytics=analytics_service,
+            inference=inference_service,
+            inference_analysis=inference_analysis_service,
+        )
+
+    @asynccontextmanager
+    async def lifespan(_application: FastAPI):
+        if service is not None:
+            await service.executor.reconcile_interrupted_rounds()
+        yield
+
+    application = FastAPI(
+        title="Survey Mock Backend",
+        version="0.1.0",
+        lifespan=lifespan,
     )
     application.state.repository = store
     application.state.analytics = analytics_service
@@ -72,10 +99,12 @@ def create_app(
     application.state.template_provider = mock_catalog
     application.state.run_service = service
     application.state.exporter = ExportService()
-    application.state.auth_service = auth_service or _auth_service_from_env()
-    application.state.research_service = (
-        research_service or _research_service_from_env()
+    application.state.auth_service = auth_service or (
+        AuthService(AuthRepository(session_factory))
+        if session_factory is not None
+        else None
     )
+    application.state.research_service = configured_research
     application.add_exception_handler(ApiError, api_error_handler)
     application.add_exception_handler(
         RequestValidationError,
@@ -104,26 +133,5 @@ def create_app(
     application.include_router(questionnaires.router)
     application.include_router(templates.router)
     application.include_router(runs.router)
-    application.include_router(history.router)
-    application.include_router(analytics.router)
-    application.include_router(exports.router)
     return application
-
-
-def _auth_service_from_env() -> AuthService | None:
-    if not os.environ.get("DATABASE_URL", "").strip():
-        return None
-    settings = DatabaseSettings.from_env()
-    repository = AuthRepository(create_session_factory(settings.url))
-    return AuthService(repository)
-
-
-def _research_service_from_env() -> ResearchService | None:
-    if not os.environ.get("DATABASE_URL", "").strip():
-        return None
-    settings = DatabaseSettings.from_env()
-    repository = ResearchRepository(create_session_factory(settings.url))
-    return ResearchService(repository)
-
-
 app = create_app()

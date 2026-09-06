@@ -1,35 +1,92 @@
-from fastapi import APIRouter, Depends, Request
+from __future__ import annotations
 
-from app.api.helpers import not_found, runs
-from app.api.language import require_language
-from app.schemas.survey import CreateRunRequest, RunSnapshot
+from uuid import UUID
 
-router = APIRouter(
-    prefix="/api/runs",
-    tags=["runs"],
-    dependencies=[Depends(require_language)],
+from fastapi import APIRouter, Depends
+
+from app.api.dependencies import get_current_user, require_csrf, run_service
+from app.schemas.auth import CurrentUser
+from app.schemas.rounds import RetryRoundRequest, RoundSnapshot
+from app.services.run_service import RunService
+
+
+router = APIRouter(tags=["rounds"])
+
+
+@router.post(
+    "/api/questionnaires/{questionnaire_id}/rounds",
+    response_model=RoundSnapshot,
+    status_code=201,
 )
+async def create_round(
+    questionnaire_id: UUID,
+    current_user: CurrentUser = Depends(require_csrf),
+    service: RunService = Depends(run_service),
+) -> RoundSnapshot:
+    return await service.create(
+        current_user.id,
+        questionnaire_id,
+        current_user.locale,
+    )
 
 
-@router.post("", response_model=RunSnapshot, status_code=201)
-async def create_run(
-    payload: CreateRunRequest,
-    request: Request,
-) -> RunSnapshot:
-    return await runs(request).create_run(payload, request.state.locale)
+@router.get(
+    "/api/projects/{project_id}/rounds",
+    response_model=list[RoundSnapshot],
+)
+async def list_rounds(
+    project_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: RunService = Depends(run_service),
+) -> list[RoundSnapshot]:
+    return await service.list_for_project(current_user.id, project_id)
 
 
-@router.get("/{run_id}", response_model=RunSnapshot)
-async def get_run(run_id: str, request: Request) -> RunSnapshot:
-    value = await runs(request).get(run_id)
-    if value is None:
-        raise not_found("RUN_NOT_FOUND", "运行记录不存在")
-    return value
+@router.get("/api/rounds/{round_id}", response_model=RoundSnapshot)
+async def get_round(
+    round_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: RunService = Depends(run_service),
+) -> RoundSnapshot:
+    return await service.get(current_user.id, round_id)
 
 
-@router.post("/{run_id}/cancel", response_model=RunSnapshot)
-async def cancel_run(run_id: str, request: Request) -> RunSnapshot:
-    value = await runs(request).cancel(run_id)
-    if value is None:
-        raise not_found("RUN_NOT_FOUND", "运行记录不存在")
-    return value
+@router.post("/api/rounds/{round_id}/pause", response_model=RoundSnapshot)
+async def pause_round(
+    round_id: UUID,
+    current_user: CurrentUser = Depends(require_csrf),
+    service: RunService = Depends(run_service),
+) -> RoundSnapshot:
+    return await service.pause(current_user.id, round_id)
+
+
+@router.post("/api/rounds/{round_id}/resume", response_model=RoundSnapshot)
+async def resume_round(
+    round_id: UUID,
+    current_user: CurrentUser = Depends(require_csrf),
+    service: RunService = Depends(run_service),
+) -> RoundSnapshot:
+    return await service.resume(current_user.id, round_id)
+
+
+@router.post("/api/rounds/{round_id}/cancel", response_model=RoundSnapshot)
+async def cancel_round(
+    round_id: UUID,
+    current_user: CurrentUser = Depends(require_csrf),
+    service: RunService = Depends(run_service),
+) -> RoundSnapshot:
+    return await service.cancel(current_user.id, round_id)
+
+
+@router.post(
+    "/api/rounds/{round_id}/retry",
+    response_model=RoundSnapshot,
+    status_code=201,
+)
+async def retry_round(
+    round_id: UUID,
+    payload: RetryRoundRequest,
+    current_user: CurrentUser = Depends(require_csrf),
+    service: RunService = Depends(run_service),
+) -> RoundSnapshot:
+    return await service.retry(current_user.id, round_id, payload.kind)

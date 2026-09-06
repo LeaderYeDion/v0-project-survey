@@ -1,17 +1,10 @@
-import random
-
 import httpx
 import pytest
 
 from app.main import create_app, simulation_termination_enabled
-from app.mocks.catalog import MockCatalog
-from app.mocks.engine import MockEngine
-from app.repositories.memory import MemoryRepository
-from app.services.analytics_service import AnalyticsService
-from app.services.run_service import RunService
+
 
 LANGUAGE_HEADERS = {"Accept-Language": "en-US"}
-CATALOG = MockCatalog()
 
 
 @pytest.mark.parametrize(
@@ -44,76 +37,13 @@ def test_simulation_termination_setting_rejects_invalid_value(
 
 
 @pytest.fixture
-def repository() -> MemoryRepository:
-    return MemoryRepository()
-
-
-@pytest.fixture
-def run_service(repository: MemoryRepository) -> RunService:
-    return RunService(
-        repository=repository,
-        engine=MockEngine(CATALOG, random.Random(3), delay_scale=0),
-        analytics=AnalyticsService(CATALOG),
-    )
-
-
-@pytest.fixture
-async def client(
-    repository: MemoryRepository,
-    run_service: RunService,
-):
-    app = create_app(repository=repository, run_service=run_service)
+async def client():
+    app = create_app()
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as api_client:
         yield api_client
-
-
-async def create_completed_run(
-    client: httpx.AsyncClient,
-    run_service: RunService,
-) -> str:
-    created = await client.post(
-        "/api/runs",
-        headers=LANGUAGE_HEADERS,
-        json={
-            "mode": "survey",
-            "config": CATALOG.default_template("en-US").model_dump(mode="json"),
-        },
-    )
-    assert created.status_code == 201
-    run_id = created.json()["id"]
-    await run_service.wait(run_id)
-    return run_id
-
-
-def inference_enabled_template() -> dict:
-    payload = CATALOG.default_template("en-US").model_dump(mode="json")
-    payload["respondentConfigs"][0]["count"] = 1
-    payload["inferenceConfig"] = {
-        "enabled": True,
-        "profileEnabled": True,
-        "attitudeEnabled": True,
-        "profileTasks": [
-            {
-                "id": "profile-income",
-                "name": "家庭年收入",
-                "options": ["5万以下", "5万-20万", "20万-50万"],
-                "multiple": False,
-                "enabled": True,
-            }
-        ],
-        "attitudeTasks": [
-            {
-                "id": "attitude-common-prosperity",
-                "name": "共同富裕倾向",
-                "options": ["积极", "中立", "消极"],
-                "enabled": True,
-            }
-        ],
-    }
-    return payload
 
 
 @pytest.mark.asyncio
@@ -171,167 +101,22 @@ async def test_default_template_can_be_selected_by_mode(
 
     assert survey.status_code == 200
     assert survey.json()["title"] == "共同富裕可感可知问卷"
-    assert survey.json()["questions"][0]["question"] == "您多大程度上认为您所在县（市、区）经济是快速发展的？"
+    assert (
+        survey.json()["questions"][0]["question"]
+        == "您多大程度上认为您所在县（市、区）经济是快速发展的？"
+    )
     assert interview.status_code == 200
     assert interview.json()["title"] == "共同富裕可感可知访谈"
-    assert interview.json()["questions"][0]["question"] == "您觉得什么是共同富裕？"
+    assert (
+        interview.json()["questions"][0]["question"]
+        == "您觉得什么是共同富裕？"
+    )
     assert english_interview.status_code == 200
-    assert english_interview.json()["title"] == "Common Prosperity Perception Interview"
-    assert english_interview.json()["questions"][0]["question"] == "What does common prosperity mean to you?"
-
-
-@pytest.mark.asyncio
-async def test_create_read_and_missing_run(
-    client: httpx.AsyncClient,
-) -> None:
-    created = await client.post(
-        "/api/runs",
-        headers=LANGUAGE_HEADERS,
-        json={
-            "mode": "survey",
-            "config": CATALOG.default_template("en-US").model_dump(mode="json"),
-        },
+    assert (
+        english_interview.json()["title"]
+        == "Common Prosperity Perception Interview"
     )
-    assert created.status_code == 201
-    run_id = created.json()["id"]
-
-    fetched = await client.get(
-        f"/api/runs/{run_id}",
-        headers=LANGUAGE_HEADERS,
+    assert (
+        english_interview.json()["questions"][0]["question"]
+        == "What does common prosperity mean to you?"
     )
-    assert fetched.status_code == 200
-    assert fetched.headers["content-language"] == "en-US"
-    assert fetched.json()["id"] == run_id
-
-    missing = await client.get(
-        "/api/runs/missing",
-        headers=LANGUAGE_HEADERS,
-    )
-    assert missing.status_code == 404
-    assert missing.headers["content-language"] == "en-US"
-    assert missing.json()["detail"]["code"] == "RUN_NOT_FOUND"
-
-    invalid = await client.post(
-        "/api/runs",
-        headers=LANGUAGE_HEADERS,
-        json={},
-    )
-    assert invalid.status_code == 422
-    assert invalid.headers["content-language"] == "en-US"
-
-
-@pytest.mark.asyncio
-async def test_history_analytics_and_export(
-    client: httpx.AsyncClient,
-    run_service: RunService,
-) -> None:
-    run_id = await create_completed_run(client, run_service)
-
-    completed = await client.get(
-        f"/api/runs/{run_id}",
-        headers={"Accept-Language": "zh-CN"},
-    )
-    completed_payload = completed.json()
-    assert completed_payload["locale"] == "en-US"
-    assert completed_payload["respondents"][0]["gender"] in {"Male", "Female"}
-    assert completed_payload["config"]["title"] == "Common Prosperity Perception Survey"
-
-    saved = await client.post(
-        "/api/history",
-        headers=LANGUAGE_HEADERS,
-        json={"runId": run_id},
-    )
-    assert saved.status_code == 201
-    assert saved.json()["locale"] == "en-US"
-    history_id = saved.json()["id"]
-
-    records = await client.get("/api/history", headers=LANGUAGE_HEADERS)
-    assert records.json()[0]["id"] == history_id
-
-    analytics = await client.post(
-        f"/api/runs/{run_id}/analytics/query",
-        headers=LANGUAGE_HEADERS,
-        json={"questionId": "q1", "filters": {}, "groupBy": ["city"]},
-    )
-    assert analytics.status_code == 200
-    assert analytics.json()["groupedQuestionSummaries"]
-    assert analytics.json()["dimensionMetadata"][0]["label"] == "Gender"
-    assert analytics.json()["groupedQuestionSummaries"][0]["label"].startswith(
-        "Work city:"
-    )
-
-    exported = await client.get(
-        f"/api/runs/{run_id}/exports",
-        headers=LANGUAGE_HEADERS,
-        params={"format": "csv"},
-    )
-    assert exported.status_code == 200
-    assert exported.headers["content-language"] == "en-US"
-    assert exported.headers["content-type"].startswith("text/csv")
-    assert exported.content.decode("utf-8-sig").startswith(
-        "respondentId,name,city,status"
-    )
-
-    exported_json = await client.get(
-        f"/api/runs/{run_id}/exports",
-        headers={"Accept-Language": "zh-CN"},
-        params={"format": "json"},
-    )
-    assert exported_json.json()["respondents"][0]["gender"] in {
-        "Male",
-        "Female",
-    }
-
-
-@pytest.mark.asyncio
-async def test_history_and_exports_preserve_inference(
-    client: httpx.AsyncClient,
-    run_service: RunService,
-) -> None:
-    created = await client.post(
-        "/api/runs",
-        headers=LANGUAGE_HEADERS,
-        json={
-            "mode": "interview",
-            "config": inference_enabled_template(),
-        },
-    )
-    assert created.status_code == 201
-    run_id = created.json()["id"]
-    await run_service.wait(run_id)
-
-    completed = await client.get(f"/api/runs/{run_id}", headers=LANGUAGE_HEADERS)
-    assert completed.json()["inferenceResults"]
-    assert completed.json()["inferenceSummary"]
-
-    saved = await client.post(
-        "/api/history",
-        headers=LANGUAGE_HEADERS,
-        json={"runId": run_id},
-    )
-    assert saved.status_code == 201
-    assert saved.json()["inferenceResults"]
-    history_id = saved.json()["id"]
-
-    history_record = await client.get(
-        f"/api/history/{history_id}",
-        headers=LANGUAGE_HEADERS,
-    )
-    assert history_record.json()["inferenceSummary"]
-
-    exported_json = await client.get(
-        f"/api/runs/{run_id}/exports",
-        headers=LANGUAGE_HEADERS,
-        params={"format": "json"},
-    )
-    assert exported_json.status_code == 200
-    assert exported_json.json()["inferenceResults"]
-
-    exported_csv = await client.get(
-        f"/api/runs/{run_id}/exports",
-        headers=LANGUAGE_HEADERS,
-        params={"format": "csv"},
-    )
-    csv_text = exported_csv.content.decode("utf-8-sig")
-    assert "inference.profile.家庭年收入" in csv_text
-    assert "inference.attitude.共同富裕倾向.status" in csv_text

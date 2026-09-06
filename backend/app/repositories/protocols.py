@@ -257,6 +257,8 @@ class RoundRepositoryProtocol(Protocol):
         stale_before: datetime,
     ) -> Sequence[ResearchRoundRow]: ...
 
+    async def get_owner_id(self, round_id: UUID) -> UUID | None: ...
+
 
 class ExportRepositoryProtocol(Protocol):
     async def create_export(

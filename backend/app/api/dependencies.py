@@ -9,6 +9,7 @@ from app.api.errors import ApiError
 from app.schemas.auth import CurrentUser
 from app.services.auth_service import AuthService
 from app.services.research_service import ResearchService
+from app.services.run_service import RunService
 
 
 SESSION_COOKIE = "survey_session"
@@ -34,6 +35,17 @@ def research_service(request: Request) -> ResearchService:
             503,
             "STORAGE_UNAVAILABLE",
             "Research storage is not configured",
+        )
+    return service
+
+
+def run_service(request: Request) -> RunService:
+    service = getattr(request.app.state, "run_service", None)
+    if service is None:
+        raise ApiError(
+            503,
+            "STORAGE_UNAVAILABLE",
+            "Round storage is not configured",
         )
     return service
 

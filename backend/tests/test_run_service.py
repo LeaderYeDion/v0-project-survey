@@ -1,210 +1,113 @@
-import random
+from __future__ import annotations
 
 import pytest
 
-from app.repositories.memory import MemoryRepository
-from app.mocks.catalog import MockCatalog
-from app.mocks.engine import MockEngine
-from app.schemas.survey import CreateRunRequest
-from app.services.analytics_service import AnalyticsService
-from app.services.inference_analysis_service import InferenceAnalysisService
-from app.services.inference_service import InferenceService
-from app.services.run_service import RunService
-
-CATALOG = MockCatalog()
-
-
-@pytest.mark.parametrize("mode", ["survey", "interview"])
-@pytest.mark.asyncio
-async def test_disabled_termination_completes_every_question(
-    mode: str,
-) -> None:
-    repository = MemoryRepository()
-    catalog = MockCatalog()
-    config = catalog.default_template("zh-CN", mode).model_copy(deep=True)
-    config.respondentConfigs = [
-        config.respondentConfigs[0].model_copy(update={"count": 1})
-    ]
-    service = RunService(
-        repository=repository,
-        engine=MockEngine(catalog, random.Random(1), delay_scale=0),
-        analytics=AnalyticsService(catalog),
-    )
-
-    created = await service.create_run(
-        CreateRunRequest(mode=mode, config=config),
-        "zh-CN",
-    )
-    completed = await service.wait(created.id)
-
-    assert completed.progress.completedRespondents == 1
-    assert completed.progress.terminatedRespondents == 0
-    assert all(
-        session.status == "completed"
-        and session.completedQuestions == session.totalQuestions
-        for session in completed.sessions
-    )
+from round_support import build_round_harness
 
 
 @pytest.mark.asyncio
-async def test_run_progresses_to_completed() -> None:
-    repository = MemoryRepository()
-    service = RunService(
-        repository=repository,
-        engine=MockEngine(CATALOG, random.Random(1), delay_scale=0),
-        analytics=AnalyticsService(CATALOG),
-    )
-
-    created = await service.create_run(
-        CreateRunRequest(mode="survey", config=CATALOG.default_template("zh-CN")),
-        "zh-CN",
-    )
-    completed = await service.wait(created.id)
-
-    assert completed.status == "completed"
-    assert completed.progress.totalRespondents == 7
-    assert (
-        completed.progress.completedRespondents
-        + completed.progress.terminatedRespondents
-        == 7
-    )
-    assert completed.activeRespondentId is None
-    assert completed.questionAnalysis
-    assert completed.responses
-
-
-@pytest.mark.asyncio
-async def test_cancel_stops_run() -> None:
-    repository = MemoryRepository()
-    service = RunService(
-        repository=repository,
-        engine=MockEngine(CATALOG, random.Random(1), delay_scale=0.1),
-        analytics=AnalyticsService(CATALOG),
-    )
-    created = await service.create_run(
-        CreateRunRequest(mode="interview", config=CATALOG.default_template("zh-CN")),
+async def test_completed_snapshot_is_rebuilt_from_normalized_rows() -> None:
+    harness = await build_round_harness()
+    created = await harness.service.create(
+        harness.owner_id,
+        harness.questionnaire_id,
         "zh-CN",
     )
 
-    cancelled = await service.cancel(created.id)
+    completed = await harness.service.wait(created.id)
+    stored = await harness.repository.get_result_rows_for_owner(
+        harness.owner_id,
+        completed.id,
+    )
+    fetched = await harness.service.get(harness.owner_id, completed.id)
 
-    assert cancelled is not None
-    assert cancelled.status == "cancelled"
-    assert cancelled.activeRespondentId is None
+    assert completed.status == fetched.status == "completed"
+    assert stored is not None
+    assert len(fetched.sessions) == len(stored.sessions) == 2
+    assert len(fetched.responses) == len(stored.respondents) == 2
+    assert fetched.progress.answeredQuestions == len(stored.responses) == 2
+    assert fetched.questionAnalysis[0].totalResponses == 2
+    assert fetched.name == "Original survey"
+    assert fetched.questionnaireVersionId
+    assert fetched.configVersionId == completed.configVersionId
+    assert fetched.rowVersion > 0
 
 
 @pytest.mark.asyncio
-async def test_disabled_inference_produces_no_results() -> None:
-    repository = MemoryRepository()
-    catalog = MockCatalog()
-    service = RunService(
-        repository=repository,
-        engine=MockEngine(catalog, random.Random(3), delay_scale=0),
-        analytics=AnalyticsService(catalog),
-        inference=InferenceService(random.Random(11)),
-        inference_analysis=InferenceAnalysisService(),
-    )
-    config = catalog.default_template("zh-CN").model_copy(deep=True)
-    config.inferenceConfig = None
-
-    created = await service.create_run(
-        CreateRunRequest(mode="interview", config=config),
+async def test_round_listing_is_project_scoped_and_newest_first() -> None:
+    harness = await build_round_harness()
+    first = await harness.service.create(
+        harness.owner_id,
+        harness.questionnaire_id,
         "zh-CN",
     )
-    completed = await service.wait(created.id)
+    await harness.service.wait(first.id)
+    second = await harness.service.create(
+        harness.owner_id,
+        harness.questionnaire_id,
+        "zh-CN",
+    )
+    await harness.service.wait(second.id)
 
-    assert completed.status == "completed"
-    assert completed.inferenceResults == []
-    assert completed.inferenceSummary == []
+    listed = await harness.service.list_for_project(
+        harness.owner_id,
+        first.projectId,
+    )
+
+    assert [item.id for item in listed] == [second.id, first.id]
 
 
 @pytest.mark.asyncio
-async def test_enabled_interview_inference_generates_results() -> None:
-    repository = MemoryRepository()
-    catalog = MockCatalog()
-    service = RunService(
-        repository=repository,
-        engine=MockEngine(catalog, random.Random(3), delay_scale=0),
-        analytics=AnalyticsService(catalog),
-        inference=InferenceService(random.Random(11)),
-        inference_analysis=InferenceAnalysisService(),
-    )
-    config = catalog.default_template("zh-CN").model_copy(deep=True)
-    config.respondentConfigs[0].count = 1
-    config.inferenceConfig = {
-        "enabled": True,
-        "profileEnabled": True,
-        "attitudeEnabled": True,
-        "profileTasks": [
+async def test_interview_inference_is_persisted_and_reloaded() -> None:
+    config = {
+        "title": "Interview",
+        "description": "Inference coverage",
+        "questions": [
+            {"id": "q1", "type": "text", "question": "Why?"},
+        ],
+        "maxResponseTime": 90,
+        "respondentConfigs": [
             {
-                "id": "profile-income",
-                "name": "家庭年收入",
-                "options": ["5万以下", "5万-20万", "20万-50万"],
-                "multiple": False,
-                "enabled": True,
+                "id": "group-1",
+                "gender": "不限",
+                "ageRange": "18-65",
+                "occupation": "研究员",
+                "city": "杭州",
+                "income": "20万-50万",
+                "count": 1,
             }
         ],
-        "attitudeTasks": [
-            {
-                "id": "attitude-common-prosperity",
-                "name": "共同富裕倾向",
-                "options": ["积极", "中立", "消极"],
-                "enabled": True,
-            }
-        ],
+        "inferenceConfig": {
+            "enabled": True,
+            "profileEnabled": True,
+            "attitudeEnabled": False,
+            "profileTasks": [
+                {
+                    "id": "profile-income",
+                    "name": "家庭年收入",
+                    "options": ["5万以下", "5万-20万", "20万-50万"],
+                    "multiple": False,
+                    "enabled": True,
+                }
+            ],
+            "attitudeTasks": [],
+        },
     }
+    harness = await build_round_harness(config=config, mode="interview")
 
-    created = await service.create_run(
-        CreateRunRequest(mode="interview", config=config),
+    created = await harness.service.create(
+        harness.owner_id,
+        harness.questionnaire_id,
         "zh-CN",
     )
-    completed = await service.wait(created.id)
+    completed = await harness.service.wait(created.id)
+    rows = await harness.repository.get_result_rows_for_owner(
+        harness.owner_id,
+        completed.id,
+    )
 
     assert completed.status == "completed"
-    assert len(completed.inferenceResults) == len(completed.respondents) * 2
-    assert {item.kind for item in completed.inferenceResults} == {
-        "profile",
-        "attitude",
-    }
-    assert all(item.status == "completed" for item in completed.inferenceResults)
-    assert len(completed.inferenceSummary) == 2
-
-
-@pytest.mark.asyncio
-async def test_survey_mode_ignores_inference_config() -> None:
-    repository = MemoryRepository()
-    catalog = MockCatalog()
-    service = RunService(
-        repository=repository,
-        engine=MockEngine(catalog, random.Random(3), delay_scale=0),
-        analytics=AnalyticsService(catalog),
-        inference=InferenceService(random.Random(11)),
-        inference_analysis=InferenceAnalysisService(),
-    )
-    config = catalog.default_template("zh-CN").model_copy(deep=True)
-    config.respondentConfigs[0].count = 1
-    config.inferenceConfig = {
-        "enabled": True,
-        "profileEnabled": True,
-        "attitudeEnabled": False,
-        "profileTasks": [
-            {
-                "id": "profile-income",
-                "name": "家庭年收入",
-                "options": ["5万以下", "5万-20万"],
-                "multiple": False,
-                "enabled": True,
-            }
-        ],
-        "attitudeTasks": [],
-    }
-
-    created = await service.create_run(
-        CreateRunRequest(mode="survey", config=config),
-        "zh-CN",
-    )
-    completed = await service.wait(created.id)
-
-    assert completed.status == "completed"
-    assert completed.inferenceResults == []
-    assert completed.inferenceSummary == []
+    assert len(completed.inferenceResults) == 1
+    assert completed.inferenceResults[0].kind == "profile"
+    assert rows is not None
+    assert len(rows.inference_results) == 1

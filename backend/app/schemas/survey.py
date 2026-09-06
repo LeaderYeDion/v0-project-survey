@@ -16,6 +16,8 @@ SessionStatus = Literal[
     "completed",
     "terminated_by_respondent",
     "terminated_by_interviewer",
+    "failed",
+    "cancelled",
 ]
 ResponseStatus = Literal[
     "completed",
@@ -23,7 +25,16 @@ ResponseStatus = Literal[
     "terminated_by_respondent",
     "terminated_by_interviewer",
 ]
-RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+RunStatus = Literal[
+    "queued",
+    "running",
+    "pausing",
+    "paused",
+    "completed",
+    "completed_with_errors",
+    "failed",
+    "cancelled",
+]
 InferenceKind = Literal["profile", "attitude"]
 InferenceTaskStatus = Literal["completed", "skipped", "failed"]
 
@@ -197,6 +208,9 @@ class SurveyProgress(ApiModel):
     inProgressRespondents: int
     terminatedRespondents: int
     currentRespondentIndex: int
+    failedRespondents: int = 0
+    incompleteRespondents: int = 0
+    answeredQuestions: int = 0
 
 
 class SentimentData(ApiModel):
