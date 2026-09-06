@@ -108,6 +108,32 @@ class RoundExecutor:
             datetime.now(UTC)
         )
 
+    async def shutdown(self) -> None:
+        for round_id in tuple(self._tasks):
+            owner_id = await self._repository.get_owner_id(round_id)
+            if owner_id is None:
+                continue
+            while True:
+                current = await self._repository.get_for_owner(
+                    owner_id,
+                    round_id,
+                )
+                if (
+                    current is None
+                    or current.status not in {"queued", "running", "pausing"}
+                    or current.lease_owner != self._lease_owner
+                ):
+                    break
+                paused = await self._repository.transition(
+                    owner_id,
+                    round_id,
+                    current.row_version,
+                    frozenset({current.status}),
+                    "paused",
+                )
+                if paused is not None:
+                    break
+
     async def _execute(self, owner_id: UUID, round_id: UUID) -> None:
         try:
             await self._run(owner_id, round_id)
@@ -152,13 +178,20 @@ class RoundExecutor:
                     if rows.round.failed_respondents
                     else "completed"
                 )
-                await self._repository.transition(
+                completed = await self._repository.transition(
                     owner_id,
                     round_id,
                     rows.round.row_version,
                     frozenset({"running"}),
                     target,
                 )
+                if completed is None:
+                    current = await self._repository.get_for_owner(
+                        owner_id,
+                        round_id,
+                    )
+                    if current is not None and current.status == "pausing":
+                        await self._pause_at_checkpoint(owner_id, current)
                 return
             try:
                 should_continue = await self._execute_respondent(
@@ -260,49 +293,12 @@ class RoundExecutor:
             )
             respondent.completed_questions += 1
             session_dialog = [*candidate_dialog, answer]
-            response = ResponseRow(
-                id=uuid4(),
-                round_respondent_id=respondent.id,
-                question_id=question.id,
-                answer_value_json=answer.answerValue.model_dump(mode="json"),
-                status="completed",
-                created_at=answer.timestamp,
-            )
-            checkpoint = _checkpoint(
-                rows,
-                respondent,
-                session,
-                active_respondent_id=respondent.id,
-                lease_owner=self._lease_owner,
-                lease_expires_at=self._lease_expiry(),
-                messages=_message_rows(
-                    session.id,
-                    [question_message, answer],
-                    len(dialog),
-                ),
-                responses=(response,),
-            )
-            if not await self._commit(owner_id, rows.round, checkpoint):
-                return False
-
             low_quality = self._engine.response_is_low_quality(session_dialog)
-            if self._engine.interviewer_should_terminate(
+            interviewer_terminated = self._engine.interviewer_should_terminate(
                 session_dialog,
                 low_quality,
-            ):
-                rows = await self._repository.get_result_rows_for_owner(
-                    owner_id,
-                    rows.round.id,
-                )
-                if rows is None:
-                    return False
-                if rows.round.status == "pausing":
-                    await self._pause_at_checkpoint(owner_id, rows.round)
-                    return False
-                if rows.round.status != "running":
-                    return False
-                respondent = _respondent_for(rows, respondent.id)
-                session = _session_for(rows, respondent.id)
+            )
+            if interviewer_terminated:
                 reason = self._engine.termination_reason(
                     rows.round.locale,
                     "interviewer",
@@ -315,15 +311,34 @@ class RoundExecutor:
                     "INTERVIEWER_TERMINATED",
                     reason,
                 )
-                checkpoint = _checkpoint(
-                    rows,
-                    respondent,
-                    session,
-                    active_respondent_id=None,
-                    lease_owner=self._lease_owner,
-                    lease_expires_at=self._lease_expiry(),
-                )
-                return await self._commit(owner_id, rows.round, checkpoint)
+            response = ResponseRow(
+                id=uuid4(),
+                round_respondent_id=respondent.id,
+                question_id=question.id,
+                answer_value_json=answer.answerValue.model_dump(mode="json"),
+                status="completed",
+                created_at=answer.timestamp,
+            )
+            checkpoint = _checkpoint(
+                rows,
+                respondent,
+                session,
+                active_respondent_id=(
+                    None if interviewer_terminated else respondent.id
+                ),
+                lease_owner=self._lease_owner,
+                lease_expires_at=self._lease_expiry(),
+                messages=_message_rows(
+                    session.id,
+                    [question_message, answer],
+                    len(dialog),
+                ),
+                responses=(response,),
+            )
+            if not await self._commit(owner_id, rows.round, checkpoint):
+                return False
+            if interviewer_terminated:
+                return True
 
         return await self._complete_respondent(
             owner_id,

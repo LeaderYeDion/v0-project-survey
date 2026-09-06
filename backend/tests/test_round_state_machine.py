@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from app.api.errors import ApiError
-from round_support import CheckpointGateEngine, build_round_harness
+from app.main import create_app
+from app.mocks.engine import MockEngine
+from app.services.analytics_service import AnalyticsService
+from app.services.run_service import RunService
+from round_support import (
+    CATALOG,
+    AlwaysTerminateGateEngine,
+    CheckpointGateEngine,
+    build_round_harness,
+)
 
 
 @pytest.mark.asyncio
@@ -108,3 +117,71 @@ async def test_cancel_preserves_checkpoint_and_marks_unfinished_respondents() ->
     assert {row.status for row in rows.respondents} == {"cancelled"}
     assert rows.messages == ()
     assert rows.responses == ()
+
+
+@pytest.mark.asyncio
+async def test_graceful_restart_pauses_future_lease_for_fresh_executor() -> None:
+    engine = CheckpointGateEngine()
+    harness = await build_round_harness(engine=engine)
+    application = create_app(
+        repository=harness.repository,
+        run_service=harness.service,
+        research_service=harness.research,
+    )
+
+    async with application.router.lifespan_context(application):
+        created = await harness.service.create(
+            harness.owner_id,
+            harness.questionnaire_id,
+            "zh-CN",
+        )
+        await asyncio.wait_for(engine.answer_started.wait(), timeout=1)
+        running = await harness.repository.get_for_owner(
+            harness.owner_id,
+            UUID(created.id),
+        )
+        assert running is not None
+        assert running.status == "running"
+        assert running.lease_expires_at is not None
+
+    recoverable = await harness.service.get(harness.owner_id, created.id)
+    assert recoverable.status == "paused"
+
+    engine.allow_answer.set()
+    await harness.service.wait(created.id)
+    fresh_service = RunService(
+        repository=harness.repository,
+        research=harness.research,
+        engine=MockEngine(CATALOG, delay_scale=0),
+        analytics=AnalyticsService(CATALOG),
+    )
+    await fresh_service.resume(harness.owner_id, created.id)
+    assert (await fresh_service.wait(created.id)).status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_pause_checkpoint_preserves_interviewer_termination() -> None:
+    engine = AlwaysTerminateGateEngine()
+    harness = await build_round_harness(engine=engine)
+    created = await harness.service.create(
+        harness.owner_id,
+        harness.questionnaire_id,
+        "zh-CN",
+    )
+    await asyncio.wait_for(engine.answer_started.wait(), timeout=1)
+
+    await harness.service.pause(harness.owner_id, created.id)
+    engine.allow_answer.set()
+    paused = await harness.service.wait_for_status(
+        harness.owner_id,
+        created.id,
+        "paused",
+    )
+
+    assert paused.sessions[0].status == "terminated_by_interviewer"
+    assert paused.progress.terminatedRespondents == 1
+    assert paused.progress.answeredQuestions == 1
+    await harness.service.resume(harness.owner_id, created.id)
+    completed = await harness.service.wait(created.id)
+    assert completed.status == "completed"
+    assert completed.sessions[0].status == "terminated_by_interviewer"

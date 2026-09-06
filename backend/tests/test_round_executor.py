@@ -61,6 +61,38 @@ class PauseAfterAnswerStatusReadRepository(MemoryRepository):
         return row
 
 
+class PauseInsteadOfCompletionRepository(MemoryRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self._paused_completion = False
+
+    async def transition(
+        self,
+        owner_id,
+        round_id,
+        expected_version,
+        from_statuses,
+        to_status,
+    ):
+        if to_status == "completed" and not self._paused_completion:
+            self._paused_completion = True
+            await super().transition(
+                owner_id,
+                round_id,
+                expected_version,
+                frozenset({"running"}),
+                "pausing",
+            )
+            return None
+        return await super().transition(
+            owner_id,
+            round_id,
+            expected_version,
+            from_statuses,
+            to_status,
+        )
+
+
 @pytest.mark.asyncio
 async def test_respondent_failure_is_contained_and_retry_copies_profile() -> None:
     config = valid_config()
@@ -245,3 +277,22 @@ async def test_pause_after_last_answer_status_read_reaches_checkpoint() -> None:
 
     assert settled.status == "paused"
     assert settled.progress.answeredQuestions == 1
+
+
+@pytest.mark.asyncio
+async def test_pause_winning_final_completion_cas_becomes_resumable() -> None:
+    repository = PauseInsteadOfCompletionRepository()
+    config = valid_config()
+    config["respondentConfigs"][0]["count"] = 1
+    harness = await build_round_harness(repository=repository, config=config)
+
+    created = await harness.service.create(
+        harness.owner_id,
+        harness.questionnaire_id,
+        "zh-CN",
+    )
+    paused = await harness.service.wait(created.id)
+
+    assert paused.status == "paused"
+    await harness.service.resume(harness.owner_id, created.id)
+    assert (await harness.service.wait(created.id)).status == "completed"

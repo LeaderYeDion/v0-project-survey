@@ -129,3 +129,33 @@ async def test_round_mutations_require_csrf(round_api) -> None:
 
     assert response.status_code == 403
     assert response.json()["code"] == "AUTH_CSRF_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_copy_round_is_owned_and_requires_csrf(round_api) -> None:
+    alice, bob, run_service = round_api
+    _project_id, questionnaire_id = await create_questionnaire(alice)
+    created = await alice.post(
+        f"/api/questionnaires/{questionnaire_id}/rounds"
+    )
+    round_id = created.json()["id"]
+    await run_service.wait(round_id)
+
+    copied = await alice.post(f"/api/rounds/{round_id}/copy")
+    cross_owner = await bob.post(f"/api/rounds/{round_id}/copy")
+    missing_csrf = await alice.post(
+        f"/api/rounds/{round_id}/copy",
+        headers={"Origin": "https://survey.test", "X-CSRF-Token": "wrong"},
+    )
+    alice.cookies.clear()
+    unauthenticated = await alice.post(f"/api/rounds/{round_id}/copy")
+
+    assert copied.status_code == 201
+    assert copied.json()["id"] != questionnaire_id
+    assert copied.json()["config"]["title"] == "Original survey"
+    assert cross_owner.status_code == 404
+    assert cross_owner.json()["code"] == "RESOURCE_NOT_FOUND"
+    assert missing_csrf.status_code == 403
+    assert missing_csrf.json()["code"] == "AUTH_CSRF_INVALID"
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json()["code"] == "AUTH_SESSION_EXPIRED"

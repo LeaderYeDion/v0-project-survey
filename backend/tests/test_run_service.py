@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
+from app.api.errors import ApiError
 from round_support import build_round_harness
 
 
@@ -111,3 +114,51 @@ async def test_interview_inference_is_persisted_and_reloaded() -> None:
     assert completed.inferenceResults[0].kind == "profile"
     assert rows is not None
     assert len(rows.inference_results) == 1
+
+
+@pytest.mark.asyncio
+async def test_copy_creates_independent_draft_from_immutable_config() -> None:
+    harness = await build_round_harness()
+    created = await harness.service.create(
+        harness.owner_id,
+        harness.questionnaire_id,
+        "zh-CN",
+    )
+    source = await harness.service.wait(created.id)
+
+    copied = await harness.service.copy(harness.owner_id, created.id)
+    edited_config = copied.config.model_copy(
+        update={"title": "Edited independent draft"},
+        deep=True,
+    )
+    edited = await harness.research.save_draft(
+        harness.owner_id,
+        copied.id,
+        edited_config,
+        copied.draft_revision,
+    )
+    unchanged_source = await harness.service.get(
+        harness.owner_id,
+        created.id,
+    )
+    rounds = await harness.service.list_for_project(
+        harness.owner_id,
+        source.projectId,
+    )
+
+    assert copied.id != harness.questionnaire_id
+    assert str(copied.project_id) == source.projectId
+    assert copied.config == source.config
+    assert copied.draft_revision == 1
+    assert edited.title == "Edited independent draft"
+    assert unchanged_source.config.title == "Original survey"
+    assert unchanged_source.status == source.status
+    assert unchanged_source.rowVersion == source.rowVersion
+    assert [row.id for row in rounds] == [created.id]
+
+    with pytest.raises(ApiError) as raised:
+        await harness.service.copy(uuid4(), created.id)
+    assert (raised.value.status_code, raised.value.code) == (
+        404,
+        "RESOURCE_NOT_FOUND",
+    )

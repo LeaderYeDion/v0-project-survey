@@ -85,7 +85,11 @@ def create_app(
     async def lifespan(_application: FastAPI):
         if service is not None:
             await service.executor.reconcile_interrupted_rounds()
-        yield
+        try:
+            yield
+        finally:
+            if service is not None:
+                await service.executor.shutdown()
 
     application = FastAPI(
         title="Survey Mock Backend",

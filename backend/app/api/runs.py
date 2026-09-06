@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.dependencies import get_current_user, require_csrf, run_service
 from app.schemas.auth import CurrentUser
+from app.schemas.research import QuestionnaireView
 from app.schemas.rounds import RetryRoundRequest, RoundSnapshot
 from app.services.run_service import RunService
 
@@ -76,6 +77,19 @@ async def cancel_round(
     service: RunService = Depends(run_service),
 ) -> RoundSnapshot:
     return await service.cancel(current_user.id, round_id)
+
+
+@router.post(
+    "/api/rounds/{round_id}/copy",
+    response_model=QuestionnaireView,
+    status_code=201,
+)
+async def copy_round(
+    round_id: UUID,
+    current_user: CurrentUser = Depends(require_csrf),
+    service: RunService = Depends(run_service),
+) -> QuestionnaireView:
+    return await service.copy(current_user.id, round_id)
 
 
 @router.post(

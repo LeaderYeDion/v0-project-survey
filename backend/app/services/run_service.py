@@ -6,6 +6,7 @@ from uuid import UUID
 
 from app.api.errors import ApiError
 from app.repositories.protocols import RetryKind, RoundRepositoryProtocol
+from app.schemas.research import CreateQuestionnaire, QuestionnaireView
 from app.schemas.rounds import RoundSnapshot
 from app.schemas.survey import (
     DialogMessage,
@@ -216,6 +217,26 @@ class RunService:
         )
         await self.executor.start(row.id)
         return await self.get(owner_id, row.id)
+
+    async def copy(
+        self,
+        owner_id: UUID,
+        round_id: UUID | str,
+    ) -> QuestionnaireView:
+        source = await self._row(owner_id, round_id)
+        config_version = await self.research.get_config_version(
+            owner_id,
+            source.config_version_id,
+        )
+        return await self.research.create_questionnaire(
+            owner_id,
+            source.project_id,
+            CreateQuestionnaire(
+                mode=source.mode,
+                config=config_version.full_snapshot.model_copy(deep=True),
+                schemaVersion=config_version.schema_version,
+            ),
+        )
 
     async def wait(self, round_id: UUID | str) -> RoundSnapshot:
         row = await self.executor.wait(round_id)

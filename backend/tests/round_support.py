@@ -41,6 +41,14 @@ class FailFirstAnswerEngine(MockEngine):
         return super().generate_answer(*args, **kwargs)
 
 
+class AlwaysTerminateGateEngine(CheckpointGateEngine):
+    def response_is_low_quality(self, previous_dialog) -> bool:
+        return True
+
+    def interviewer_should_terminate(self, dialog, low_quality: bool) -> bool:
+        return True
+
+
 @dataclass(slots=True)
 class RoundHarness:
     owner_id: UUID
