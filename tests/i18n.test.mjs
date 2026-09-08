@@ -291,54 +291,30 @@ test("dashboard and survey configuration use the locale catalog at the UI bounda
     dashboard,
     /const \{ locale, messages, lockLocale \} = useI18n\(\)/,
   )
-  assert.match(dashboard, /<LanguageSwitcher \/>/)
+  assert.match(dashboard, /messages\.dashboard\.chooseMode/)
   assert.match(configuration, /const \{ messages \} = useI18n\(\)/)
 })
 
-test("mode chooser remains localized and only opens for an owned resource", async () => {
-  const source = await readSource("../app/page.tsx")
-  const chooser = source.match(
-    /<AlertDialog open=\{!modeSelected && projects\.length > 0 && questionnaires\.length > 0\}>[\s\S]*?<\/AlertDialog>/,
-  )?.[0]
+test("mode choice is localized in the questionnaire creation dialog", async () => {
+  const source = await readSource("../components/create-questionnaire-dialog.tsx")
 
-  assert.ok(chooser, "mode chooser must use the controlled AlertDialog")
-  const contentClass = chooser.match(
-    /<AlertDialogContent[\s\S]*?\sclassName="([^"]+)"/,
-  )?.[1]
-  assert.ok(contentClass)
-  assert.match(contentClass, /(?:^|\s)sm:max-w-\[380px\](?:\s|$)/)
-  assert.doesNotMatch(
-    contentClass,
-    /(?:^|\s)(?:w-full|max-w-\[380px\])(?:\s|$)/,
-    "base AlertDialogContent must retain its shared mobile gutters",
-  )
-  assert.match(
-    chooser,
-    /<AlertDialogContent[\s\S]*?overlayClassName="bg-background\/95 backdrop-blur-xl"/,
-  )
-  assert.match(chooser, /<AlertDialogTitle/)
-  assert.match(chooser, /<AlertDialogDescription/)
-  assert.match(chooser, /<LanguageSwitcher \/>/)
-  assert.match(chooser, /handleModeSelection\("survey"\)/)
-  assert.match(chooser, /handleModeSelection\("interview"\)/)
-  assert.match(chooser, /disabled=\{loadedTemplateLocale !== locale\}/)
-  assert.match(chooser, /messages\.errors\.template/)
-  assert.doesNotMatch(
-    chooser,
-    /AlertDialog(?:Action|Cancel)|onOpenChange|DialogClose/,
-    "mode selection must be the only way to dismiss the chooser",
-  )
+  assert.match(source, /messages\.dashboard\.chooseMode/)
+  assert.match(source, /messages\.dashboard\.surveyMode/)
+  assert.match(source, /messages\.dashboard\.interviewMode/)
+  assert.match(source, /onValueChange=\{value => setMode\(value as SimulationMode\)\}/)
+  assert.match(source, /SelectItem value="survey"/)
+  assert.match(source, /SelectItem value="interview"/)
 })
 
-test("mode selection freezes locale and the workspace header has no switcher", async () => {
+test("questionnaire creation freezes locale and the workspace header has no switcher", async () => {
   const source = await readSource("../app/page.tsx")
   const header = source.match(/<header[\s\S]*?<\/header>/)?.[0]
 
   assert.ok(header)
   assert.doesNotMatch(header, /<LanguageSwitcher \/>/)
   assert.match(source, /const \{ locale, messages, lockLocale \} = useI18n\(\)/)
-  assert.match(source, /handleModeSelection[\s\S]*?lockLocale\(\)/)
-  assert.match(source, /createLatestRequestTracker/)
+  assert.match(source, /handleCreateQuestionnaire[\s\S]*?lockLocale\(\)/)
+  assert.doesNotMatch(source, /handleModeSelection|createLatestRequestTracker/)
 })
 
 test("alert dialog content supports a scoped overlay appearance", async () => {
@@ -351,15 +327,16 @@ test("alert dialog content supports a scoped overlay appearance", async () => {
   )
 })
 
-test("persistent mode selector is a localized pressed-button group", async () => {
+test("selected questionnaire mode is presented as localized read-only status", async () => {
   const source = await readSource("../app/page.tsx")
   const group = source.match(
-    /<div[\s\S]*?role="group"[\s\S]*?aria-label=\{messages\.dashboard\.chooseMode\}[\s\S]*?<\/div>/,
+    /<div[\s\S]*?role="status"[\s\S]*?aria-label=\{messages\.dashboard\.chooseMode\}[\s\S]*?<\/div>/,
   )?.[0]
 
-  assert.ok(group, "persistent mode controls must form a labelled group")
-  assert.match(group, /aria-pressed=\{mode === "interview"\}/)
-  assert.match(group, /aria-pressed=\{mode === "survey"\}/)
+  assert.ok(group, "selected server mode must have a labelled status")
+  assert.match(group, /messages\.dashboard\.interviewMode/)
+  assert.match(group, /messages\.dashboard\.surveyMode/)
+  assert.doesNotMatch(group, /button|onClick|aria-pressed/)
 })
 
 test("survey configuration resolves JSON errors from the current locale", async () => {
@@ -562,12 +539,9 @@ test("analytics API calls propagate the current locale", async () => {
     analytics,
     /apiQueryRunAnalytics\(locale,\s*source\.id,\s*query\)/,
   )
-  assert.match(
-    analytics,
-    /apiQueryHistoryAnalytics\(locale,\s*source\.id,\s*query\)/,
-  )
   assert.match(analytics, /apiFetchSurveyHistory\(locale\)/)
   assert.match(analytics, /apiSaveRunToHistory\(locale,\s*source\.id\)/)
+  assert.doesNotMatch(analytics, /apiQueryHistoryAnalytics/)
   assert.match(
     analytics,
     /\[[^\]]*source\?\.type[\s\S]*?\blocale\b[^\]]*\]\)/,
@@ -684,10 +658,12 @@ test("analytics results and metadata are synchronously keyed to query and source
   )
 })
 
-test("history and save failures are localized, visible, and latest-request guarded", async () => {
+test("legacy history UI stays localized but is explicitly disabled", async () => {
   const analytics = await readSource("../components/analytics-panel.tsx")
 
   assert.match(analytics, /createLatestRequestTracker/)
+  assert.match(analytics, /legacyHistoryEnabled = false/)
+  assert.match(analytics, /if \(!legacyHistoryEnabled\) return/)
   assert.match(
     analytics,
     /const requestId = historyRequestTracker\.begin\(\)/,
@@ -718,7 +694,7 @@ test("history and save failures are localized, visible, and latest-request guard
   )
   assert.match(
     analytics,
-    /\{historyError && \([\s\S]*?messages\.errors\.historyLoad[\s\S]*?\)\}[\s\S]*?<ScrollArea/,
+    /\{legacyHistoryEnabled && historyError && \([\s\S]*?messages\.errors\.historyLoad[\s\S]*?\)\}[\s\S]*?<ScrollArea/,
   )
   assert.match(analytics, /isSaving[\s\S]*?messages\.analytics\.savingSurvey/)
 })

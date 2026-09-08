@@ -88,7 +88,6 @@ import {
   apiSaveRunToHistory,
   apiFetchSurveyHistory,
   apiQueryRunAnalytics,
-  apiQueryHistoryAnalytics,
   renderInferenceValue,
 } from "@/lib/survey-api"
 
@@ -221,6 +220,7 @@ interface AnalyticsPanelProps {
   onReturnToCurrent: () => void
   viewingHistoryRecord: SurveyHistoryRecord | null
   source: { type: "run" | "history"; id: string } | null
+  legacyHistoryEnabled?: boolean
 }
 
 export function AnalyticsPanel({
@@ -240,6 +240,7 @@ export function AnalyticsPanel({
   onReturnToCurrent,
   viewingHistoryRecord,
   source,
+  legacyHistoryEnabled = false,
 }: AnalyticsPanelProps) {
   const { locale, messages } = useI18n()
   const [selectedQuestion, setSelectedQuestion] = useState<string>(() =>
@@ -311,7 +312,7 @@ export function AnalyticsPanel({
   }, [])
 
   useEffect(() => {
-    if (!source || !effectiveQuestionId) {
+    if (!source || source.type !== "run" || !effectiveQuestionId) {
       setAnalyticsResultState(null)
       setAnalyticsError(false)
       setIsLoadingAnalytics(false)
@@ -330,10 +331,7 @@ export function AnalyticsPanel({
           filters: dimensionFilters,
           groupBy: groupByDimensions,
         }
-        const result =
-          source.type === "run"
-            ? await apiQueryRunAnalytics(locale, source.id, query)
-            : await apiQueryHistoryAnalytics(locale, source.id, query)
+        const result = await apiQueryRunAnalytics(locale, source.id, query)
         if (!cancelled) {
           setAnalyticsResultState({ key: queryKey, result })
           setDimensionMetadataState({
@@ -397,6 +395,7 @@ export function AnalyticsPanel({
   }, [questions])
 
   const loadHistoryList = async () => {
+    if (!legacyHistoryEnabled) return
     const requestId = historyRequestTracker.begin()
     setIsLoadingHistory(true)
     setHistoryError(false)
@@ -418,6 +417,7 @@ export function AnalyticsPanel({
   }
 
   const handleSave = async () => {
+    if (!legacyHistoryEnabled) return
     if (!source || source.type !== "run" || sessions.length === 0) return
     setIsSaving(true)
     setSaveError(false)
@@ -552,7 +552,7 @@ export function AnalyticsPanel({
         </div>
         
         {/* History info when viewing historical data */}
-        {viewingHistoryRecord && (
+        {legacyHistoryEnabled && viewingHistoryRecord && (
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
             <Clock className="w-3 h-3" />
             <span>
@@ -569,6 +569,7 @@ export function AnalyticsPanel({
       </div>
 
       {/* Action Buttons */}
+      {legacyHistoryEnabled && (
       <div className="flex shrink-0 flex-wrap gap-2 border-b border-border/50 px-3 py-2 sm:px-4">
         {viewingHistoryRecord ? (
           <Button
@@ -718,8 +719,9 @@ export function AnalyticsPanel({
           </DialogContent>
         </Dialog>
       </div>
+      )}
 
-      {saveError && (
+      {legacyHistoryEnabled && saveError && (
         <div
           role="alert"
           className="mx-3 mt-2 shrink-0 rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive sm:mx-4"
@@ -727,7 +729,7 @@ export function AnalyticsPanel({
           {messages.errors.historySave}
         </div>
       )}
-      {historyError && (
+      {legacyHistoryEnabled && historyError && (
         <div
           role="alert"
           className="mx-3 mt-2 shrink-0 rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive sm:mx-4"

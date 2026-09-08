@@ -18,12 +18,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { useResponsiveLayout } from "@/hooks/use-mobile"
 import {
   BarChart3,
@@ -46,7 +40,6 @@ import {
   type Questionnaire,
   type CreateProjectInput,
   type CreateQuestionnaireInput,
-  apiFetchDefaultTemplate,
   apiCreateRound,
   apiFetchRound,
   apiExportSurveyResults,
@@ -60,17 +53,23 @@ import {
   SurveyApiError,
 } from "@/lib/survey-api"
 import { DESKTOP_WORKSPACE_LAYOUT } from "@/lib/workspace-layout.mjs"
-import { createLatestRequestTracker } from "@/lib/latest-request"
-import type { Locale } from "@/lib/i18n/locale"
 import { useI18n } from "@/components/locale-provider"
-import { LanguageSwitcher } from "@/components/language-switcher"
 import { ThemeSwitcher } from "@/components/theme-switcher"
 import { useAuthSession } from "@/components/auth-session-provider"
 import { ResearchResourceSelector } from "@/components/research-resource-selector"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { CreateQuestionnaireDialog } from "@/components/create-questionnaire-dialog"
+import {
+  createDraftSaveQueue,
+  type DraftSaveJob,
+} from "@/lib/draft-save-queue"
 
 type Workspace = "config" | "results" | "analytics"
+
+interface QuestionnaireDraftSaveJob extends DraftSaveJob {
+  config: SurveyConfig
+  locale: "en-US" | "zh-CN"
+}
 
 const EMPTY_CONFIG: SurveyConfig = {
   title: "",
@@ -101,15 +100,10 @@ export default function ResearcherDashboard() {
   const [config, setConfig] = useState<SurveyConfig>(EMPTY_CONFIG)
   const [currentRun, setCurrentRun] = useState<RoundSnapshot | null>(null)
   const [mode, setMode] = useState<SimulationMode>("survey")
-  const [modeSelected, setModeSelected] = useState(false)
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace>("config")
   const [configSheetOpen, setConfigSheetOpen] = useState(false)
   const [analyticsSheetOpen, setAnalyticsSheetOpen] = useState(false)
   const [viewingHistoryRecord, setViewingHistoryRecord] = useState<SurveyHistoryRecord | null>(null)
-  const templateRequestsRef = useRef(createLatestRequestTracker())
-  const [loadedTemplateLocale, setLoadedTemplateLocale] =
-    useState<Locale | null>(null)
-  const [templateError, setTemplateError] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [questionnaires, setQuestionnaires] = useState<Questionnaire[]>([])
   const [projectId, setProjectId] = useState<string | null>(null)
@@ -123,9 +117,20 @@ export default function ResearcherDashboard() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   const [questionnaireDialogOpen, setQuestionnaireDialogOpen] = useState(false)
   const persistedConfigRef = useRef("")
-  const draftSaveInFlightRef = useRef(false)
+  const revisionByQuestionnaireRef = useRef(new Map<string, number>())
   const configRef = useRef(config)
   const questionnaireIdRef = useRef(questionnaireId)
+  const performDraftSaveRef = useRef(
+    async (_job: QuestionnaireDraftSaveJob): Promise<void> => {},
+  )
+  const draftSaveQueueRef = useRef<
+    ReturnType<typeof createDraftSaveQueue<QuestionnaireDraftSaveJob>> | null
+  >(null)
+  if (!draftSaveQueueRef.current) {
+    draftSaveQueueRef.current = createDraftSaveQueue(job =>
+      performDraftSaveRef.current(job),
+    )
+  }
   configRef.current = config
   questionnaireIdRef.current = questionnaireId
 
@@ -156,11 +161,15 @@ export default function ResearcherDashboard() {
     isRunning
 
   const applyQuestionnaire = useCallback((questionnaire: Questionnaire) => {
+    questionnaireIdRef.current = questionnaire.id
     setQuestionnaireId(questionnaire.id)
     setMode(questionnaire.mode)
-    setModeSelected(true)
     setConfig(questionnaire.config)
     setDraftRevision(questionnaire.draftRevision)
+    revisionByQuestionnaireRef.current.set(
+      questionnaire.id,
+      questionnaire.draftRevision,
+    )
     setSavedAt(questionnaire.updatedAt)
     setSaveStatus("saved")
     persistedConfigRef.current = JSON.stringify(questionnaire.config)
@@ -228,32 +237,45 @@ export default function ResearcherDashboard() {
       })
   }, [applyQuestionnaire, locale, questionnaireId])
 
-  useEffect(() => {
-    if (questionnaireId) return
-    const controller = new AbortController()
-    const requestId = templateRequestsRef.current.begin()
-    setLoadedTemplateLocale(null)
-    setTemplateError(false)
-    apiFetchDefaultTemplate(locale, mode, controller.signal)
-      .then(nextConfig => {
-        if (
-          controller.signal.aborted ||
-          !templateRequestsRef.current.isLatest(requestId)
-        ) return
-        setConfig(nextConfig)
-        setLoadedTemplateLocale(locale)
+  performDraftSaveRef.current = async job => {
+    if (questionnaireIdRef.current === job.resourceId) {
+      setSaveStatus("saving")
+    }
+
+    try {
+      const saved = await apiSaveQuestionnaireDraft(job.locale, job.resourceId, {
+        config: job.config,
+        expectedRevision:
+          revisionByQuestionnaireRef.current.get(job.resourceId) ?? job.revision,
       })
-      .catch(error => {
-        if (
-          !controller.signal.aborted &&
-          templateRequestsRef.current.isLatest(requestId)
-        ) {
-          console.error("Template error:", error)
-          setTemplateError(true)
+      revisionByQuestionnaireRef.current.set(saved.id, saved.draftRevision)
+      if (questionnaireIdRef.current !== job.resourceId) return
+      setDraftRevision(saved.draftRevision)
+      persistedConfigRef.current = JSON.stringify(saved.config)
+      setSavedAt(saved.updatedAt)
+      setQuestionnaires(current =>
+        current.map(item => (item.id === saved.id ? saved : item)),
+      )
+      setSaveStatus(
+        JSON.stringify(configRef.current) === persistedConfigRef.current
+          ? "saved"
+          : "dirty",
+      )
+    } catch (error) {
+      if (questionnaireIdRef.current !== job.resourceId) return
+      if (error instanceof SurveyApiError && error.code === "DRAFT_CONFLICT") {
+        setSaveStatus("conflicted")
+        if (window.confirm(messages.resources.draftConflict)) {
+          const serverDraft = await apiGetQuestionnaire(job.locale, job.resourceId)
+          if (questionnaireIdRef.current === job.resourceId) {
+            applyQuestionnaire(serverDraft)
+          }
         }
-      })
-    return () => controller.abort()
-  }, [locale, mode, questionnaireId])
+      } else if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setSaveStatus("failed")
+      }
+    }
+  }
 
   useEffect(() => {
     if (!questionnaireId) return
@@ -262,46 +284,13 @@ export default function ResearcherDashboard() {
 
     setSaveStatus("dirty")
     const savingQuestionnaireId = questionnaireId
-    const timer = window.setTimeout(async () => {
-      if (draftSaveInFlightRef.current) {
-        setSaveStatus("dirty")
-        return
-      }
-      draftSaveInFlightRef.current = true
-      setSaveStatus("saving")
-      try {
-        const saved = await apiSaveQuestionnaireDraft(locale, savingQuestionnaireId, {
-          config,
-          expectedRevision: draftRevision,
-        })
-        if (questionnaireIdRef.current !== savingQuestionnaireId) return
-        setDraftRevision(saved.draftRevision)
-        persistedConfigRef.current = JSON.stringify(saved.config)
-        setSavedAt(saved.updatedAt)
-        setQuestionnaires(current =>
-          current.map(item => (item.id === saved.id ? saved : item)),
-        )
-        setSaveStatus(
-          JSON.stringify(configRef.current) === persistedConfigRef.current
-            ? "saved"
-            : "dirty",
-        )
-      } catch (error) {
-        if (questionnaireIdRef.current !== savingQuestionnaireId) return
-        if (error instanceof SurveyApiError && error.code === "DRAFT_CONFLICT") {
-          setSaveStatus("conflicted")
-          if (window.confirm(messages.resources.draftConflict)) {
-            const serverDraft = await apiGetQuestionnaire(locale, savingQuestionnaireId)
-            if (questionnaireIdRef.current === savingQuestionnaireId) {
-              applyQuestionnaire(serverDraft)
-            }
-          }
-        } else if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setSaveStatus("failed")
-        }
-      } finally {
-        draftSaveInFlightRef.current = false
-      }
+    const timer = window.setTimeout(() => {
+      void draftSaveQueueRef.current?.enqueue({
+        resourceId: savingQuestionnaireId,
+        revision: draftRevision,
+        config,
+        locale,
+      })
     }, 500)
     return () => window.clearTimeout(timer)
   }, [
@@ -380,6 +369,8 @@ export default function ResearcherDashboard() {
 
   const handleProjectChange = useCallback((nextProjectId: string) => {
     abortOutstandingSurveyRequests()
+    draftSaveQueueRef.current?.discardPendingExcept("")
+    questionnaireIdRef.current = null
     setProjectId(nextProjectId)
     setQuestionnaireId(null)
     setConfig(EMPTY_CONFIG)
@@ -390,6 +381,8 @@ export default function ResearcherDashboard() {
 
   const handleQuestionnaireChange = useCallback((nextQuestionnaireId: string) => {
     abortOutstandingSurveyRequests()
+    draftSaveQueueRef.current?.discardPendingExcept(nextQuestionnaireId)
+    questionnaireIdRef.current = nextQuestionnaireId
     setQuestionnaireId(nextQuestionnaireId)
     setSaveStatus("idle")
     setCurrentRun(null)
@@ -432,19 +425,8 @@ export default function ResearcherDashboard() {
     // Could be used for additional actions
   }, [])
 
-  const handleModeSelection = useCallback(
-    (selection: SimulationMode) => {
-      if (loadedTemplateLocale !== locale) return
-      setMode(selection)
-      lockLocale()
-      setModeSelected(true)
-    },
-    [loadedTemplateLocale, locale, lockLocale],
-  )
-
   const handleLoadHistory = useCallback((record: SurveyHistoryRecord) => {
     setViewingHistoryRecord(record)
-    setMode(record.mode)
   }, [])
 
   const handleReturnToCurrent = useCallback(() => {
@@ -502,6 +484,7 @@ export default function ResearcherDashboard() {
       onReturnToCurrent={handleReturnToCurrent}
       viewingHistoryRecord={viewingHistoryRecord}
       source={displaySource}
+      legacyHistoryEnabled={false}
     />
   )
 
@@ -580,34 +563,13 @@ export default function ResearcherDashboard() {
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-4 md:flex-nowrap">
               <div
-                role="group"
+                role="status"
                 aria-label={messages.dashboard.chooseMode}
-                className="flex min-w-0 flex-1 items-center rounded-full border border-border/60 bg-secondary/40 p-0.5 text-xs md:flex-none"
+                className="flex min-w-0 flex-1 items-center rounded-full border border-border/60 bg-secondary/40 px-3 py-1.5 text-[11px] text-foreground md:flex-none"
               >
-                <button
-                  type="button"
-                  aria-pressed={mode === "interview"}
-                  className={`flex-1 rounded-full px-3 py-1 text-[11px] transition md:flex-none ${
-                    mode === "interview"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground"
-                  }`}
-                  onClick={() => setMode("interview")}
-                >
-                  {messages.dashboard.interviewMode}
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={mode === "survey"}
-                  className={`flex-1 rounded-full px-3 py-1 text-[11px] transition md:flex-none ${
-                    mode === "survey"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground"
-                  }`}
-                  onClick={() => setMode("survey")}
-                >
-                  {messages.dashboard.surveyMode}
-                </button>
+                {mode === "interview"
+                  ? messages.dashboard.interviewMode
+                  : messages.dashboard.surveyMode}
               </div>
               <div className="flex shrink-0 items-center gap-2 rounded-full border border-border/50 bg-secondary/50 px-3 py-1.5">
                 <div
@@ -842,56 +804,6 @@ export default function ResearcherDashboard() {
         )}
       </main>
 
-      <AlertDialog open={!modeSelected && projects.length > 0 && questionnaires.length > 0}>
-        <AlertDialogContent
-          overlayClassName="bg-background/95 backdrop-blur-xl"
-          className="gap-0 rounded-2xl border-border/70 bg-card/90 p-5 shadow-2xl sm:max-w-[380px] sm:p-6"
-        >
-          <div className="mb-5 flex flex-wrap justify-end gap-2">
-            <ThemeSwitcher />
-            <LanguageSwitcher />
-          </div>
-          <AlertDialogTitle className="mb-3 min-h-9 text-lg text-foreground">
-            {messages.dashboard.chooseMode}
-          </AlertDialogTitle>
-          <AlertDialogDescription className="mb-6">
-            {messages.dashboard.chooseModeDescription}
-          </AlertDialogDescription>
-          {templateError && (
-            <p role="alert" className="mb-4 text-sm text-destructive">
-              {messages.errors.template}
-            </p>
-          )}
-          <div className="space-y-4">
-            <button
-              type="button"
-              disabled={loadedTemplateLocale !== locale}
-              onClick={() => handleModeSelection("survey")}
-              className="w-full rounded-xl border border-border/60 bg-secondary/40 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
-            >
-              <span className="text-base font-semibold">
-                {messages.dashboard.surveyMode}
-              </span>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                {messages.dashboard.surveyModeDescription}
-              </p>
-            </button>
-            <button
-              type="button"
-              disabled={loadedTemplateLocale !== locale}
-              onClick={() => handleModeSelection("interview")}
-              className="w-full rounded-xl border border-border/60 bg-background/80 px-4 py-3 text-left text-sm font-medium text-foreground transition hover:border-primary"
-            >
-              <span className="text-base font-semibold">
-                {messages.dashboard.interviewMode}
-              </span>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                {messages.dashboard.interviewModeDescription}
-              </p>
-            </button>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
       <CreateProjectDialog
         open={projectDialogOpen}
         onOpenChange={setProjectDialogOpen}

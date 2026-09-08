@@ -43,7 +43,7 @@ test("questionnaire dialog creates a mode and versioned config", () => {
 test("draft persistence is debounced and revision-aware", () => {
   const source = readFileSync("app/page.tsx", "utf8")
   assert.match(source, /setTimeout\([\s\S]*?500/)
-  assert.match(source, /expectedRevision:\s*draftRevision/)
+  assert.match(source, /expectedRevision:[\s\S]*?job\.revision/)
   assert.match(source, /setDraftRevision\(saved\.draftRevision\)/)
   assert.match(source, /"saving"/)
   assert.match(source, /savedAt/)
@@ -52,12 +52,10 @@ test("draft persistence is debounced and revision-aware", () => {
 
 test("draft persistence serializes overlapping revisions", () => {
   const source = readFileSync("app/page.tsx", "utf8")
-  assert.match(source, /draftSaveInFlightRef/)
-  assert.match(
-    source,
-    /if \(draftSaveInFlightRef\.current\)[\s\S]*?return[\s\S]*?draftSaveInFlightRef\.current = true/,
-  )
-  assert.match(source, /finally[\s\S]*?draftSaveInFlightRef\.current = false/)
+  assert.match(source, /createDraftSaveQueue/)
+  assert.match(source, /draftSaveQueueRef\.current\?\.enqueue\(\{/)
+  assert.match(source, /resourceId:\s*savingQuestionnaireId/)
+  assert.match(source, /discardPendingExcept\(nextQuestionnaireId\)/)
 })
 
 test("new questionnaire starter content comes from the locale catalog", () => {
@@ -83,4 +81,23 @@ test("Run is gated while the draft is unsafe", () => {
   assert.match(page, /runDisabled/)
   assert.match(panel, /runDisabled/)
   assert.match(panel, /disabled=\{[^}]*runDisabled/)
+})
+
+test("selected questionnaire mode is derived only from the server resource", () => {
+  const source = readFileSync("app/page.tsx", "utf8")
+  assert.match(source, /setMode\(questionnaire\.mode\)/)
+  assert.doesNotMatch(source, /setMode\("(?:survey|interview)"\)/)
+  assert.doesNotMatch(source, /handleModeSelection/)
+  assert.doesNotMatch(source, /onClick=\{\(\) => setMode/)
+  assert.match(source, /CreateQuestionnaireDialog/)
+})
+
+test("legacy history controls are explicitly disabled until the round UI lands", () => {
+  const page = readFileSync("app/page.tsx", "utf8")
+  const analytics = readFileSync("components/analytics-panel.tsx", "utf8")
+  const api = readFileSync("lib/survey-api.ts", "utf8")
+  assert.match(page, /legacyHistoryEnabled=\{false\}/)
+  assert.match(analytics, /legacyHistoryEnabled/)
+  assert.match(analytics, /legacyHistoryEnabled &&/)
+  assert.doesNotMatch(api, /request\(locale, [`"]\/history/)
 })

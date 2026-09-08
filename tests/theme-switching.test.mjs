@@ -55,7 +55,7 @@ test("theme switcher is mounted-safe and exposes two pressed buttons", async () 
   assert.match(source, /disabled=\{!mounted\}/)
 })
 
-test("theme switcher appears on login and both dashboard surfaces", async () => {
+test("theme switcher appears on login and the dashboard header", async () => {
   const loginSource = await readSource("../app/login/login-page-content.tsx")
   const dashboardSource = await readSource("../app/page.tsx")
   const dashboardInstances =
@@ -64,5 +64,5 @@ test("theme switcher appears on login and both dashboard surfaces", async () => 
   assert.match(loginSource, /import \{ ThemeSwitcher \}/)
   assert.match(loginSource, /<ThemeSwitcher\s*\/>/)
   assert.match(dashboardSource, /import \{ ThemeSwitcher \}/)
-  assert.equal(dashboardInstances.length, 2)
+  assert.equal(dashboardInstances.length, 1)
 })

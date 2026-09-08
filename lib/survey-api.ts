@@ -249,26 +249,23 @@ export const apiFetchRun = apiFetchRound
 export const apiCancelRun = apiCancelRound
 
 export function apiSaveRunToHistory(
-  locale: Locale,
-  runId: string,
+  _locale: Locale,
+  _runId: string,
 ): Promise<SurveyHistoryRecord> {
-  return request(locale, "/history", {
-    method: "POST",
-    body: JSON.stringify({ runId }),
-  })
+  return Promise.reject(legacyHistoryDisabledError())
 }
 
 export function apiFetchSurveyHistory(
-  locale: Locale,
+  _locale: Locale,
 ): Promise<SurveyHistoryRecord[]> {
-  return request(locale, "/history")
+  return Promise.reject(legacyHistoryDisabledError())
 }
 
 export function apiFetchSurveyHistoryById(
-  locale: Locale,
-  id: string,
+  _locale: Locale,
+  _id: string,
 ): Promise<SurveyHistoryRecord> {
-  return request(locale, `/history/${id}`)
+  return Promise.reject(legacyHistoryDisabledError())
 }
 
 export function apiQueryRunAnalytics(
@@ -285,16 +282,12 @@ export function apiQueryRunAnalytics(
 }
 
 export function apiQueryHistoryAnalytics(
-  locale: Locale,
-  historyId: string,
-  query: AnalyticsQuery,
-  signal?: AbortSignal,
+  _locale: Locale,
+  _historyId: string,
+  _query: AnalyticsQuery,
+  _signal?: AbortSignal,
 ): Promise<AnalyticsQueryResult> {
-  return request(locale, `/history/${historyId}/analytics/query`, {
-    method: "POST",
-    body: JSON.stringify(query),
-    signal,
-  })
+  return Promise.reject(legacyHistoryDisabledError())
 }
 
 export async function apiExportSurveyResults(
@@ -303,13 +296,18 @@ export async function apiExportSurveyResults(
   format: "json" | "csv",
 ): Promise<Blob> {
   if (source.type === "history") {
-    return request(locale, `/history/${source.id}/exports?format=${format}`, {
-      responseType: "blob",
-    })
+    return Promise.reject(legacyHistoryDisabledError())
   }
   return request(locale, `/rounds/${source.id}/exports`, {
     method: "POST",
     body: JSON.stringify({ format, scope: "full", filename: "survey-results" }),
     responseType: "blob",
+  })
+}
+
+function legacyHistoryDisabledError(): SurveyApiError {
+  return new SurveyApiError(410, {
+    code: "LEGACY_HISTORY_DISABLED",
+    message: "Legacy history endpoints are disabled",
   })
 }
