@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { LocaleProvider } from '@/components/locale-provider'
 import { ThemeProvider } from '@/components/theme-provider'
+import { AuthSessionProvider } from '@/components/auth-session-provider'
 import { messages } from '@/lib/i18n/messages'
 import { getRequestLocale } from '@/lib/i18n/server'
 import './globals.css'
@@ -55,8 +56,10 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <LocaleProvider initialLocale={locale}>
-            {children}
-            <Analytics />
+            <AuthSessionProvider>
+              {children}
+              <Analytics />
+            </AuthSessionProvider>
           </LocaleProvider>
         </ThemeProvider>
       </body>

@@ -40,12 +40,24 @@ import {
   type SurveyProgress,
   type SentimentData,
   type SurveyHistoryRecord,
-  type RunSnapshot,
+  type RoundSnapshot,
   type SimulationMode,
+  type Project,
+  type Questionnaire,
+  type CreateProjectInput,
+  type CreateQuestionnaireInput,
   apiFetchDefaultTemplate,
-  apiCreateRun,
-  apiFetchRun,
+  apiCreateRound,
+  apiFetchRound,
   apiExportSurveyResults,
+  apiListProjects,
+  apiCreateProject,
+  apiListQuestionnaires,
+  apiCreateQuestionnaire,
+  apiGetQuestionnaire,
+  apiSaveQuestionnaireDraft,
+  abortOutstandingSurveyRequests,
+  SurveyApiError,
 } from "@/lib/survey-api"
 import { DESKTOP_WORKSPACE_LAYOUT } from "@/lib/workspace-layout.mjs"
 import { createLatestRequestTracker } from "@/lib/latest-request"
@@ -53,6 +65,10 @@ import type { Locale } from "@/lib/i18n/locale"
 import { useI18n } from "@/components/locale-provider"
 import { LanguageSwitcher } from "@/components/language-switcher"
 import { ThemeSwitcher } from "@/components/theme-switcher"
+import { useAuthSession } from "@/components/auth-session-provider"
+import { ResearchResourceSelector } from "@/components/research-resource-selector"
+import { CreateProjectDialog } from "@/components/create-project-dialog"
+import { CreateQuestionnaireDialog } from "@/components/create-questionnaire-dialog"
 
 type Workspace = "config" | "results" | "analytics"
 
@@ -81,8 +97,9 @@ const EMPTY_SENTIMENT: SentimentData = {
 export default function ResearcherDashboard() {
   const layout = useResponsiveLayout()
   const { locale, messages, lockLocale } = useI18n()
+  const { user, status: authStatus, logout } = useAuthSession()
   const [config, setConfig] = useState<SurveyConfig>(EMPTY_CONFIG)
-  const [currentRun, setCurrentRun] = useState<RunSnapshot | null>(null)
+  const [currentRun, setCurrentRun] = useState<RoundSnapshot | null>(null)
   const [mode, setMode] = useState<SimulationMode>("survey")
   const [modeSelected, setModeSelected] = useState(false)
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace>("config")
@@ -93,11 +110,126 @@ export default function ResearcherDashboard() {
   const [loadedTemplateLocale, setLoadedTemplateLocale] =
     useState<Locale | null>(null)
   const [templateError, setTemplateError] = useState(false)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [questionnaires, setQuestionnaires] = useState<Questionnaire[]>([])
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const [questionnaireId, setQuestionnaireId] = useState<string | null>(null)
+  const [draftRevision, setDraftRevision] = useState(0)
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "dirty" | "saving" | "saved" | "failed" | "conflicted"
+  >("idle")
+  const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [resourceError, setResourceError] = useState(false)
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false)
+  const [questionnaireDialogOpen, setQuestionnaireDialogOpen] = useState(false)
+  const persistedConfigRef = useRef("")
+  const draftSaveInFlightRef = useRef(false)
+  const configRef = useRef(config)
+  const questionnaireIdRef = useRef(questionnaireId)
+  configRef.current = config
+  questionnaireIdRef.current = questionnaireId
 
   const isRunning =
-    currentRun?.status === "queued" || currentRun?.status === "running"
+    currentRun?.status === "queued" ||
+    currentRun?.status === "running" ||
+    currentRun?.status === "pausing"
+
+  const isSurveyConfigValid = (candidate: SurveyConfig) =>
+    candidate.title.trim().length > 0 &&
+    candidate.maxResponseTime > 0 &&
+    candidate.questions.length > 0 &&
+    candidate.respondentConfigs.length > 0 &&
+    candidate.respondentConfigs.every(group => group.count > 0) &&
+    candidate.questions.every(question => {
+      if (!question.question.trim()) return false
+      if (question.type === "choice") return Boolean(question.options?.length)
+      if (question.type === "scale") {
+        return Boolean(question.scale && question.scale.min < question.scale.max)
+      }
+      return true
+    })
+
+  const runDisabled =
+    !questionnaireId ||
+    !isSurveyConfigValid(config) ||
+    saveStatus !== "saved" ||
+    isRunning
+
+  const applyQuestionnaire = useCallback((questionnaire: Questionnaire) => {
+    setQuestionnaireId(questionnaire.id)
+    setMode(questionnaire.mode)
+    setModeSelected(true)
+    setConfig(questionnaire.config)
+    setDraftRevision(questionnaire.draftRevision)
+    setSavedAt(questionnaire.updatedAt)
+    setSaveStatus("saved")
+    persistedConfigRef.current = JSON.stringify(questionnaire.config)
+    setCurrentRun(null)
+    setViewingHistoryRecord(null)
+  }, [])
 
   useEffect(() => {
+    if (authStatus !== "authenticated") return
+    setResourceError(false)
+    apiListProjects(locale)
+      .then(ownedProjects => {
+        setProjects(ownedProjects)
+        setProjectId(current =>
+          current && ownedProjects.some(project => project.id === current)
+            ? current
+            : ownedProjects[0]?.id ?? null,
+        )
+      })
+      .catch(error => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setResourceError(true)
+        }
+      })
+  }, [authStatus, locale])
+
+  useEffect(() => {
+    if (!projectId) {
+      setQuestionnaires([])
+      setQuestionnaireId(null)
+      return
+    }
+    setResourceError(false)
+    const loadingProjectId = projectId
+    apiListQuestionnaires(locale, projectId)
+      .then(ownedQuestionnaires => {
+        if (loadingProjectId !== projectId) return
+        setQuestionnaires(ownedQuestionnaires)
+        const selected = ownedQuestionnaires.find(item => item.id === questionnaireId)
+        setQuestionnaireId(selected?.id ?? ownedQuestionnaires[0]?.id ?? null)
+        if (ownedQuestionnaires.length === 0) {
+          setConfig(EMPTY_CONFIG)
+          setSaveStatus("idle")
+        }
+      })
+      .catch(error => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setResourceError(true)
+        }
+      })
+  }, [locale, projectId])
+
+  useEffect(() => {
+    if (!questionnaireId) return
+    apiGetQuestionnaire(locale, questionnaireId)
+      .then(questionnaire => {
+        if (questionnaireIdRef.current === questionnaire.id) {
+          applyQuestionnaire(questionnaire)
+        }
+      })
+      .catch(error => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setResourceError(true)
+        }
+      })
+  }, [applyQuestionnaire, locale, questionnaireId])
+
+  useEffect(() => {
+    if (questionnaireId) return
     const controller = new AbortController()
     const requestId = templateRequestsRef.current.begin()
     setLoadedTemplateLocale(null)
@@ -121,14 +253,72 @@ export default function ResearcherDashboard() {
         }
       })
     return () => controller.abort()
-  }, [locale, mode])
+  }, [locale, mode, questionnaireId])
+
+  useEffect(() => {
+    if (!questionnaireId) return
+    const serialized = JSON.stringify(config)
+    if (serialized === persistedConfigRef.current) return
+
+    setSaveStatus("dirty")
+    const savingQuestionnaireId = questionnaireId
+    const timer = window.setTimeout(async () => {
+      if (draftSaveInFlightRef.current) {
+        setSaveStatus("dirty")
+        return
+      }
+      draftSaveInFlightRef.current = true
+      setSaveStatus("saving")
+      try {
+        const saved = await apiSaveQuestionnaireDraft(locale, savingQuestionnaireId, {
+          config,
+          expectedRevision: draftRevision,
+        })
+        if (questionnaireIdRef.current !== savingQuestionnaireId) return
+        setDraftRevision(saved.draftRevision)
+        persistedConfigRef.current = JSON.stringify(saved.config)
+        setSavedAt(saved.updatedAt)
+        setQuestionnaires(current =>
+          current.map(item => (item.id === saved.id ? saved : item)),
+        )
+        setSaveStatus(
+          JSON.stringify(configRef.current) === persistedConfigRef.current
+            ? "saved"
+            : "dirty",
+        )
+      } catch (error) {
+        if (questionnaireIdRef.current !== savingQuestionnaireId) return
+        if (error instanceof SurveyApiError && error.code === "DRAFT_CONFLICT") {
+          setSaveStatus("conflicted")
+          if (window.confirm(messages.resources.draftConflict)) {
+            const serverDraft = await apiGetQuestionnaire(locale, savingQuestionnaireId)
+            if (questionnaireIdRef.current === savingQuestionnaireId) {
+              applyQuestionnaire(serverDraft)
+            }
+          }
+        } else if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setSaveStatus("failed")
+        }
+      } finally {
+        draftSaveInFlightRef.current = false
+      }
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [
+    applyQuestionnaire,
+    config,
+    draftRevision,
+    locale,
+    messages.resources.draftConflict,
+    questionnaireId,
+  ])
 
   useEffect(() => {
     if (!currentRun || !isRunning) return
     const controller = new AbortController()
     const timer = window.setInterval(async () => {
       try {
-        const next = await apiFetchRun(locale, currentRun.id, controller.signal)
+        const next = await apiFetchRound(locale, currentRun.id, controller.signal)
         setCurrentRun(next)
         if (!["queued", "running"].includes(next.status)) {
           window.clearInterval(timer)
@@ -175,18 +365,50 @@ export default function ResearcherDashboard() {
       : null
 
   const runSimulation = useCallback(async () => {
-    if (isRunning || config.questions.length === 0) return
+    if (runDisabled || !questionnaireId) return
 
     setActiveWorkspace("results")
     setConfigSheetOpen(false)
     setViewingHistoryRecord(null)
 
     try {
-      setCurrentRun(await apiCreateRun(locale, mode, config))
+      setCurrentRun(await apiCreateRound(locale, questionnaireId))
     } catch (error) {
       console.error("Simulation error:", error)
     }
-  }, [config, isRunning, locale, mode])
+  }, [locale, questionnaireId, runDisabled])
+
+  const handleProjectChange = useCallback((nextProjectId: string) => {
+    abortOutstandingSurveyRequests()
+    setProjectId(nextProjectId)
+    setQuestionnaireId(null)
+    setConfig(EMPTY_CONFIG)
+    setSaveStatus("idle")
+    setCurrentRun(null)
+    setViewingHistoryRecord(null)
+  }, [])
+
+  const handleQuestionnaireChange = useCallback((nextQuestionnaireId: string) => {
+    abortOutstandingSurveyRequests()
+    setQuestionnaireId(nextQuestionnaireId)
+    setSaveStatus("idle")
+    setCurrentRun(null)
+    setViewingHistoryRecord(null)
+  }, [])
+
+  const handleCreateProject = useCallback(async (input: CreateProjectInput) => {
+    const created = await apiCreateProject(locale, input)
+    setProjects(current => [created, ...current])
+    handleProjectChange(created.id)
+  }, [handleProjectChange, locale])
+
+  const handleCreateQuestionnaire = useCallback(async (input: CreateQuestionnaireInput) => {
+    if (!projectId) return
+    const created = await apiCreateQuestionnaire(locale, projectId, input)
+    setQuestionnaires(current => [created, ...current])
+    applyQuestionnaire(created)
+    lockLocale()
+  }, [applyQuestionnaire, locale, lockLocale, projectId])
 
   const handleExport = useCallback(
     async (format: "json" | "csv") => {
@@ -235,6 +457,7 @@ export default function ResearcherDashboard() {
       onConfigChange={setConfig}
       onStartSimulation={runSimulation}
       isRunning={isRunning}
+      runDisabled={runDisabled}
       mode={mode}
     />
   )
@@ -302,6 +525,29 @@ export default function ResearcherDashboard() {
       icon: BarChart3,
     },
   ]
+
+  const saveLabel =
+    saveStatus === "saving"
+      ? messages.resources.draftSaving
+      : saveStatus === "saved" && savedAt
+        ? messages.resources.draftSaved(
+            new Intl.DateTimeFormat(locale, {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }).format(new Date(savedAt)),
+          )
+        : saveStatus === "failed"
+          ? messages.resources.draftFailed
+          : saveStatus === "conflicted"
+            ? messages.resources.draftConflict
+            : saveStatus === "dirty"
+              ? messages.resources.draftDirty
+              : null
+
+  if (authStatus !== "authenticated" || !user) {
+    return <div className="h-dvh bg-background" aria-busy={authStatus === "loading"} />
+  }
 
   return (
     <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background">
@@ -382,8 +628,33 @@ export default function ResearcherDashboard() {
                 </span>
               </div>
               <ThemeSwitcher />
+              <span className="max-w-32 truncate text-xs text-muted-foreground">
+                {user.username}
+              </span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => void logout()}>
+                {messages.auth.logout}
+              </Button>
             </div>
           </div>
+          {projects.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-border/40 pt-3">
+              <ResearchResourceSelector
+                projects={projects}
+                questionnaires={questionnaires}
+                projectId={projectId}
+                questionnaireId={questionnaireId}
+                onProjectChange={handleProjectChange}
+                onQuestionnaireChange={handleQuestionnaireChange}
+                onCreateProject={() => setProjectDialogOpen(true)}
+                onCreateQuestionnaire={() => setQuestionnaireDialogOpen(true)}
+              />
+              {saveLabel && (
+                <span role={saveStatus === "failed" || saveStatus === "conflicted" ? "alert" : "status"} className="text-xs text-muted-foreground">
+                  {saveLabel}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         {layout === "mobile" && (
           <nav
@@ -416,6 +687,32 @@ export default function ResearcherDashboard() {
       </header>
 
       <main className="relative z-10 min-h-0 min-w-0 flex-1 overflow-hidden">
+        {resourceError && (
+          <p role="alert" className="p-4 text-sm text-destructive">
+            {messages.resources.loadFailed}
+          </p>
+        )}
+        {projects.length === 0 ? (
+          <section className="flex h-full items-center justify-center p-6">
+            <div className="max-w-md space-y-4 rounded-2xl border border-border/60 bg-card/80 p-8 text-center shadow-xl">
+              <h2 className="text-xl font-semibold">{messages.resources.noProjectsTitle}</h2>
+              <p className="text-sm text-muted-foreground">{messages.resources.noProjectsDescription}</p>
+              <Button type="button" onClick={() => setProjectDialogOpen(true)}>
+                {messages.resources.createProject}
+              </Button>
+            </div>
+          </section>
+        ) : !questionnaireId ? (
+          <section className="flex h-full items-center justify-center p-6">
+            <div className="max-w-md space-y-4 rounded-2xl border border-border/60 bg-card/80 p-8 text-center shadow-xl">
+              <p className="text-sm text-muted-foreground">{messages.resources.noQuestionnaires}</p>
+              <Button type="button" onClick={() => setQuestionnaireDialogOpen(true)}>
+                {messages.resources.createQuestionnaire}
+              </Button>
+            </div>
+          </section>
+        ) : (
+          <>
         {layout === "mobile" && (
           <section className="h-full min-h-0 min-w-0 overflow-hidden">
             {activeWorkspace === "config" && configPanel}
@@ -541,9 +838,11 @@ export default function ResearcherDashboard() {
             </ResizablePanel>
           </ResizablePanelGroup>
         )}
+          </>
+        )}
       </main>
 
-      <AlertDialog open={!modeSelected}>
+      <AlertDialog open={!modeSelected && projects.length > 0 && questionnaires.length > 0}>
         <AlertDialogContent
           overlayClassName="bg-background/95 backdrop-blur-xl"
           className="gap-0 rounded-2xl border-border/70 bg-card/90 p-5 shadow-2xl sm:max-w-[380px] sm:p-6"
@@ -593,6 +892,16 @@ export default function ResearcherDashboard() {
           </div>
         </AlertDialogContent>
       </AlertDialog>
+      <CreateProjectDialog
+        open={projectDialogOpen}
+        onOpenChange={setProjectDialogOpen}
+        onCreate={handleCreateProject}
+      />
+      <CreateQuestionnaireDialog
+        open={questionnaireDialogOpen}
+        onOpenChange={setQuestionnaireDialogOpen}
+        onCreate={handleCreateQuestionnaire}
+      />
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { useI18n } from "@/components/locale-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { apiLogin, SurveyApiError } from "@/lib/survey-api"
 import {
   getVisibleLoginError,
   isCurrentLoginRequest,
@@ -53,16 +54,7 @@ export function LoginForm({ nextPath }: LoginFormProps) {
     }
 
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept-Language": locale,
-        },
-        body: JSON.stringify({ username, password, next: nextPath }),
-      })
-      const result: { error?: string; redirectTo?: string } =
-        await response.json()
+      await apiLogin(locale, { username, password })
 
       if (
         !isCurrentLoginRequest(
@@ -74,17 +66,9 @@ export function LoginForm({ nextPath }: LoginFormProps) {
         return
       }
 
-      if (!response.ok || !result.redirectTo) {
-        setError({
-          locale: request.locale,
-          message: result.error || messages.auth.loginFailed,
-        })
-        return
-      }
-
-      router.replace(result.redirectTo)
+      router.replace(nextPath)
       router.refresh()
-    } catch {
+    } catch (error) {
       if (
         isCurrentLoginRequest(
           request,
@@ -94,7 +78,13 @@ export function LoginForm({ nextPath }: LoginFormProps) {
       ) {
         setError({
           locale: request.locale,
-          message: messages.auth.serviceUnavailable,
+          message:
+            error instanceof SurveyApiError &&
+            error.code === "AUTH_INVALID_CREDENTIALS"
+              ? messages.auth.invalidCredentials
+              : error instanceof SurveyApiError
+                ? error.message
+                : messages.auth.serviceUnavailable,
         })
       }
     } finally {

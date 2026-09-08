@@ -295,10 +295,10 @@ test("dashboard and survey configuration use the locale catalog at the UI bounda
   assert.match(configuration, /const \{ messages \} = useI18n\(\)/)
 })
 
-test("initial mode chooser is a mandatory modal with an in-dialog language switcher", async () => {
+test("mode chooser remains localized and only opens for an owned resource", async () => {
   const source = await readSource("../app/page.tsx")
   const chooser = source.match(
-    /<AlertDialog open=\{!modeSelected\}>[\s\S]*?<\/AlertDialog>/,
+    /<AlertDialog open=\{!modeSelected && projects\.length > 0 && questionnaires\.length > 0\}>[\s\S]*?<\/AlertDialog>/,
   )?.[0]
 
   assert.ok(chooser, "mode chooser must use the controlled AlertDialog")
@@ -844,7 +844,7 @@ test("login content and form use the locale catalog without fixed Chinese UI cop
   assert.match(content, /<LanguageSwitcher \/>/)
   assert.match(content, /<LoginForm nextPath=\{nextPath\} \/>/)
   assert.match(form, /const \{ locale, messages \} = useI18n\(\)/)
-  assert.match(form, /"Accept-Language": locale/)
+  assert.match(form, /apiLogin\(locale, \{ username, password \}\)/)
 
   for (const [name, source] of [
     ["page.tsx", page],
@@ -880,6 +880,22 @@ test("login errors are visible only in the locale that produced them", async () 
   assert.equal(getVisibleLoginError(null, "en-US"), null)
 })
 
+test("owned workspace and application-session messages exist in both locales", () => {
+  for (const locale of ["zh-CN", "en-US"]) {
+    const catalog = messages[locale]
+    assert.equal(typeof catalog.auth.logout, "string")
+    assert.equal(typeof catalog.auth.sessionExpired, "string")
+    assert.equal(typeof catalog.resources.createProject, "string")
+    assert.equal(typeof catalog.resources.createQuestionnaire, "string")
+    assert.equal(typeof catalog.resources.draftSaving, "string")
+    assert.equal(typeof catalog.resources.draftConflict, "string")
+    assert.equal(typeof catalog.resources.defaultSurveyQuestion, "string")
+    assert.equal(typeof catalog.resources.defaultInterviewPrompt, "string")
+  }
+  assert.doesNotMatch(messages["en-US"].auth.instructions, /shared credentials/i)
+  assert.doesNotMatch(messages["zh-CN"].auth.instructions, /共享账号/)
+})
+
 test("superseded login requests stay invalid after switching back to their locale", async () => {
   const { isCurrentLoginRequest } = await loadLoginErrorState()
 
@@ -901,7 +917,7 @@ test("login form clears and invalidates errors on locale changes without clearin
   assert.match(source, /isCurrentLoginRequest\(/)
   assert.match(
     source,
-    /setError\(\{\s*locale:\s*request\.locale,\s*message:\s*result\.error/,
+    /setError\(\{\s*locale:\s*request\.locale,\s*message:[\s\S]*?AUTH_INVALID_CREDENTIALS/,
   )
 
   const localeEffect = source.match(

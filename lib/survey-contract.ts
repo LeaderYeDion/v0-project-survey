@@ -1,6 +1,14 @@
 export type SimulationMode = "interview" | "survey"
 export type Locale = "zh-CN" | "en-US"
-export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled"
+export type RunStatus =
+  | "queued"
+  | "running"
+  | "pausing"
+  | "paused"
+  | "completed"
+  | "completed_with_errors"
+  | "failed"
+  | "cancelled"
 export type SessionStatus =
   | "pending"
   | "in_progress"
@@ -137,6 +145,58 @@ export interface SurveyConfig {
   inferenceConfig?: InferenceConfig | null
 }
 
+export interface CurrentUser {
+  id: string
+  username: string
+  locale: Locale
+}
+
+export interface CreateProjectInput {
+  name: string
+  researchGoal: string
+  principalName: string
+}
+
+export interface Project extends CreateProjectInput {
+  id: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateQuestionnaireInput {
+  mode: SimulationMode
+  config: SurveyConfig
+  schemaVersion: number
+}
+
+export interface SaveQuestionnaireDraftInput {
+  config: SurveyConfig
+  expectedRevision: number
+}
+
+export interface Questionnaire {
+  id: string
+  projectId: string
+  mode: SimulationMode
+  title: string
+  description: string
+  config: SurveyConfig
+  schemaVersion: number
+  draftRevision: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface QuestionnaireVersion {
+  id: string
+  questionnaireId: string
+  versionNumber: number
+  schemaVersion: number
+  questions: SurveyQuestion[]
+  contentHash: string
+  createdAt: string
+}
+
 export interface RespondentConfig {
   id: string
   gender: string
@@ -262,6 +322,17 @@ export interface RunSnapshot {
   startedAt: string | null
   finishedAt: string | null
   error: string | null
+}
+
+export interface RoundSnapshot extends RunSnapshot {
+  name: string
+  projectId: string
+  questionnaireId: string
+  questionnaireVersionId: string
+  configVersionId: string
+  rowVersion: number
+  retryOfRoundId: string | null
+  retryKind: "failed" | "incomplete" | null
 }
 
 export interface SurveyHistoryRecord {

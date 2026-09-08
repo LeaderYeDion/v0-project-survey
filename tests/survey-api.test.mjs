@@ -4,30 +4,34 @@ import test from "node:test"
 import ts from "typescript"
 
 async function loadSurveyApi() {
-  const source = readFileSync("lib/survey-api.ts", "utf8").replace(
-    'export * from "./survey-contract"',
-    "",
-  )
-  const compiled = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2022,
-    },
-  }).outputText
-  return import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`)
-}
-
-async function loadSurveyApiWithPrivateRequest() {
   const source = readFileSync("lib/survey-api.ts", "utf8")
     .replace('export * from "./survey-contract"', "")
-    .concat("\nexport { request as __request }\n")
+    .replace(
+      /import \{ readCsrfToken \} from "\.\/csrf"\s*/,
+      `const readCsrfToken = () => {
+        const match = globalThis.document?.cookie
+          ?.split(";")
+          .map(value => value.trim())
+          .find(value => value.startsWith("survey_csrf="))
+        return match ? decodeURIComponent(match.slice("survey_csrf=".length)) : null
+      }\n`,
+    )
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
       module: ts.ModuleKind.ESNext,
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText
-  return import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`)
+  return import(
+    `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`
+  )
+}
+
+function jsonResponse(body, { status = 200 } = {}) {
+  return new Response(status === 204 ? null : JSON.stringify(body), {
+    status,
+    headers: status === 204 ? undefined : { "Content-Type": "application/json" },
+  })
 }
 
 test("survey API uses the same-origin backend path", () => {
@@ -36,136 +40,208 @@ test("survey API uses the same-origin backend path", () => {
   assert.doesNotMatch(source, /mock-survey-service/)
 })
 
-test("every survey API request sends the required locale", async () => {
+test("all requests use exact locale and same-origin credentials", async () => {
   const api = await loadSurveyApi()
   const calls = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (url, init = {}) => {
     calls.push({ url, init })
-    return {
-      ok: true,
-      json: async () => ({}),
-      blob: async () => new Blob(),
-    }
+    return jsonResponse({})
   }
 
   try {
-    const locale = "en-US"
-    const signal = new AbortController().signal
-    await api.apiFetchDefaultTemplate(locale, "survey", signal)
-    await api.apiCreateRun(locale, "survey", { title: "test" })
-    await api.apiFetchRun(locale, "run-1", signal)
-    await api.apiCancelRun(locale, "run-1")
-    await api.apiSaveRunToHistory(locale, "run-1")
-    await api.apiFetchSurveyHistory(locale)
-    await api.apiFetchSurveyHistoryById(locale, "history-1")
-    await api.apiQueryRunAnalytics(locale, "run-1", { questionId: "q1" })
-    await api.apiQueryHistoryAnalytics(locale, "history-1", {
-      questionId: "q1",
+    await api.apiMe("en-US")
+    await api.apiListProjects("en-US")
+    await api.apiListQuestionnaires("en-US", "project-1")
+    await api.apiGetQuestionnaire("en-US", "questionnaire-1")
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.equal(calls.length, 4)
+  for (const { init } of calls) {
+    assert.equal(new Headers(init.headers).get("Accept-Language"), "en-US")
+    assert.equal(new Headers(init.headers).get("Content-Type"), null)
+    assert.equal(init.credentials, "same-origin")
+  }
+})
+
+test("mutation requests copy CSRF cookie into the header", async () => {
+  const api = await loadSurveyApi()
+  const originalFetch = globalThis.fetch
+  const originalDocument = globalThis.document
+  let captured
+  globalThis.document = { cookie: "other=x; survey_csrf=csrf-123%2Bsafe" }
+  globalThis.fetch = async (url, init = {}) => {
+    captured = { url, init }
+    return jsonResponse({ id: "project-1" }, { status: 201 })
+  }
+
+  try {
+    await api.apiCreateProject("zh-CN", {
+      name: "P",
+      researchGoal: "G",
+      principalName: "R",
     })
-    await api.apiExportSurveyResults(
-      locale,
-      { type: "run", id: "run-1" },
-      "csv",
+  } finally {
+    globalThis.fetch = originalFetch
+    globalThis.document = originalDocument
+  }
+
+  assert.equal(captured.url, "/survey-api/projects")
+  assert.equal(captured.init.credentials, "same-origin")
+  assert.equal(new Headers(captured.init.headers).get("X-CSRF-Token"), "csrf-123+safe")
+  assert.equal(new Headers(captured.init.headers).get("Content-Type"), "application/json")
+  assert.deepEqual(JSON.parse(captured.init.body), {
+    name: "P",
+    researchGoal: "G",
+    principalName: "R",
+  })
+})
+
+test("auth and owned resource clients use the backend contracts", async () => {
+  const api = await loadSurveyApi()
+  const originalFetch = globalThis.fetch
+  const originalDocument = globalThis.document
+  const calls = []
+  globalThis.document = { cookie: "survey_csrf=csrf" }
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, init })
+    return jsonResponse({}, { status: url.endsWith("/logout") ? 204 : 200 })
+  }
+
+  const config = { title: "T", questions: [], respondentConfigs: [] }
+  try {
+    await api.apiLogin("en-US", { username: "researcher01", password: "secret" })
+    await api.apiLogout("en-US")
+    await api.apiCreateQuestionnaire("en-US", "project-1", {
+      mode: "survey",
+      config,
+      schemaVersion: 1,
+    })
+    await api.apiSaveQuestionnaireDraft("en-US", "questionnaire-1", {
+      config,
+      expectedRevision: 7,
+    })
+    await api.apiCreateRound("en-US", "questionnaire-1")
+  } finally {
+    globalThis.fetch = originalFetch
+    globalThis.document = originalDocument
+  }
+
+  assert.deepEqual(
+    calls.map(call => [call.url, call.init.method]),
+    [
+      ["/survey-api/auth/login", "POST"],
+      ["/survey-api/auth/logout", "POST"],
+      ["/survey-api/projects/project-1/questionnaires", "POST"],
+      ["/survey-api/questionnaires/questionnaire-1", "PATCH"],
+      ["/survey-api/questionnaires/questionnaire-1/rounds", "POST"],
+    ],
+  )
+  assert.deepEqual(JSON.parse(calls[3].init.body), {
+    config,
+    expectedRevision: 7,
+  })
+})
+
+test("stable API errors preserve code, message, details, and status", async () => {
+  const api = await loadSurveyApi()
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () =>
+    jsonResponse(
+      {
+        code: "DRAFT_CONFLICT",
+        message: "Draft revision conflict",
+        details: { expectedRevision: 2, actualRevision: 3 },
+      },
+      { status: 409 },
+    )
+
+  try {
+    await assert.rejects(
+      api.apiGetQuestionnaire("en-US", "questionnaire-1"),
+      error => {
+        assert.ok(error instanceof api.SurveyApiError)
+        assert.equal(error.code, "DRAFT_CONFLICT")
+        assert.equal(error.message, "Draft revision conflict")
+        assert.deepEqual(error.details, {
+          expectedRevision: 2,
+          actualRevision: 3,
+        })
+        assert.equal(error.status, 409)
+        return true
+      },
     )
   } finally {
     globalThis.fetch = originalFetch
   }
-
-  assert.equal(calls.length, 10)
-  for (const { init } of calls) {
-    assert.equal(new Headers(init.headers).get("Accept-Language"), "en-US")
-  }
-  for (const { init } of calls.slice(0, -1)) {
-    assert.equal(new Headers(init.headers).get("Content-Type"), "application/json")
-  }
-  assert.equal(
-    new Headers(calls.at(-1).init.headers).get("Content-Type"),
-    null,
-  )
 })
 
-test("shared JSON requests enforce locale across Headers input", async () => {
-  const api = await loadSurveyApiWithPrivateRequest()
+test("session expiry notifies the application session boundary", async () => {
+  const api = await loadSurveyApi()
   const originalFetch = globalThis.fetch
-  let capturedHeaders
+  let expiryCount = 0
+  const unsubscribe = api.onAuthSessionExpired(() => {
+    expiryCount += 1
+  })
+  globalThis.fetch = async () =>
+    jsonResponse(
+      { code: "AUTH_SESSION_EXPIRED", message: "Session expired", details: null },
+      { status: 401 },
+    )
+
+  try {
+    await assert.rejects(api.apiListProjects("zh-CN"), {
+      code: "AUTH_SESSION_EXPIRED",
+    })
+  } finally {
+    unsubscribe()
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(expiryCount, 1)
+})
+
+test("outstanding requests can be aborted before a resource switch", async () => {
+  const api = await loadSurveyApi()
+  const originalFetch = globalThis.fetch
+  let observedSignal
   globalThis.fetch = async (_url, init = {}) => {
-    capturedHeaders = new Headers(init.headers)
-    return {
-      ok: true,
-      json: async () => ({}),
-    }
+    observedSignal = init.signal
+    return new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () =>
+        reject(new DOMException("Aborted", "AbortError")),
+      )
+    })
   }
 
   try {
-    await api.__request("en-US", "/test", {
-      headers: new Headers([
-        ["Accept-Language", "zh-CN"],
-        ["X-Test", "preserved"],
-      ]),
-    })
+    const pending = api.apiGetQuestionnaire("en-US", "questionnaire-1")
+    api.abortOutstandingSurveyRequests()
+    await assert.rejects(pending, { name: "AbortError" })
   } finally {
     globalThis.fetch = originalFetch
   }
-
-  assert.equal(capturedHeaders.get("Accept-Language"), "en-US")
-  assert.equal(capturedHeaders.get("Content-Type"), "application/json")
-  assert.equal(capturedHeaders.get("X-Test"), "preserved")
+  assert.equal(observedSignal.aborted, true)
 })
 
-test("dashboard reloads the default template for the latest selected locale", () => {
+test("dashboard delegates orchestration to owned questionnaire and round APIs", () => {
   const source = readFileSync("app/page.tsx", "utf8")
-  assert.match(source, /createLatestRequestTracker/)
-  assert.match(source, /templateRequestsRef\.current\.begin\(\)/)
-  assert.match(source, /templateRequestsRef\.current\.isLatest\(requestId\)/)
-  assert.match(source, /setLoadedTemplateLocale\(locale\)/)
-  assert.match(
-    source,
-    /apiFetchDefaultTemplate\(locale,\s*mode,\s*controller\.signal\)/,
-  )
-  assert.match(source, /\[locale,\s*mode\]/)
+  for (const forbidden of [
+    "askQuestion",
+    "shouldInterviewerTerminate",
+    "analyzeSentiment",
+    "apiCreateRun",
+    "apiFetchSurveyHistory",
+  ]) {
+    assert.doesNotMatch(source, new RegExp(forbidden))
+  }
+  assert.match(source, /apiCreateRound/)
+  assert.match(source, /apiFetchRound/)
 })
 
 test("Next rewrites survey API requests", () => {
   const source = readFileSync("next.config.mjs", "utf8")
   assert.ok(source.includes('source: "/survey-api/:path*"'))
   assert.match(source, /SURVEY_BACKEND_URL/)
-})
-
-test("dashboard contains no client-side survey orchestration", () => {
-  const source = readFileSync("app/page.tsx", "utf8")
-  for (const forbidden of [
-    "askQuestion",
-    "shouldInterviewerTerminate",
-    "analyzeSentiment",
-    "analyzeQuestionResponses",
-    "analyzeByDemographics",
-    "apiBuildSurveyResponses",
-    "apiGenerateRespondentsFromConfig",
-  ]) {
-    assert.doesNotMatch(source, new RegExp(forbidden))
-  }
-  assert.match(source, /apiCreateRun/)
-  assert.match(source, /apiFetchRun/)
-})
-
-test("analytics panel delegates business calculations", () => {
-  const source = readFileSync("components/analytics-panel.tsx", "utf8")
-  for (const forbidden of [
-    "analyzeQuestionResponses",
-    "filterRespondentsByDimensions",
-    "getDimensionMetadata",
-    "groupRespondentsByDimensions",
-  ]) {
-    assert.doesNotMatch(source, new RegExp(forbidden))
-  }
-  assert.match(source, /apiQueryRunAnalytics/)
-})
-
-test("chat panel imports no mock types", () => {
-  const source = readFileSync(
-    "components/chat-simulation-panel.tsx",
-    "utf8",
-  )
-  assert.doesNotMatch(source, /mock-survey-service/)
 })

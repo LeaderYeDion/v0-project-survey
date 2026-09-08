@@ -40,6 +40,7 @@ interface SurveyConfigPanelProps {
   onConfigChange: (config: SurveyConfig) => void
   onStartSimulation: () => void
   isRunning: boolean
+  runDisabled?: boolean
   mode: "interview" | "survey"
 }
 
@@ -48,6 +49,7 @@ export function SurveyConfigPanel({
   onConfigChange,
   onStartSimulation,
   isRunning,
+  runDisabled = false,
   mode,
 }: SurveyConfigPanelProps) {
   const { messages } = useI18n()
@@ -700,7 +702,7 @@ export function SurveyConfigPanel({
         <Button
           className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
           onClick={onStartSimulation}
-          disabled={isRunning || config.questions.length === 0 || totalRespondents === 0}
+          disabled={runDisabled || isRunning || config.questions.length === 0 || totalRespondents === 0}
         >
           {isRunning ? (
             <>
