@@ -9,6 +9,13 @@ require_command openssl
 mkdir -p "$(dirname "$ENV_FILE")" "$(dirname "$SEED_USERS_FILE")"
 umask 077
 
+for existing_file in "$ENV_FILE" "$SEED_USERS_FILE"; do
+  if [ -e "$existing_file" ] &&
+    { [ ! -f "$existing_file" ] || [ "$(file_mode "$existing_file")" != "600" ]; }; then
+    die "$existing_file already exists; refusing to overwrite credentials"
+  fi
+done
+
 if [ -e "$ENV_FILE" ]; then
   assert_private_file "$ENV_FILE"
   info "Preserved existing private Compose configuration at $ENV_FILE"

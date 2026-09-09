@@ -86,7 +86,7 @@ services:
       start_period: 10s
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.8.3
     profiles:
       - public
     restart: unless-stopped
@@ -112,4 +112,4 @@ volumes:
 
 secrets:
   seed_users:
-    file: ./deploy/config/seed-users.json
+    file: ${DEPLOY_SEED_USERS_FILE:-./deploy/config/seed-users.json}

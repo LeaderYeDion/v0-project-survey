@@ -186,6 +186,51 @@ test("outer-auth credentials cannot inject curl health configuration", async () 
   )
 })
 
+test("enabled outer auth is written to a private curl configuration", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "survey-curl-auth-"))
+  const envFile = await privateEnvironment(tempDir)
+  const curlConfig = join(tempDir, "curl.config")
+
+  await execFileAsync(
+    "bash",
+    [
+      "-c",
+      'source deploy/scripts/common.sh; load_deploy_env; write_deploy_curl_config "$1"',
+      "write-curl-config",
+      curlConfig,
+    ],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        DEPLOY_ENV_FILE: envFile,
+        DEPLOY_AUTH_ENABLED: "true",
+        DEPLOY_USERNAME: "survey",
+        DEPLOY_PASSWORD: "outer-auth-password-2026",
+      },
+    },
+  )
+
+  assert.equal(
+    await readFile(curlConfig, "utf8"),
+    'user = "survey:outer-auth-password-2026"\n',
+  )
+  assert.equal((await stat(curlConfig)).mode & 0o777, 0o600)
+})
+
+test("persistence smoke routes every HTTP request through outer auth", async () => {
+  const smoke = await read("deploy/tests/persistence-smoke.sh")
+  const directCurlLines = smoke
+    .split("\n")
+    .filter(line => /^\s*curl\b/.test(line))
+
+  assert.deepEqual(directCurlLines, [
+    '  curl --config "$outer_auth_config" "$@"',
+  ])
+  assert.match(smoke, /write_deploy_curl_config "\$outer_auth_config"/)
+  assert.match(smoke, /authenticated_curl\(\)/)
+})
+
 test("the example PostgreSQL password cannot be used as a real secret", async () => {
   const tempDir = await mkdtemp(join(tmpdir(), "survey-example-password-"))
   const envFile = await privateEnvironment(tempDir)
@@ -322,6 +367,22 @@ test("persistence smoke explicitly targets the isolated restore project and data
   assert.match(
     smoke,
     /COMPOSE_PROJECT_NAME="\$isolated_project" \\\n\s+POSTGRES_DB="\$isolated_db" \\\n\s+DEPLOY_ENV_FILE="\$isolated_env" \\\n\s+"\$SCRIPT_DIR\/\.\.\/scripts\/restore-db\.sh" "\$backup_file" --confirm/,
+  )
+})
+
+test("persistence smoke arms isolated cleanup before database startup", async () => {
+  const smoke = await read("deploy/tests/persistence-smoke.sh")
+  const isolatedSection = smoke.slice(
+    smoke.indexOf('info "Restoring the backup into an isolated Compose database"'),
+  )
+  const cleanupArmed = isolatedSection.indexOf("\nisolated_started=1\n")
+  const databaseStartup = isolatedSection.indexOf("\n  compose up \\")
+
+  assert.ok(cleanupArmed >= 0, "isolated cleanup is never armed")
+  assert.ok(databaseStartup >= 0, "isolated database startup was not found")
+  assert.ok(
+    cleanupArmed < databaseStartup,
+    "isolated cleanup must be armed before compose up can partially fail",
   )
 })
 

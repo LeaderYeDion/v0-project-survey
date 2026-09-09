@@ -30,6 +30,12 @@ cleanup() {
 trap cleanup EXIT
 umask 077
 
+outer_auth_config="$temporary_dir/curl-outer-auth.config"
+write_deploy_curl_config "$outer_auth_config"
+authenticated_curl() {
+  curl --config "$outer_auth_config" "$@"
+}
+
 cookie_a="$temporary_dir/user-a.cookies"
 cookie_b="$temporary_dir/user-b.cookies"
 login_a="$temporary_dir/login-a.json"
@@ -69,7 +75,7 @@ api_login() {
   local payload="$1"
   local cookie_jar="$2"
   local output="$3"
-  curl --fail-with-body --silent --show-error \
+  authenticated_curl --fail-with-body --silent --show-error \
     --cookie-jar "$cookie_jar" \
     --header 'Accept-Language: zh-CN' \
     --header 'Content-Type: application/json' \
@@ -81,7 +87,7 @@ api_get() {
   local cookie_jar="$1"
   local path="$2"
   local output="$3"
-  curl --fail-with-body --silent --show-error \
+  authenticated_curl --fail-with-body --silent --show-error \
     --cookie "$cookie_jar" \
     --header 'Accept-Language: zh-CN' \
     "$base_url/survey-api$path" >"$output"
@@ -109,7 +115,8 @@ api_post() {
   if [ -n "$payload" ]; then
     request+=(--header 'Content-Type: application/json' --data-binary "@$payload")
   fi
-  curl "${request[@]}" "$base_url/survey-api$path" >"$output"
+  authenticated_curl "${request[@]}" \
+    "$base_url/survey-api$path" >"$output"
 }
 
 wait_for_round() {
@@ -130,7 +137,7 @@ wait_for_round() {
 
 wait_for_frontend() {
   for _attempt in $(seq 1 120); do
-    if curl --fail --silent --max-time 5 \
+    if authenticated_curl --fail --silent --max-time 5 \
       "$base_url/survey-api/health" >/dev/null 2>&1; then
       return 0
     fi
@@ -183,7 +190,7 @@ for path in \
   "/questionnaires/$questionnaire_id/versions" \
   "/rounds/$round_id"; do
   status_code="$(
-    curl --silent --show-error \
+    authenticated_curl --silent --show-error \
       --output "$temporary_dir/cross-owner.json" \
       --write-out '%{http_code}' \
       --cookie "$cookie_b" \
@@ -258,6 +265,7 @@ while IFS= read -r line || [ -n "$line" ]; do
 done <"$ENV_FILE" >"$isolated_env"
 chmod 600 "$isolated_env"
 
+isolated_started=1
 COMPOSE_PROJECT_NAME="$isolated_project" \
   POSTGRES_DB="$isolated_db" \
   ENV_FILE="$isolated_env" \
@@ -266,7 +274,6 @@ COMPOSE_PROJECT_NAME="$isolated_project" \
   --wait \
   --wait-timeout "${STARTUP_TIMEOUT_SECONDS:-180}" \
   db
-isolated_started=1
 
 COMPOSE_PROJECT_NAME="$isolated_project" \
   POSTGRES_DB="$isolated_db" \

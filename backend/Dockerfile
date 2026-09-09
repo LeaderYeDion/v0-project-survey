@@ -12,7 +12,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
 
-RUN groupadd --system --gid 10001 survey \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 survey \
     && useradd --system --uid 10001 --gid survey --home-dir /app survey
 COPY requirements.txt ./requirements.txt
 COPY --from=builder /wheels /wheels
@@ -24,6 +27,6 @@ COPY --chown=survey:survey app ./app
 COPY --chown=survey:survey docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod 755 ./docker-entrypoint.sh
 
-USER survey
+USER root
 EXPOSE 8000
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

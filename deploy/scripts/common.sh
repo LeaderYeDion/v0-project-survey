@@ -146,3 +146,14 @@ is_valid_quick_tunnel_url() {
 remove_public_url() {
   rm -f "$PUBLIC_URL_FILE"
 }
+
+write_deploy_curl_config() {
+  local target="$1"
+  [ -n "$target" ] || die "Curl configuration path is required"
+  umask 077
+  : >"$target"
+  chmod 600 "$target"
+  if [ "$DEPLOY_AUTH_ENABLED" = "true" ]; then
+    printf 'user = "%s:%s"\n' "$DEPLOY_USERNAME" "$DEPLOY_PASSWORD" >"$target"
+  fi
+}

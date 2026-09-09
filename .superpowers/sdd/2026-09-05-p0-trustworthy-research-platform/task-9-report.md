@@ -324,3 +324,181 @@ available session must execute the list before final platform sign-off.
 Commit message: `feat: deploy frontend backend and PostgreSQL with Docker`.
 The resulting commit identifier is recorded in the task handoff because
 embedding a commit's own identifier would change that identifier.
+
+---
+
+## Reviewer fix round 1 (2026-09-09)
+
+### Findings addressed
+
+1. Fixed the critical mode-600 seed-secret startup incompatibility. Compose's
+   local-file secret can retain host ownership/mode and therefore cannot be
+   assumed readable by application UID 10001. The backend image now installs
+   `gosu` and begins only its bootstrap as root. The entrypoint copies the
+   mounted secret into an application-owned mode-700 runtime directory as a
+   mode-600 file, exports that private path, then `exec gosu survey` re-enters
+   the entrypoint. The second pass requires UID 10001 before Alembic, seed
+   synchronization, or Uvicorn can run. Uvicorn remains the final `exec`, so
+   signals reach the non-root application process.
+2. Made the persistence smoke compatible with the supported optional outer
+   authentication gate. A shared helper writes a mode-600 curl config and
+   includes the validated deployment credentials only when the gate is
+   enabled. Every smoke HTTP request now passes through the single configured
+   curl wrapper, including login, owned reads/mutations, cross-owner 404
+   checks, health recovery, and analytics.
+3. Made the rendered Compose model honor `DEPLOY_SEED_USERS_FILE` instead of
+   hardcoding the default seed source. Real `docker compose config --format
+   json` coverage verifies that an absolute custom private seed path reaches
+   `secrets.seed_users.file`.
+4. Replaced the floating `cloudflare/cloudflared:latest` reference with the
+   reviewed `cloudflare/cloudflared:2026.8.3` release tag. The upstream release
+   was checked against the official
+   [Cloudflare cloudflared releases](https://github.com/cloudflare/cloudflared/releases)
+   page before pinning.
+5. Armed isolated-restore cleanup before `compose up`. If isolated PostgreSQL
+   startup partially creates a container, network, or volume and then fails,
+   the exit trap now still runs the explicitly isolated `down --volumes`.
+6. During the full regression pass, restored the established initializer
+   contract for unsafe existing credential files. Initialization preflights
+   both targets before writing anything, refuses a non-file or non-mode-600
+   target with the existing refusal message, and still preserves valid
+   mode-600 files independently.
+
+### TDD evidence
+
+The root-bootstrap image/entrypoint contracts were added before implementation:
+
+```text
+node --test --test-name-pattern='backend image uses|backend root bootstrap' \
+  deploy/tests/docker-compose-contract.test.mjs
+
+tests 2
+pass 0
+fail 2
+```
+
+The failures showed that the image had neither `gosu` nor a root bootstrap and
+that the entrypoint created no application-owned private seed copy. After the
+minimal implementation, the image contract and executable bootstrap contract
+each passed `1/1`. The bootstrap test also verifies that the root pass invokes
+no Alembic, Python seed, or Uvicorn command before handing control to
+`gosu survey`.
+
+Outer-auth smoke coverage was added next:
+
+```text
+tests 2
+pass 0
+fail 2
+```
+
+One failure showed the private curl-config helper was absent; the second listed
+the four direct curl call sites that bypassed outer authentication. After the
+helper and single wrapper were wired, the same focused run passed `2/2` and
+confirmed the exact credential entry and mode 600.
+
+The real rendered-Compose checks then failed `2/2` with independently useful
+values:
+
+```text
+seed source actual:   deploy/config/seed-users.json
+seed source expected: generated custom-seed-users.json path
+tunnel actual:        cloudflare/cloudflared:latest
+tunnel expected:      cloudflare/cloudflared:2026.8.3
+```
+
+After adding seed-path interpolation and the version pin, both focused checks
+passed `2/2`.
+
+The isolated cleanup-order contract failed `1/1` because
+`isolated_started=1` followed the potentially partial `compose up`. Moving the
+arm point immediately before startup made it pass `1/1`.
+
+The first full backend run then exposed the initializer compatibility
+regression:
+
+```text
+126 passed, 1 failed
+test_init_refuses_to_overwrite_an_existing_seed_file
+```
+
+That existing failing test served as the RED regression. A no-write preflight
+restored the exact safe refusal behavior while the Task 9 partial-private-file
+contract continued to pass `1/1`. The subsequent full backend run passed
+`127/127`.
+
+### Final verification
+
+Fresh final runs after all production and test changes:
+
+```text
+node --test deploy/tests/*.test.mjs
+41 passed, 0 failed
+
+backend/.venv/bin/python -m pytest backend/tests -q
+127 passed in 3.55s
+
+npm run test:frontend
+114 passed, 0 failed
+
+npm run typecheck
+exit 0
+
+bash -n deploy/scripts/*.sh backend/docker-entrypoint.sh \
+  deploy/tests/persistence-smoke.sh
+exit 0
+
+DEPLOY_SEED_USERS_FILE=./deploy/config/seed-users.example.json \
+  docker compose --profile public --env-file deploy/config/deploy.env \
+  config --quiet
+exit 0
+
+git diff --check
+exit 0
+```
+
+The final production build was run with the already-required sandbox
+escalation:
+
+```text
+npm run build
+exit 0
+```
+
+Next.js 16.1.6 compiled successfully and generated all 5 static pages. The
+existing non-failing custom Babel warning remains; type checking passed
+separately.
+
+### Docker/live limitation
+
+The single bounded Docker Desktop recheck again could not create its host log
+under the managed sandbox, emitted the same permission diagnostics, and did
+not return within 10 seconds. It was explicitly interrupted rather than left
+running. Given the prior escalated `Status starting` and Engine API 500
+evidence recorded above, no further daemon wait was attempted.
+
+Therefore this fix round does not claim a pulled/built backend image, live
+root-to-UID10001 container observation, tunnel-image pull, or live persistence
+smoke. All live Compose/PostgreSQL checks limitations from the original Task 9
+report remain open until Docker Desktop is healthy.
+
+### Self-review
+
+- The root bootstrap has one narrow responsibility: copy the root-readable
+  mounted secret to private application ownership, then permanently replace
+  itself with UID 10001. No migration, seed, or server command runs in the root
+  branch.
+- The private copy remains outside the image layers, inside the ephemeral
+  container filesystem, and mode 600. The host source remains mode 600 and is
+  never loosened.
+- Outer-auth credentials are not placed in curl process arguments; they live
+  only in a mode-600 temporary config removed with the smoke directory.
+- Custom seed-source behavior and the cloudflared pin are verified against
+  Docker Compose's rendered JSON rather than only source text.
+- Cleanup deletes volumes only for the generated isolated smoke project;
+  ordinary stop and failed core startup still retain the real named volume.
+- No root README, deployment manual, or project-iteration document was changed;
+  that remains Task 10 scope.
+
+Commit message: `fix: harden Docker deployment bootstrap and smoke tests`.
+The resulting commit identifier is recorded in the task handoff.
