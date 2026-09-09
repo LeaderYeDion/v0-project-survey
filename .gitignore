@@ -18,6 +18,7 @@ task_examples/
 deploy/config/deploy.env
 deploy/config/seed-users.json
 deploy/runtime/
+deploy/backups/
 deploy/**/*.credentials.json
 
 # Local Python backend runtime

@@ -1,0 +1,17 @@
+.git
+.gitignore
+.next
+.superpowers
+.worktrees
+node_modules
+backend
+deploy/backups
+deploy/config/deploy.env
+deploy/config/seed-users.json
+deploy/runtime
+docs
+task_examples
+**/.DS_Store
+**/.idea
+**/__pycache__
+**/*.pyc

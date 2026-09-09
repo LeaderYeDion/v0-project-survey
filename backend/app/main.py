@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy import text
 
 from app.api import (
     analytics,
@@ -35,6 +36,9 @@ from app.services.inference_analysis_service import InferenceAnalysisService
 from app.services.inference_service import InferenceService
 from app.services.run_service import RunService
 from app.services.research_service import ResearchService
+
+
+HEAD_MIGRATION_REVISION = "20260905_0001"
 
 
 def simulation_termination_enabled() -> bool:
@@ -140,11 +144,37 @@ def create_app(
     @application.get("/api/health")
     async def health(response: Response) -> dict[str, str]:
         response.headers["Content-Language"] = "zh-CN"
-        return {
+        payload = {
             "status": "ok",
             "service": "survey-mock-backend",
             "pythonVersion": ".".join(map(str, sys.version_info[:3])),
         }
+        if session_factory is None:
+            return payload
+
+        try:
+            async with session_factory() as session:
+                revision = await session.scalar(
+                    text("SELECT version_num FROM alembic_version")
+                )
+        except Exception:
+            response.status_code = 503
+            return {
+                **payload,
+                "status": "error",
+                "database": "unavailable",
+            }
+
+        payload["migrationRevision"] = str(revision or "")
+        if revision != HEAD_MIGRATION_REVISION:
+            response.status_code = 503
+            return {
+                **payload,
+                "status": "error",
+                "database": "migration_pending",
+            }
+        payload["database"] = "ready"
+        return payload
 
     application.include_router(auth.router)
     application.include_router(projects.router)

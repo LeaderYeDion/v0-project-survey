@@ -3,6 +3,7 @@ const surveyBackendUrl =
   process.env.SURVEY_BACKEND_URL ?? "http://127.0.0.1:8000"
 
 const nextConfig = {
+  output: "standalone",
   typescript: {
     ignoreBuildErrors: true,
   },

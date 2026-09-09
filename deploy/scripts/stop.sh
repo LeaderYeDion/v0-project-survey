@@ -5,13 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/common.sh"
 
+require_command docker
 load_deploy_env
-ensure_runtime_dir
-acquire_lock
-trap release_lock EXIT
-
-stop_role "cloudflared"
+compose --profile public down --remove-orphans
 remove_public_url
-stop_role "next"
-stop_role "backend"
-"$SCRIPT_DIR/verify-shutdown.sh" --lock-held
+info "Compose services stopped; database volume retained"

@@ -1,0 +1,115 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - type: volume
+        source: survey_postgres_data
+        target: /var/lib/postgresql/data
+    networks:
+      - app_internal
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready --username="$$POSTGRES_USER" --dbname="$$POSTGRES_DB"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - SEED_USERS_FILE=/run/secrets/seed-users.json
+      - SIMULATION_TERMINATION_ENABLED=${SIMULATION_TERMINATION_ENABLED:-false}
+    secrets:
+      - source: seed_users
+        target: seed-users.json
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+    networks:
+      - app_internal
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).read()"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SURVEY_BACKEND_URL: http://backend:8000
+    restart: unless-stopped
+    environment:
+      SURVEY_BACKEND_URL: http://backend:8000
+      DEPLOY_AUTH_ENABLED: ${DEPLOY_AUTH_ENABLED:-false}
+      DEPLOY_USERNAME: ${DEPLOY_USERNAME:-}
+      DEPLOY_PASSWORD: ${DEPLOY_PASSWORD:-}
+    ports:
+      - "127.0.0.1:${LOCAL_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+        restart: true
+    networks:
+      - edge
+      - app_internal
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          const enabled = process.env.DEPLOY_AUTH_ENABLED === 'true';
+          const headers = enabled ? { authorization: 'Basic ' + Buffer.from(process.env.DEPLOY_USERNAME + ':' + process.env.DEPLOY_PASSWORD).toString('base64') } : {};
+          fetch('http://127.0.0.1:3000/survey-api/health', { headers }).then(response => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1));
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles:
+      - public
+    restart: unless-stopped
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://frontend:3000
+    depends_on:
+      frontend:
+        condition: service_healthy
+        restart: true
+    networks:
+      - edge
+
+networks:
+  edge:
+  app_internal:
+    internal: true
+
+volumes:
+  survey_postgres_data:
+
+secrets:
+  seed_users:
+    file: ./deploy/config/seed-users.json

@@ -4,7 +4,10 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEPLOY_DIR="$PROJECT_ROOT/deploy"
 CONFIG_DIR="$DEPLOY_DIR/config"
 RUNTIME_DIR="$DEPLOY_DIR/runtime"
-ENV_FILE="$CONFIG_DIR/deploy.env"
+ENV_FILE="${DEPLOY_ENV_FILE:-$CONFIG_DIR/deploy.env}"
+SEED_USERS_FILE="${DEPLOY_SEED_USERS_FILE:-$CONFIG_DIR/seed-users.json}"
+BACKUP_DIR="${DEPLOY_BACKUP_DIR:-$DEPLOY_DIR/backups}"
+COMPOSE_FILE="$PROJECT_ROOT/compose.yaml"
 PUBLIC_URL_FILE="$RUNTIME_DIR/public-url"
 
 die() {
@@ -20,267 +23,6 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"
 }
 
-ensure_runtime_dir() {
-  mkdir -p "$RUNTIME_DIR"
-  chmod 700 "$RUNTIME_DIR"
-}
-
-load_deploy_env() {
-  [ -f "$ENV_FILE" ] ||
-    die "Missing $ENV_FILE. Run npm run deploy:init first."
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-
-  local name
-  for name in \
-    LOCAL_HOST \
-    LOCAL_PORT \
-    BACKEND_HOST \
-    BACKEND_PORT \
-    SURVEY_BACKEND_URL \
-    SIMULATION_TERMINATION_ENABLED \
-    DEPLOY_AUTH_ENABLED \
-    DEPLOY_USERNAME \
-    DEPLOY_PASSWORD; do
-    [ -n "${!name:-}" ] || die "Missing required setting: $name"
-  done
-
-  [ "$LOCAL_HOST" = "127.0.0.1" ] ||
-    die "LOCAL_HOST must be 127.0.0.1"
-  [ "$LOCAL_PORT" = "3000" ] ||
-    die "LOCAL_PORT must be 3000"
-  [ "$BACKEND_HOST" = "127.0.0.1" ] ||
-    die "BACKEND_HOST must be 127.0.0.1"
-  [[ "$BACKEND_PORT" =~ ^[0-9]+$ ]] &&
-    (( 10#$BACKEND_PORT >= 1024 && 10#$BACKEND_PORT <= 65535 )) ||
-    die "BACKEND_PORT must be an integer from 1024 through 65535"
-  [ "$BACKEND_PORT" != "$LOCAL_PORT" ] ||
-    die "BACKEND_PORT must differ from LOCAL_PORT"
-  [ "$SURVEY_BACKEND_URL" = "http://$BACKEND_HOST:$BACKEND_PORT" ] ||
-    die "SURVEY_BACKEND_URL must be http://$BACKEND_HOST:$BACKEND_PORT"
-  [[ "$SIMULATION_TERMINATION_ENABLED" == "true" ||
-    "$SIMULATION_TERMINATION_ENABLED" == "false" ]] ||
-    die "SIMULATION_TERMINATION_ENABLED must be true or false"
-  [ "$DEPLOY_AUTH_ENABLED" = "true" ] ||
-    die "DEPLOY_AUTH_ENABLED must be true for public deployment"
-  [[ "$DEPLOY_USERNAME" =~ ^[A-Za-z0-9._-]{1,64}$ ]] ||
-    die "DEPLOY_USERNAME must use 1-64 letters, digits, dots, underscores, or hyphens"
-  [ "${#DEPLOY_PASSWORD}" -ge 20 ] ||
-    die "DEPLOY_PASSWORD must contain at least 20 characters"
-  [[ "$DEPLOY_PASSWORD" != *$'\n'* ]] ||
-    die "DEPLOY_PASSWORD must not contain newlines"
-  [[ "$DEPLOY_PASSWORD" != replace-with-* ]] ||
-    die "DEPLOY_PASSWORD still uses the example value"
-}
-
-origin_url() {
-  printf 'http://%s:%s\n' "$LOCAL_HOST" "$LOCAL_PORT"
-}
-
-backend_origin_url() {
-  printf 'http://%s:%s\n' "$BACKEND_HOST" "$BACKEND_PORT"
-}
-
-public_url_file() {
-  printf '%s\n' "$PUBLIC_URL_FILE"
-}
-
-read_public_url() {
-  [ -f "$PUBLIC_URL_FILE" ] || return 1
-  tr -d '[:space:]' <"$PUBLIC_URL_FILE"
-}
-
-is_valid_quick_tunnel_url() {
-  [[ "${1:-}" =~ ^https://[a-z0-9-]+\.trycloudflare\.com$ ]]
-}
-
-remove_public_url() {
-  rm -f "$PUBLIC_URL_FILE"
-}
-
-pid_file_for_role() {
-  case "$1" in
-    next | backend | cloudflared) printf '%s/%s.pid\n' "$RUNTIME_DIR" "$1" ;;
-    *) die "Unknown process role: $1" ;;
-  esac
-}
-
-read_role_pid() {
-  local pid_file
-  pid_file="$(pid_file_for_role "$1")"
-  [ -f "$pid_file" ] || return 1
-
-  local pid
-  pid="$(tr -d '[:space:]' <"$pid_file")"
-  if ! [[ "$pid" =~ ^[0-9]+$ ]]; then
-    printf 'ERROR: Invalid PID file: %s\n' "$pid_file" >&2
-    return 2
-  fi
-  printf '%s\n' "$pid"
-}
-
-process_cwd() {
-  lsof -a -p "$1" -d cwd -Fn 2>/dev/null |
-    sed -n 's/^n//p' |
-    head -n 1
-}
-
-pid_matches_role() {
-  local role="$1"
-  local pid="$2"
-  kill -0 "$pid" 2>/dev/null || return 1
-
-  local command_line
-  command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-  [ -n "$command_line" ] || return 1
-
-  case "$role" in
-    next)
-      [ "$(process_cwd "$pid")" = "$PROJECT_ROOT" ] &&
-        {
-          [[ "$command_line" == *"next-server"* ]] ||
-            {
-              [[ "$command_line" == *"$PROJECT_ROOT"* ]] &&
-                [[ "$command_line" == *"next"* ]] &&
-                [[ "$command_line" == *"start"* ]]
-            }
-        }
-      ;;
-    backend)
-      [ "$(process_cwd "$pid")" = "$PROJECT_ROOT/backend" ] &&
-        [[ "$command_line" == *"$PROJECT_ROOT/backend/.venv/bin/"* ]] &&
-        [[ "$command_line" == *"app.main:app"* ]] &&
-        [[ "$command_line" == *"--host $BACKEND_HOST"* ]] &&
-        [[ "$command_line" == *"--port $BACKEND_PORT"* ]]
-      ;;
-    cloudflared)
-      [[ "$command_line" == *"cloudflared"* ]] &&
-        [[ "$command_line" == *"tunnel"* ]] &&
-        [[ "$command_line" == *"--url"* ]] &&
-        [[ "$command_line" == *"$(origin_url)"* ]]
-      ;;
-    *) return 1 ;;
-  esac
-}
-
-stop_role() {
-  local role="$1"
-  local pid_file
-  pid_file="$(pid_file_for_role "$role")"
-
-  if [ ! -f "$pid_file" ]; then
-    info "$role is already stopped"
-    return 0
-  fi
-
-  local pid
-  if ! pid="$(read_role_pid "$role")"; then
-    printf 'ERROR: Cannot read %s PID safely\n' "$role" >&2
-    return 1
-  fi
-  if ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$pid_file"
-    info "Removed stale $role PID file"
-    return 0
-  fi
-
-  if ! pid_matches_role "$role" "$pid"; then
-    printf 'ERROR: PID %s does not match role %s; refusing to kill it\n' \
-      "$pid" "$role" >&2
-    return 1
-  fi
-
-  info "Stopping $role (PID $pid)"
-  kill -TERM "$pid"
-
-  local attempt
-  for attempt in $(seq 1 50); do
-    kill -0 "$pid" 2>/dev/null || break
-    sleep 0.1
-  done
-
-  if kill -0 "$pid" 2>/dev/null; then
-    if ! pid_matches_role "$role" "$pid"; then
-      printf 'ERROR: PID %s changed identity while stopping %s\n' \
-        "$pid" "$role" >&2
-      return 1
-    fi
-    info "$role did not exit after TERM; sending KILL"
-    kill -KILL "$pid"
-    for attempt in $(seq 1 20); do
-      kill -0 "$pid" 2>/dev/null || break
-      sleep 0.1
-    done
-  fi
-
-  if kill -0 "$pid" 2>/dev/null; then
-    printf 'ERROR: %s PID %s remains after KILL\n' "$role" "$pid" >&2
-    return 1
-  fi
-  rm -f "$pid_file"
-}
-
-port_listener() {
-  local port="$1"
-  lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
-}
-
-listener_is_loopback() {
-  local host="$1"
-  local port="$2"
-  local listeners
-  listeners="$(port_listener "$port")"
-  [ -n "$listeners" ] &&
-    [[ "$listeners" == *"$host:$port"* ]] &&
-    [[ "$listeners" != *"*:$port"* ]] &&
-    [[ "$listeners" != *"0.0.0.0:$port"* ]] &&
-    [[ "$listeners" != *"[::]:$port"* ]]
-}
-
-assert_loopback_listener() {
-  local host="$1"
-  local port="$2"
-  listener_is_loopback "$host" "$port" ||
-    die "Port $port must listen only on $host"
-}
-
-matching_tunnel_processes() {
-  pgrep -fl cloudflared 2>/dev/null |
-    grep -F -- "tunnel" |
-    grep -F -- "--url" |
-    grep -F -- "$(origin_url)" || true
-}
-
-matching_next_processes() {
-  local pid
-  for pid in $(pgrep -f 'next-server|next.*start' 2>/dev/null || true); do
-    if [ "$(process_cwd "$pid")" = "$PROJECT_ROOT" ]; then
-      ps -p "$pid" -o pid=,command= 2>/dev/null || true
-    fi
-  done
-}
-
-matching_backend_processes() {
-  local pid
-  for pid in $(pgrep -f 'uvicorn.*app\.main:app' 2>/dev/null || true); do
-    if [ "$(process_cwd "$pid")" = "$PROJECT_ROOT/backend" ]; then
-      ps -p "$pid" -o pid=,command= 2>/dev/null || true
-    fi
-  done
-}
-
-acquire_lock() {
-  ensure_runtime_dir
-  mkdir "$RUNTIME_DIR/lifecycle.lock" 2>/dev/null ||
-    die "Another deployment lifecycle command is running"
-}
-
-release_lock() {
-  rmdir "$RUNTIME_DIR/lifecycle.lock" 2>/dev/null || true
-}
-
 file_mode() {
   if stat -f '%Lp' "$1" >/dev/null 2>&1; then
     stat -f '%Lp' "$1"
@@ -294,7 +36,113 @@ assert_private_file() {
   [ -f "$file" ] || die "Missing private file: $file"
   local mode
   mode="$(file_mode "$file")"
-  if (( (8#$mode & 077) != 0 )); then
-    die "$file must not be accessible by group/others; run chmod 600"
+  [ "$mode" = "600" ] || die "$file must have mode 600; run chmod 600 '$file'"
+}
+
+ensure_runtime_dir() {
+  mkdir -p "$RUNTIME_DIR"
+  chmod 700 "$RUNTIME_DIR"
+}
+
+ensure_backup_dir() {
+  mkdir -p "$BACKUP_DIR"
+  chmod 700 "$BACKUP_DIR"
+}
+
+load_deploy_env() {
+  assert_private_file "$ENV_FILE"
+  local override_names=()
+  local override_values=()
+  local name
+  for name in \
+    COMPOSE_PROJECT_NAME \
+    LOCAL_PORT \
+    POSTGRES_DB \
+    POSTGRES_USER \
+    POSTGRES_PASSWORD \
+    SIMULATION_TERMINATION_ENABLED \
+    DEPLOY_AUTH_ENABLED \
+    DEPLOY_USERNAME \
+    DEPLOY_PASSWORD; do
+    if [ "${!name+x}" = "x" ]; then
+      override_names+=("$name")
+      override_values+=("${!name}")
+    fi
+  done
+
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+
+  local index
+  for index in "${!override_names[@]}"; do
+    printf -v "${override_names[$index]}" '%s' "${override_values[$index]}"
+    export "${override_names[$index]}"
+  done
+
+  for name in \
+    COMPOSE_PROJECT_NAME \
+    LOCAL_PORT \
+    POSTGRES_DB \
+    POSTGRES_USER \
+    POSTGRES_PASSWORD \
+    SIMULATION_TERMINATION_ENABLED \
+    DEPLOY_AUTH_ENABLED; do
+    [ -n "${!name:-}" ] || die "Missing required setting: $name"
+  done
+
+  [[ "$COMPOSE_PROJECT_NAME" =~ ^[a-z0-9][a-z0-9_-]*$ ]] ||
+    die "COMPOSE_PROJECT_NAME must use lowercase letters, digits, underscores, or hyphens"
+  [[ "$LOCAL_PORT" =~ ^[0-9]+$ ]] &&
+    (( 10#$LOCAL_PORT >= 1024 && 10#$LOCAL_PORT <= 65535 )) ||
+    die "LOCAL_PORT must be an integer from 1024 through 65535"
+  [[ "$POSTGRES_DB" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] ||
+    die "POSTGRES_DB must be a PostgreSQL identifier"
+  [[ "$POSTGRES_USER" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] ||
+    die "POSTGRES_USER must be a PostgreSQL identifier"
+  [[ "$POSTGRES_PASSWORD" =~ ^[A-Za-z0-9._~-]{20,}$ ]] ||
+    die "POSTGRES_PASSWORD must contain at least 20 URL-safe characters"
+  [[ "$POSTGRES_PASSWORD" != replace-with-* ]] ||
+    die "POSTGRES_PASSWORD still uses the example value"
+  [[ "$SIMULATION_TERMINATION_ENABLED" == "true" ||
+    "$SIMULATION_TERMINATION_ENABLED" == "false" ]] ||
+    die "SIMULATION_TERMINATION_ENABLED must be true or false"
+  [[ "$DEPLOY_AUTH_ENABLED" == "true" || "$DEPLOY_AUTH_ENABLED" == "false" ]] ||
+    die "DEPLOY_AUTH_ENABLED must be true or false"
+
+  if [ "$DEPLOY_AUTH_ENABLED" = "true" ]; then
+    local deploy_password="${DEPLOY_PASSWORD:-}"
+    [[ "${DEPLOY_USERNAME:-}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] ||
+      die "DEPLOY_USERNAME is required when deployment authentication is enabled"
+    [[ "$deploy_password" =~ ^[A-Za-z0-9._~-]{20,}$ ]] ||
+      die "DEPLOY_PASSWORD must contain at least 20 URL-safe characters"
+    [[ "$deploy_password" != replace-with-* ]] ||
+      die "DEPLOY_PASSWORD still uses the example value"
   fi
+}
+
+compose() {
+  docker compose \
+    --env-file "$ENV_FILE" \
+    --project-directory "$PROJECT_ROOT" \
+    --file "$COMPOSE_FILE" \
+    "$@"
+}
+
+origin_url() {
+  printf 'http://127.0.0.1:%s\n' "$LOCAL_PORT"
+}
+
+read_public_url() {
+  [ -s "$PUBLIC_URL_FILE" ] || return 1
+  tr -d '[:space:]' <"$PUBLIC_URL_FILE"
+}
+
+is_valid_quick_tunnel_url() {
+  [[ "${1:-}" =~ ^https://[a-z0-9-]+\.trycloudflare\.com$ ]]
+}
+
+remove_public_url() {
+  rm -f "$PUBLIC_URL_FILE"
 }
