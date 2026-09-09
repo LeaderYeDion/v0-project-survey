@@ -225,7 +225,8 @@ legacy production history identifiers: none
   history.
 - Task 7 regression: confirmed conflict reload failure stays handled and leaves
   the conflicted/error UI state intact.
-- Scope: no backend, database, auth, worker, or deployment behavior was changed.
+- Scope: the initial Task 8 commit changed no backend, database, auth, worker,
+  or deployment behavior.
 
 ## Concerns / follow-up
 
@@ -244,3 +245,100 @@ No Task 8 blocker.
 Commit message: `feat: complete P0 research workflows`. The resulting commit
 identifier is recorded in the task handoff because embedding a commit's own
 identifier would change that identifier.
+
+---
+
+## Reviewer fix round 1 (2026-09-08)
+
+### Findings addressed
+
+1. Aligned queued-round controls with the backend's authoritative
+   `ACTION_BY_STATUS`: queued rounds now expose both pause and cancel. The
+   backend pause service converts a queued round directly to paused.
+2. Added a generation-, identity-, and request-kind-aware guard for durable
+   round history list, detail, and copy operations. Abort remains an
+   optimization; late resolved or rejected promises cannot update history,
+   selection, mode, errors, or copied questionnaires after a project or
+   questionnaire switch. A newer detail request also invalidates an older one
+   for another selected round. Resource switches synchronously clear stale
+   history loading/error/copy indicators.
+3. Removed the unused backend browser write-model schemas
+   `SurveyHistoryRecord` and `CreateHistoryRequest`, their dead conversion
+   helper, and the unused `CreateRunRequest`. Repository-wide production usage
+   inspection found no consumers; current round creation uses
+   `QuestionnaireView` plus `RoundSnapshot` through `RunService`.
+
+### TDD evidence
+
+Frontend action/race RED:
+
+```text
+node --test tests/run-actions.test.mjs
+
+tests 7
+pass 3
+fail 4
+```
+
+The action test observed queued returning only `cancel` instead of
+`pause,cancel`. The list/detail/copy race tests failed because
+`createRoundResourceRequestGuard` did not exist.
+
+The page-wiring test was then added before integration and failed because the
+dashboard did not use the guard. A narrower resource-switch cleanup assertion
+also failed before loading/copy state was reset in `applyQuestionnaire`.
+
+Backend schema cleanup RED:
+
+```text
+backend/.venv/bin/pytest -q backend/tests/test_schemas.py
+
+7 passed, 1 failed
+```
+
+The failure showed the three superseded public schema names still existed.
+
+Focused GREEN after the minimal implementations:
+
+```text
+node --test tests/run-actions.test.mjs tests/research-resources.test.mjs tests/survey-api.test.mjs
+31 passed, 0 failed
+
+backend/.venv/bin/pytest -q backend/tests/test_schemas.py
+8 passed, 0 failed
+
+backend/.venv/bin/pytest -q backend/tests
+124 passed, 0 failed
+```
+
+### Final verification
+
+After all code changes, the required chain was run in the already-approved
+environment needed by Turbopack:
+
+```text
+npm run test:frontend && npm run typecheck && npm run build
+
+frontend tests: 114 passed, 0 failed
+tsc --noEmit: exit 0
+next build: exit 0
+```
+
+Next.js 16.1.6 compiled successfully and generated all 5 static pages. The
+same existing, non-failing custom Babel configuration warning remains.
+
+### Self-review and concerns
+
+- Mutation check: removing queued pause, any generation or identity
+  comparison, the per-kind latest-request check, or any of the three page guard
+  calls fails focused coverage.
+- Both successful and failed network outcomes pass through the same freshness
+  decision before UI state can change.
+- Copy success is accepted only while its original project/questionnaire
+  identity remains current; switching resources clears the pending copy UI.
+- No database model, migration, API route, service behavior, or request payload
+  changed. Backend edits only remove unreferenced schema/helper surface.
+- Real-browser and live PostgreSQL/worker validation remains assigned to Tasks
+  9–10. There is no reviewer-fix blocker.
+
+Commit message: `fix: guard durable round history races`.

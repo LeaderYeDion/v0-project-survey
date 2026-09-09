@@ -3,10 +3,9 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+import app.schemas.survey as survey_schema
 from app.schemas.survey import (
-    CreateRunRequest,
     RunSnapshot,
-    SurveyHistoryRecord,
     SurveyConfig,
     SurveyQuestion,
 )
@@ -29,15 +28,12 @@ def test_scale_question_requires_ordered_range() -> None:
 
 def test_run_requires_questions_and_respondents() -> None:
     with pytest.raises(ValidationError):
-        CreateRunRequest(
-            mode="survey",
-            config=SurveyConfig(
-                title="空调研",
-                description="",
-                maxResponseTime=30,
-                questions=[],
-                respondentConfigs=[],
-            ),
+        SurveyConfig(
+            title="空调研",
+            description="",
+            maxResponseTime=30,
+            questions=[],
+            respondentConfigs=[],
         )
 
 
@@ -178,46 +174,7 @@ def test_run_snapshot_defaults_inference_fields_when_omitted() -> None:
     assert snapshot.inferenceSummary == []
 
 
-def test_history_record_defaults_inference_fields_when_omitted() -> None:
-    config = SurveyConfig(
-        title="Test",
-        description="",
-        maxResponseTime=30,
-        questions=[SurveyQuestion(id="q1", type="text", question="Why?")],
-        respondentConfigs=[
-            {
-                "id": "group-1",
-                "gender": "Any",
-                "ageRange": "20-30",
-                "occupation": "Engineer",
-                "city": "Seattle",
-                "income": "$100k-$150k",
-                "count": 1,
-            }
-        ],
-    )
-
-    record = SurveyHistoryRecord(
-        id="history-1",
-        runId="run-1",
-        mode="survey",
-        locale="en-US",
-        savedAt=datetime.now(UTC),
-        config=config,
-        sessions=[],
-        respondents=[],
-        progress={
-            "totalRespondents": 0,
-            "completedRespondents": 0,
-            "inProgressRespondents": 0,
-            "terminatedRespondents": 0,
-            "currentRespondentIndex": 0,
-        },
-        sentiment={"positive": 0, "neutral": 0, "negative": 0},
-        questionAnalysis=[],
-        demographicAnalysis=[],
-        responses=[],
-    )
-
-    assert record.inferenceResults == []
-    assert record.inferenceSummary == []
+def test_survey_schema_does_not_expose_superseded_browser_write_models() -> None:
+    assert not hasattr(survey_schema, "CreateRunRequest")
+    assert not hasattr(survey_schema, "SurveyHistoryRecord")
+    assert not hasattr(survey_schema, "CreateHistoryRequest")

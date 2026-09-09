@@ -19,7 +19,7 @@ async function loadRunActions() {
 test("run actions match active and terminal states", async () => {
   const { allowedRunActions } = await loadRunActions()
 
-  assert.deepEqual(allowedRunActions("queued", 0, 4), ["cancel"])
+  assert.deepEqual(allowedRunActions("queued", 0, 4), ["pause", "cancel"])
   assert.deepEqual(allowedRunActions("running", 0, 0), ["pause", "cancel"])
   assert.deepEqual(allowedRunActions("pausing", 0, 2), ["cancel"])
   assert.deepEqual(allowedRunActions("paused", 0, 2), ["resume", "cancel"])
@@ -29,6 +29,59 @@ test("run actions match active and terminal states", async () => {
   assert.deepEqual(allowedRunActions("cancelled", 0, 3), ["retry_incomplete"])
   assert.deepEqual(allowedRunActions("cancelled", 0, 0), [])
   assert.deepEqual(allowedRunActions("failed", 1, 1), [])
+})
+
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+test("a round history list completion is stale after a project switch", async () => {
+  const { createRoundResourceRequestGuard } = await loadRunActions()
+  let identity = { projectId: "project-1", questionnaireId: "questionnaire-1" }
+  const guard = createRoundResourceRequestGuard(() => identity)
+  const request = deferred()
+  const pending = guard.run("list", () => request.promise)
+
+  identity = { projectId: "project-2", questionnaireId: null }
+  guard.invalidate()
+  request.resolve(["round-from-project-1"])
+
+  assert.deepEqual(await pending, { status: "stale" })
+})
+
+test("an older round detail completion is stale after another round is selected", async () => {
+  const { createRoundResourceRequestGuard } = await loadRunActions()
+  const identity = { projectId: "project-1", questionnaireId: "questionnaire-1" }
+  const guard = createRoundResourceRequestGuard(() => identity)
+  const oldRequest = deferred()
+  const newRequest = deferred()
+  const oldPending = guard.run("detail", () => oldRequest.promise)
+  const newPending = guard.run("detail", () => newRequest.promise)
+
+  newRequest.resolve({ id: "round-2" })
+  oldRequest.resolve({ id: "round-1" })
+
+  assert.deepEqual(await newPending, { status: "success", value: { id: "round-2" } })
+  assert.deepEqual(await oldPending, { status: "stale" })
+})
+
+test("a round copy completion is stale after a questionnaire switch", async () => {
+  const { createRoundResourceRequestGuard } = await loadRunActions()
+  let identity = { projectId: "project-1", questionnaireId: "questionnaire-1" }
+  const guard = createRoundResourceRequestGuard(() => identity)
+  const request = deferred()
+  const pending = guard.run("copy", () => request.promise)
+
+  identity = { projectId: "project-1", questionnaireId: "questionnaire-2" }
+  request.resolve({ id: "copied-questionnaire" })
+
+  assert.deepEqual(await pending, { status: "stale" })
 })
 
 test("polling is limited to queued, running, and pausing rounds", async () => {

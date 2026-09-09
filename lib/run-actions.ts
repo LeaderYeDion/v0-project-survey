@@ -7,6 +7,18 @@ export type RunAction =
   | "retry_failed"
   | "retry_incomplete"
 
+export type RoundResourceRequestKind = "list" | "detail" | "copy"
+
+export interface RoundResourceIdentity {
+  projectId: string | null
+  questionnaireId: string | null
+}
+
+export type GuardedRequestResult<T> =
+  | { status: "success"; value: T }
+  | { status: "error"; error: unknown }
+  | { status: "stale" }
+
 export function allowedRunActions(
   status: RunStatus,
   failedCount: number,
@@ -14,6 +26,7 @@ export function allowedRunActions(
 ): RunAction[] {
   switch (status) {
     case "queued":
+      return ["pause", "cancel"]
     case "pausing":
       return ["cancel"]
     case "running":
@@ -59,6 +72,45 @@ export function createRunMutationGuard() {
         return await operation()
       } finally {
         pending = null
+      }
+    },
+  }
+}
+
+export function createRoundResourceRequestGuard(
+  getIdentity: () => RoundResourceIdentity,
+) {
+  let generation = 0
+  let nextRequestId = 0
+  const latestByKind = new Map<RoundResourceRequestKind, number>()
+
+  return {
+    invalidate() {
+      generation += 1
+      latestByKind.clear()
+    },
+    async run<T>(
+      kind: RoundResourceRequestKind,
+      operation: () => Promise<T>,
+    ): Promise<GuardedRequestResult<T>> {
+      const requestId = ++nextRequestId
+      const requestGeneration = generation
+      const identity = getIdentity()
+      latestByKind.set(kind, requestId)
+
+      const isCurrent = () => {
+        const currentIdentity = getIdentity()
+        return requestGeneration === generation &&
+          latestByKind.get(kind) === requestId &&
+          currentIdentity.projectId === identity.projectId &&
+          currentIdentity.questionnaireId === identity.questionnaireId
+      }
+
+      try {
+        const value = await operation()
+        return isCurrent() ? { status: "success", value } : { status: "stale" }
+      } catch (error) {
+        return isCurrent() ? { status: "error", error } : { status: "stale" }
       }
     },
   }

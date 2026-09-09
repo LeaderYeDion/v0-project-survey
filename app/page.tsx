@@ -70,6 +70,7 @@ import {
 import { RunControlBar } from "@/components/run-control-bar"
 import { RoundHistoryDialog } from "@/components/round-history-dialog"
 import {
+  createRoundResourceRequestGuard,
   createRunMutationGuard,
   mergePolledRoundSnapshot,
   shouldPollRound,
@@ -144,8 +145,15 @@ export default function ResearcherDashboard() {
   const persistedConfigRef = useRef("")
   const revisionByQuestionnaireRef = useRef(new Map<string, number>())
   const configRef = useRef(config)
+  const projectIdRef = useRef(projectId)
   const questionnaireIdRef = useRef(questionnaireId)
   const runMutationGuardRef = useRef(createRunMutationGuard())
+  const roundResourceRequestGuardRef = useRef(
+    createRoundResourceRequestGuard(() => ({
+      projectId: projectIdRef.current,
+      questionnaireId: questionnaireIdRef.current,
+    })),
+  )
   const performDraftSaveRef = useRef(
     async (_job: QuestionnaireDraftSaveJob): Promise<void> => {},
   )
@@ -158,6 +166,7 @@ export default function ResearcherDashboard() {
     )
   }
   configRef.current = config
+  projectIdRef.current = projectId
   questionnaireIdRef.current = questionnaireId
 
   const isRunning = currentRun ? shouldPollRound(currentRun.status) : false
@@ -184,6 +193,12 @@ export default function ResearcherDashboard() {
     isRunning
 
   const applyQuestionnaire = useCallback((questionnaire: Questionnaire) => {
+    if (questionnaireIdRef.current !== questionnaire.id) {
+      roundResourceRequestGuardRef.current.invalidate()
+      setHistoryLoading(false)
+      setHistoryError(null)
+      setCopyingRoundId(null)
+    }
     questionnaireIdRef.current = questionnaire.id
     setQuestionnaireId(questionnaire.id)
     setMode(questionnaire.mode)
@@ -401,7 +416,9 @@ export default function ResearcherDashboard() {
 
   const handleProjectChange = useCallback((nextProjectId: string) => {
     abortOutstandingSurveyRequests()
+    roundResourceRequestGuardRef.current.invalidate()
     draftSaveQueueRef.current?.discardPendingExcept("")
+    projectIdRef.current = nextProjectId
     questionnaireIdRef.current = null
     setProjectId(nextProjectId)
     setQuestionnaireId(null)
@@ -409,16 +426,24 @@ export default function ResearcherDashboard() {
     setSaveStatus("idle")
     setCurrentRun(null)
     setViewingHistoryRound(null)
+    setRoundHistory([])
+    setHistoryLoading(false)
+    setHistoryError(null)
+    setCopyingRoundId(null)
   }, [])
 
   const handleQuestionnaireChange = useCallback((nextQuestionnaireId: string) => {
     abortOutstandingSurveyRequests()
+    roundResourceRequestGuardRef.current.invalidate()
     draftSaveQueueRef.current?.discardPendingExcept(nextQuestionnaireId)
     questionnaireIdRef.current = nextQuestionnaireId
     setQuestionnaireId(nextQuestionnaireId)
     setSaveStatus("idle")
     setCurrentRun(null)
     setViewingHistoryRound(null)
+    setHistoryLoading(false)
+    setHistoryError(null)
+    setCopyingRoundId(null)
   }, [])
 
   const handleCreateProject = useCallback(async (input: CreateProjectInput) => {
@@ -445,27 +470,32 @@ export default function ResearcherDashboard() {
     if (!projectId) return
     setHistoryLoading(true)
     setHistoryError(null)
-    try {
-      setRoundHistory(await apiListProjectRounds(locale, projectId))
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        setHistoryError(localizedApiError(error))
-      }
-    } finally {
-      setHistoryLoading(false)
+    const result = await roundResourceRequestGuardRef.current.run("list", () =>
+      apiListProjectRounds(locale, projectId),
+    )
+    if (result.status === "stale") return
+    if (result.status === "success") {
+      setRoundHistory(result.value)
+    } else if (!(result.error instanceof DOMException && result.error.name === "AbortError")) {
+      setHistoryError(localizedApiError(result.error))
     }
+    setHistoryLoading(false)
   }, [locale, localizedApiError, projectId])
 
   const handleSelectRound = useCallback(async (roundId: string) => {
     setHistoryError(null)
-    try {
-      const snapshot = await apiFetchRound(locale, roundId)
+    const result = await roundResourceRequestGuardRef.current.run("detail", () =>
+      apiFetchRound(locale, roundId),
+    )
+    if (result.status === "stale") return
+    if (result.status === "success") {
+      const snapshot = result.value
       setViewingHistoryRound(snapshot)
       setMode(snapshot.mode)
       setFocusedRespondentId(null)
       setActiveWorkspace("results")
-    } catch (error) {
-      setHistoryError(localizedApiError(error))
+    } else if (!(result.error instanceof DOMException && result.error.name === "AbortError")) {
+      setHistoryError(localizedApiError(result.error))
     }
   }, [locale, localizedApiError])
 
@@ -473,16 +503,19 @@ export default function ResearcherDashboard() {
     if (copyingRoundId) return
     setCopyingRoundId(roundId)
     setHistoryError(null)
-    try {
-      const copied = await apiCopyRound(locale, roundId)
+    const result = await roundResourceRequestGuardRef.current.run("copy", () =>
+      apiCopyRound(locale, roundId),
+    )
+    if (result.status === "stale") return
+    if (result.status === "success") {
+      const copied = result.value
       setQuestionnaires(current => [copied, ...current.filter(item => item.id !== copied.id)])
       applyQuestionnaire(copied)
       lockLocale()
-    } catch (error) {
-      setHistoryError(localizedApiError(error))
-    } finally {
-      setCopyingRoundId(null)
+    } else if (!(result.error instanceof DOMException && result.error.name === "AbortError")) {
+      setHistoryError(localizedApiError(result.error))
     }
+    setCopyingRoundId(null)
   }, [applyQuestionnaire, copyingRoundId, locale, localizedApiError, lockLocale])
 
   const handleRunAction = useCallback(async (action: RunAction) => {

@@ -270,11 +270,6 @@ class InferenceSummaryItem(ApiModel):
     distribution: dict[str, int]
 
 
-class CreateRunRequest(ApiModel):
-    mode: SimulationMode
-    config: SurveyConfig
-
-
 class RunSnapshot(ApiModel):
     id: str
     mode: SimulationMode
@@ -332,25 +327,3 @@ class RunSnapshot(ApiModel):
             finishedAt=None,
             error=None,
         )
-
-
-class SurveyHistoryRecord(ApiModel):
-    id: str
-    runId: str
-    mode: SimulationMode
-    locale: Locale
-    savedAt: datetime
-    config: SurveyConfig
-    sessions: list[InterviewSession]
-    respondents: list[RespondentProfile]
-    progress: SurveyProgress
-    sentiment: SentimentData
-    questionAnalysis: list[QuestionAnalysis]
-    demographicAnalysis: list[DemographicAnalysis]
-    inferenceResults: list[InferenceResult] = Field(default_factory=list)
-    inferenceSummary: list[InferenceSummaryItem] = Field(default_factory=list)
-    responses: list[SurveyResponse]
-
-
-class CreateHistoryRequest(ApiModel):
-    runId: str

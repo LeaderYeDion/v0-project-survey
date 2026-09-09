@@ -113,6 +113,32 @@ test("round mutations replace the displayed snapshot returned by the server", ()
   assert.match(page, /if \(!next\) return[\s\S]*?setCurrentRun\(next\)/)
 })
 
+test("dashboard routes durable history completions through the resource guard", () => {
+  const page = readFileSync("app/page.tsx", "utf8")
+  assert.match(page, /createRoundResourceRequestGuard/)
+  assert.match(
+    page,
+    /loadRoundHistory[\s\S]*?roundResourceRequestGuardRef\.current\.run\("list"/,
+  )
+  assert.match(
+    page,
+    /handleSelectRound[\s\S]*?roundResourceRequestGuardRef\.current\.run\("detail"/,
+  )
+  assert.match(
+    page,
+    /handleCopyRound[\s\S]*?roundResourceRequestGuardRef\.current\.run\("copy"/,
+  )
+  assert.match(page, /handleProjectChange[\s\S]*?\.invalidate\(\)/)
+  assert.match(page, /handleQuestionnaireChange[\s\S]*?\.invalidate\(\)/)
+  const applyQuestionnaire = page.match(
+    /const applyQuestionnaire = useCallback[\s\S]*?\n  \}, \[\]\)/,
+  )?.[0]
+  assert.ok(applyQuestionnaire)
+  assert.match(applyQuestionnaire, /\.invalidate\(\)/)
+  assert.match(applyQuestionnaire, /setHistoryLoading\(false\)/)
+  assert.match(applyQuestionnaire, /setCopyingRoundId\(null\)/)
+})
+
 test("failed conflict reload stays handled and visibly conflicted", () => {
   const page = readFileSync("app/page.tsx", "utf8")
   const conflictBranch = page.match(
