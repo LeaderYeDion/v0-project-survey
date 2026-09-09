@@ -92,12 +92,35 @@ test("selected questionnaire mode is derived only from the server resource", () 
   assert.match(source, /CreateQuestionnaireDialog/)
 })
 
-test("legacy history controls are explicitly disabled until the round UI lands", () => {
+test("durable round history replaces the legacy history write model", () => {
   const page = readFileSync("app/page.tsx", "utf8")
   const analytics = readFileSync("components/analytics-panel.tsx", "utf8")
   const api = readFileSync("lib/survey-api.ts", "utf8")
-  assert.match(page, /legacyHistoryEnabled=\{false\}/)
-  assert.match(analytics, /legacyHistoryEnabled/)
-  assert.match(analytics, /legacyHistoryEnabled &&/)
-  assert.doesNotMatch(api, /request\(locale, [`"]\/history/)
+  assert.match(page, /RoundHistoryDialog/)
+  assert.match(page, /apiListProjectRounds/)
+  assert.match(page, /apiCopyRound/)
+  assert.doesNotMatch(analytics, /legacyHistoryEnabled|SurveyHistoryRecord/)
+  assert.doesNotMatch(api, /apiSaveRunToHistory|apiFetchSurveyHistory|LEGACY_HISTORY_DISABLED/)
+})
+
+test("round mutations replace the displayed snapshot returned by the server", () => {
+  const page = readFileSync("app/page.tsx", "utf8")
+  assert.match(page, /runMutationGuardRef\.current\.run\(action/)
+  assert.match(page, /apiPauseRound\(locale, displayRound\.id\)/)
+  assert.match(page, /apiResumeRound\(locale, displayRound\.id\)/)
+  assert.match(page, /apiCancelRound\(locale, displayRound\.id\)/)
+  assert.match(page, /apiRetryRound\([\s\S]*?displayRound\.id/)
+  assert.match(page, /if \(!next\) return[\s\S]*?setCurrentRun\(next\)/)
+})
+
+test("failed conflict reload stays handled and visibly conflicted", () => {
+  const page = readFileSync("app/page.tsx", "utf8")
+  const conflictBranch = page.match(
+    /error\.code === "DRAFT_CONFLICT"[\s\S]*?\} else if/,
+  )?.[0]
+  assert.ok(conflictBranch)
+  assert.match(conflictBranch, /try \{[\s\S]*?apiGetQuestionnaire/)
+  assert.match(conflictBranch, /catch \(reloadError\)/)
+  assert.match(conflictBranch, /setSaveStatus\("conflicted"\)/)
+  assert.match(conflictBranch, /setResourceError\(true\)/)
 })

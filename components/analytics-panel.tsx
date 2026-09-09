@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import {
   PieChart,
   Pie,
@@ -24,20 +24,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
   ChartContainer,
   ChartTooltip,
 } from "@/components/ui/chart"
 import {
   BarChart3,
-  Download,
   Users,
   MessageSquare,
   TrendingUp,
@@ -46,11 +37,6 @@ import {
   AlertTriangle,
   PieChartIcon,
   Filter,
-  Save,
-  History,
-  ArrowLeft,
-  Clock,
-  Hash,
 } from "lucide-react"
 import type { 
   SurveyProgress, 
@@ -60,14 +46,13 @@ import type {
   QuestionAnalysis,
   DemographicAnalysis,
   SurveyQuestion,
-  SurveyHistoryRecord,
-  SurveyConfig,
   AnalyticsQueryResult,
   DimensionFilters,
   DimensionMetadata,
   InferenceResult,
   InferenceSummaryItem,
   RespondentDimensionKey,
+  SimulationMode,
 } from "@/lib/survey-api"
 import { useI18n } from "@/components/locale-provider"
 import {
@@ -78,18 +63,15 @@ import {
   type Locale,
 } from "@/lib/i18n/locale"
 import type { MessageCatalog } from "@/lib/i18n/messages"
-import { createLatestRequestTracker } from "@/lib/latest-request"
 import { selectValidQuestionId } from "@/lib/question-selection"
 import {
   createAnalyticsQueryKey,
   createAnalyticsSourceKey,
 } from "@/lib/analytics-query-key"
-import {
-  apiSaveRunToHistory,
-  apiFetchSurveyHistory,
-  apiQueryRunAnalytics,
-  renderInferenceValue,
-} from "@/lib/survey-api"
+import { apiQueryRunAnalytics, renderInferenceValue } from "@/lib/survey-api"
+import { AnalysisScopeSummary } from "@/components/analysis-scope-summary"
+import { ExceptionDrilldown } from "@/components/exception-drilldown"
+import { ExportDialog } from "@/components/export-dialog"
 
 type ResponseDistributionEntry = {
   answer: string
@@ -204,6 +186,7 @@ function renderQuestionBarChart(
 }
 
 interface AnalyticsPanelProps {
+  mode: SimulationMode
   progress: SurveyProgress
   sentiment: SentimentData
   sessions: InterviewSession[]
@@ -213,17 +196,13 @@ interface AnalyticsPanelProps {
   demographicAnalysis: DemographicAnalysis[]
   inferenceResults: InferenceResult[]
   inferenceSummary: InferenceSummaryItem[]
-  config: SurveyConfig
-  onExport: (format: "json" | "csv") => void
   isRunning: boolean
-  onLoadHistory: (record: SurveyHistoryRecord) => void
-  onReturnToCurrent: () => void
-  viewingHistoryRecord: SurveyHistoryRecord | null
-  source: { type: "run" | "history"; id: string } | null
-  legacyHistoryEnabled?: boolean
+  roundId: string | null
+  onFocusRespondent: (respondentId: string) => void
 }
 
 export function AnalyticsPanel({
+  mode,
   progress,
   sentiment,
   sessions,
@@ -233,26 +212,15 @@ export function AnalyticsPanel({
   demographicAnalysis,
   inferenceResults,
   inferenceSummary,
-  config,
-  onExport,
   isRunning,
-  onLoadHistory,
-  onReturnToCurrent,
-  viewingHistoryRecord,
-  source,
-  legacyHistoryEnabled = false,
+  roundId,
+  onFocusRespondent,
 }: AnalyticsPanelProps) {
   const { locale, messages } = useI18n()
   const [selectedQuestion, setSelectedQuestion] = useState<string>(() =>
     selectValidQuestionId("", questions),
   )
   const [selectedDemographic, setSelectedDemographic] = useState<string>("city")
-  const [historyRecords, setHistoryRecords] = useState<SurveyHistoryRecord[]>([])
-  const [isSaving, setIsSaving] = useState(false)
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
-  const [historyError, setHistoryError] = useState(false)
-  const [saveError, setSaveError] = useState(false)
-  const [historyDialogOpen, setHistoryDialogOpen] = useState(false)
   const [dimensionFilters, setDimensionFilters] = useState<DimensionFilters>({})
   const [groupByDimensions, setGroupByDimensions] = useState<RespondentDimensionKey[]>([])
   const [analyticsResultState, setAnalyticsResultState] =
@@ -260,9 +228,10 @@ export function AnalyticsPanel({
   const [dimensionMetadataState, setDimensionMetadataState] = useState<SourceDimensionMetadata | null>(null)
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false)
   const [analyticsError, setAnalyticsError] = useState(false)
-  const historyRequestTracker = useRef(createLatestRequestTracker()).current
   const effectiveQuestionId = selectValidQuestionId(selectedQuestion, questions)
-  const currentSourceKey = createAnalyticsSourceKey(source)
+  const currentSourceKey = createAnalyticsSourceKey(
+    roundId ? { type: "round", id: roundId } : null,
+  )
   const inferenceValueSeparator = locale === "zh-CN" ? "、" : ", "
   const currentQueryKey = createAnalyticsQueryKey({
     sourceKey: currentSourceKey,
@@ -286,7 +255,7 @@ export function AnalyticsPanel({
     setDimensionMetadataState(null)
     setDimensionFilters({})
     setGroupByDimensions([])
-  }, [source?.type, source?.id])
+  }, [roundId])
 
   const CLEAR_DIMENSION_VALUE = "__ALL__"
 
@@ -312,7 +281,7 @@ export function AnalyticsPanel({
   }, [])
 
   useEffect(() => {
-    if (!source || source.type !== "run" || !effectiveQuestionId) {
+    if (!roundId || !effectiveQuestionId) {
       setAnalyticsResultState(null)
       setAnalyticsError(false)
       setIsLoadingAnalytics(false)
@@ -331,7 +300,7 @@ export function AnalyticsPanel({
           filters: dimensionFilters,
           groupBy: groupByDimensions,
         }
-        const result = await apiQueryRunAnalytics(locale, source.id, query)
+        const result = await apiQueryRunAnalytics(locale, roundId, query)
         if (!cancelled) {
           setAnalyticsResultState({ key: queryKey, result })
           setDimensionMetadataState({
@@ -354,14 +323,14 @@ export function AnalyticsPanel({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [currentQueryKey, currentSourceKey, source?.type, source?.id, effectiveQuestionId, dimensionFilters, groupByDimensions, locale])
+  }, [currentQueryKey, currentSourceKey, roundId, effectiveQuestionId, dimensionFilters, groupByDimensions, locale])
 
   const analyticsResult =
     analyticsResultState?.key === currentQueryKey
       ? analyticsResultState.result
       : null
   const filteredRespondentCount =
-    analyticsResult?.filteredRespondentCount ?? respondents.length
+    analyticsResult?.scope.filteredRespondentCount ?? respondents.length
   const showAnalyticsResults =
     analyticsResult !== null &&
     !isLoadingAnalytics &&
@@ -373,7 +342,7 @@ export function AnalyticsPanel({
   ).map(group => ({
     label: group.label,
     respondentCount: group.respondentCount,
-    totalResponses: group.totalResponses,
+    validResponseCount: group.validResponseCount,
     responseData: group.analysis
       ? mapResponseDistributionEntries(group.analysis.responseDistribution)
       : [],
@@ -394,49 +363,6 @@ export function AnalyticsPanel({
     )
   }, [questions])
 
-  const loadHistoryList = async () => {
-    if (!legacyHistoryEnabled) return
-    const requestId = historyRequestTracker.begin()
-    setIsLoadingHistory(true)
-    setHistoryError(false)
-    try {
-      const records = await apiFetchSurveyHistory(locale)
-      if (historyRequestTracker.isLatest(requestId)) {
-        setHistoryRecords(records)
-      }
-    } catch (error) {
-      if (historyRequestTracker.isLatest(requestId)) {
-        console.error("History load error:", error)
-        setHistoryError(true)
-      }
-    } finally {
-      if (historyRequestTracker.isLatest(requestId)) {
-        setIsLoadingHistory(false)
-      }
-    }
-  }
-
-  const handleSave = async () => {
-    if (!legacyHistoryEnabled) return
-    if (!source || source.type !== "run" || sessions.length === 0) return
-    setIsSaving(true)
-    setSaveError(false)
-    try {
-      await apiSaveRunToHistory(locale, source.id)
-      await loadHistoryList()
-    } catch (error) {
-      console.error("History save error:", error)
-      setSaveError(true)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  const handleSelectHistory = (record: SurveyHistoryRecord) => {
-    onLoadHistory(record)
-    setHistoryDialogOpen(false)
-  }
-
   const sentimentData = [
     { name: messages.common.positive, value: sentiment.positive, fill: "#10b981" },
     { name: messages.common.neutral, value: sentiment.neutral, fill: "#64748b" },
@@ -445,27 +371,27 @@ export function AnalyticsPanel({
 
   const statusData = [
     { 
-      name: messages.common.completed,
+      name: mode === "survey" ? messages.analytics.surveyCompleted : messages.analytics.interviewCompleted,
       value: sessions.filter(s => s.status === "completed").length,
       fill: "#10b981"
     },
     { 
-      name: messages.common.respondentTerminated,
+      name: mode === "survey" ? messages.analytics.surveyIncomplete : messages.common.respondentTerminated,
       value: sessions.filter(s => s.status === "terminated_by_respondent").length,
       fill: "#f59e0b"
     },
     { 
-      name: messages.common.interviewerTerminated,
+      name: mode === "survey" ? messages.analytics.surveyIncomplete : messages.common.interviewerTerminated,
       value: sessions.filter(s => s.status === "terminated_by_interviewer").length,
       fill: "#f43f5e"
     },
     { 
-      name: messages.common.inProgress,
+      name: mode === "survey" ? messages.analytics.surveyInProgress : messages.common.inProgress,
       value: sessions.filter(s => s.status === "in_progress").length,
       fill: "#3b82f6"
     },
     { 
-      name: messages.common.pending,
+      name: mode === "survey" ? messages.analytics.surveyPending : messages.common.pending,
       value: sessions.filter(s => s.status === "pending").length,
       fill: "#64748b"
     },
@@ -502,15 +428,9 @@ export function AnalyticsPanel({
     : 0
   const completionPercentage = Math.round(completionRatio * 100)
 
-  const totalMessages = sessions.reduce((acc, s) => acc + s.dialog.length, 0)
-
-  const historyDateOptions = {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  } satisfies Intl.DateTimeFormatOptions
+  const activityCount = mode === "survey"
+    ? progress.answeredQuestions
+    : sessions.reduce((acc, session) => acc + session.dialog.length, 0)
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -523,220 +443,9 @@ export function AnalyticsPanel({
               {messages.analytics.panelTitle}
             </h2>
           </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onExport("json")}
-              disabled={sessions.length === 0}
-              aria-label={messages.analytics.exportJson}
-              title={messages.analytics.exportJson}
-              className="text-muted-foreground hover:text-foreground h-7 px-2"
-            >
-              <Download className="w-3 h-3 mr-1" />
-              {messages.common.json}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onExport("csv")}
-              disabled={sessions.length === 0}
-              aria-label={messages.analytics.exportCsv}
-              title={messages.analytics.exportCsv}
-              className="text-muted-foreground hover:text-foreground h-7 px-2"
-            >
-              <Download className="w-3 h-3 mr-1" />
-              {messages.common.csv}
-            </Button>
-          </div>
+          <ExportDialog roundId={roundId} filters={dimensionFilters} />
         </div>
-        
-        {/* History info when viewing historical data */}
-        {legacyHistoryEnabled && viewingHistoryRecord && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Clock className="w-3 h-3" />
-            <span>
-              {formatDate(
-                locale,
-                viewingHistoryRecord.savedAt,
-                historyDateOptions,
-              )}
-            </span>
-            <Hash className="w-3 h-3 ml-2" />
-            <span className="font-mono">{viewingHistoryRecord.id.slice(-8)}</span>
-          </div>
-        )}
       </div>
-
-      {/* Action Buttons */}
-      {legacyHistoryEnabled && (
-      <div className="flex shrink-0 flex-wrap gap-2 border-b border-border/50 px-3 py-2 sm:px-4">
-        {viewingHistoryRecord ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onReturnToCurrent}
-            className="flex-1 h-8 text-xs bg-secondary/30 border-border/50 hover:bg-secondary/50"
-          >
-            <ArrowLeft className="w-3 h-3 mr-1" />
-            {messages.analytics.returnToCurrent}
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSave}
-            disabled={
-              sessions.length === 0 ||
-              isSaving ||
-              isRunning ||
-              source?.type !== "run"
-            }
-            className="flex-1 h-8 text-xs bg-primary/10 border-primary/30 hover:bg-primary/20 text-primary"
-          >
-            {isSaving ? (
-              <>
-                <div
-                  aria-hidden="true"
-                  className="w-3 h-3 mr-1 border-2 border-primary/30 border-t-primary rounded-full animate-spin"
-                />
-                <span role="status" aria-live="polite">
-                  {messages.analytics.savingSurvey}
-                </span>
-              </>
-            ) : (
-              <>
-                <Save className="w-3 h-3 mr-1" />
-                {messages.analytics.saveSurvey}
-              </>
-            )}
-          </Button>
-        )}
-        
-        <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
-          <DialogTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadHistoryList}
-              className="flex-1 h-8 text-xs bg-secondary/30 border-border/50 hover:bg-secondary/50"
-            >
-              <History className="w-3 h-3 mr-1" />
-              {messages.analytics.history}
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="bg-card border-border/50 max-w-md">
-            <DialogHeader>
-              <DialogTitle className="text-foreground flex items-center gap-2">
-                <History className="w-4 h-4 text-primary" />
-                {messages.analytics.historyTitle}
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                {messages.analytics.historyDescription}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="mt-4">
-              {isLoadingHistory ? (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"
-                >
-                  <div
-                    aria-hidden="true"
-                    className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin"
-                  />
-                  <span>{messages.analytics.loadingHistory}</span>
-                </div>
-              ) : historyError ? (
-                <div
-                  role="alert"
-                  className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
-                >
-                  {messages.errors.historyLoad}
-                </div>
-              ) : historyRecords.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  {messages.analytics.noHistory}
-                </div>
-              ) : (
-                <ScrollArea className="h-[300px] pr-4">
-                  <div className="space-y-2">
-                    {historyRecords.map((record) => (
-                      <button
-                        key={record.id}
-                        onClick={() => handleSelectHistory(record)}
-                        className="w-full p-3 rounded-lg bg-secondary/30 border border-border/30 hover:border-primary/50 hover:bg-secondary/50 transition-all text-left"
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-medium text-foreground">
-                            {record.config.title}
-                          </span>
-                          <Badge variant="outline" className="text-[10px]">
-                            {messages.common.people(
-                              formatInteger(locale, record.respondents.length),
-                            )}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {formatDate(
-                              locale,
-                              record.savedAt,
-                              historyDateOptions,
-                            )}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Hash className="w-3 h-3" />
-                            {record.id.slice(-8)}
-                          </span>
-                        </div>
-                        <div className="mt-2 flex gap-2">
-                          <Badge className="text-[10px] bg-emerald-500/20 text-emerald-400 border-0">
-                            {messages.analytics.completedCount(
-                              formatInteger(
-                                locale,
-                                record.progress.completedRespondents,
-                              ),
-                            )}
-                          </Badge>
-                          <Badge className="text-[10px] bg-rose-500/20 text-rose-400 border-0">
-                            {messages.analytics.terminatedCount(
-                              formatInteger(
-                                locale,
-                                record.progress.terminatedRespondents,
-                              ),
-                            )}
-                          </Badge>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
-      )}
-
-      {legacyHistoryEnabled && saveError && (
-        <div
-          role="alert"
-          className="mx-3 mt-2 shrink-0 rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive sm:mx-4"
-        >
-          {messages.errors.historySave}
-        </div>
-      )}
-      {legacyHistoryEnabled && historyError && (
-        <div
-          role="alert"
-          className="mx-3 mt-2 shrink-0 rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive sm:mx-4"
-        >
-          {messages.errors.historyLoad}
-        </div>
-      )}
 
       <ScrollArea className="min-h-0 flex-1 p-3 sm:p-4">
         <div className="space-y-5">
@@ -782,11 +491,13 @@ export function AnalyticsPanel({
               <div className="flex items-center gap-2 mb-1.5">
                 <MessageSquare className="w-4 h-4 text-accent" />
                 <span className="text-xs text-muted-foreground">
-                  {messages.analytics.totalDialogs}
+                  {mode === "survey"
+                    ? messages.analytics.totalSurveyAnswers
+                    : messages.analytics.totalInterviewDialogs}
                 </span>
               </div>
               <span className="text-2xl font-bold text-foreground">
-                {formatInteger(locale, totalMessages)}
+                {formatInteger(locale, activityCount)}
               </span>
             </div>
           </div>
@@ -796,7 +507,9 @@ export function AnalyticsPanel({
             <div className="flex items-center justify-between text-xs mb-2">
               <span className="text-muted-foreground flex items-center gap-1.5">
                 <TrendingUp className="w-3.5 h-3.5 text-primary" />
-                {messages.analytics.interviewCompletionRate}
+                {mode === "survey"
+                  ? messages.analytics.surveyCompletionRate
+                  : messages.analytics.interviewCompletionRate}
               </span>
               <span className="text-foreground font-medium">
                 {formatPercentage(locale, completionRatio)}
@@ -842,6 +555,12 @@ export function AnalyticsPanel({
 
             {/* Overview Tab */}
             <TabsContent value="overview" className="mt-4 space-y-4">
+              {roundId && (
+                <ExceptionDrilldown
+                  roundId={roundId}
+                  onFocusRespondent={onFocusRespondent}
+                />
+              )}
               {/* Sentiment Pie Chart */}
               <div className="p-3 rounded-xl bg-secondary/20 border border-border/30">
                 <h3 className="text-xs font-medium text-foreground mb-3 flex items-center gap-1.5">
@@ -909,7 +628,9 @@ export function AnalyticsPanel({
               <div className="p-3 rounded-xl bg-secondary/20 border border-border/30">
                 <h3 className="text-xs font-medium text-foreground mb-3 flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5 text-primary" />
-                  {messages.analytics.interviewStatusDistribution}
+                  {mode === "survey"
+                    ? messages.analytics.surveyStatusDistribution
+                    : messages.analytics.interviewStatusDistribution}
                 </h3>
                 
                 {sessions.length === 0 ? (
@@ -951,6 +672,9 @@ export function AnalyticsPanel({
                   ))}
                 </SelectContent>
               </Select>
+              {analyticsResult && (
+                <AnalysisScopeSummary scope={analyticsResult.scope} mode={mode} />
+              )}
               <div className="space-y-4">
                 <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 space-y-3">
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -1028,7 +752,9 @@ export function AnalyticsPanel({
                   <div className="p-3 rounded-xl bg-secondary/20 border border-border/30 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="text-xs font-medium text-foreground">
-                        {messages.analytics.responseDistribution}
+                        {mode === "survey"
+                          ? messages.analytics.surveyAnswerDistribution
+                          : messages.analytics.interviewDialogDistribution}
                       </h3>
                       <Badge variant="outline" className="text-[10px]">
                         {messages.common.responses(
@@ -1135,11 +861,16 @@ export function AnalyticsPanel({
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-foreground">{group.label}</span>
+                            <div className="flex gap-1">
                             <Badge variant="outline" className="text-[10px]">
                               {messages.common.people(
                                 formatInteger(locale, group.respondentCount),
                               )}
                             </Badge>
+                            <Badge variant="outline" className="text-[10px]">
+                              {messages.analytics.validResponseCount}: {formatInteger(locale, group.validResponseCount)}
+                            </Badge>
+                            </div>
                           </div>
                            {group.responseData.length === 0 ? (
                              <div className="text-[11px] text-muted-foreground">
@@ -1283,7 +1014,7 @@ export function AnalyticsPanel({
                           <th className="p-2">{messages.analytics.respondent}</th>
                           <th className="p-2">{messages.analytics.task}</th>
                           <th className="p-2">{messages.analytics.value}</th>
-                          <th className="p-2">{messages.interview.status}</th>
+                          <th className="p-2">{messages.rounds.status}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1313,8 +1044,6 @@ export function AnalyticsPanel({
                 className={`w-3 h-3 rounded-full ${
                   isRunning
                     ? "bg-emerald-400 animate-pulse"
-                    : viewingHistoryRecord
-                    ? "bg-amber-400"
                     : sessions.length > 0
                     ? "bg-primary"
                     : "bg-muted-foreground"
@@ -1322,11 +1051,13 @@ export function AnalyticsPanel({
               />
               <span className="text-xs text-foreground">
                 {isRunning
-                  ? messages.analytics.surveyRunning
-                  : viewingHistoryRecord
-                  ? messages.analytics.historyViewing
+                  ? mode === "survey"
+                    ? messages.analytics.surveyRunning
+                    : messages.config.interviewRunning
                   : sessions.length > 0
-                  ? messages.analytics.surveyCompleted
+                  ? mode === "survey"
+                    ? messages.analytics.surveyCompleted
+                    : messages.analytics.interviewCompleted
                   : messages.analytics.waitingToStart}
               </span>
             </div>

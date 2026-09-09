@@ -15,6 +15,8 @@ export type SessionStatus =
   | "completed"
   | "terminated_by_respondent"
   | "terminated_by_interviewer"
+  | "failed"
+  | "cancelled"
 export type InferenceKind = "profile" | "attitude"
 export type InferenceTaskStatus = "completed" | "skipped" | "failed"
 
@@ -249,7 +251,10 @@ export interface DialogMessage {
 export interface InterviewSession {
   respondentId: string
   status: SessionStatus
+  terminationCode?: string | null
   terminationReason?: string | null
+  errorCode?: string | null
+  errorMessage?: string | null
   dialog: DialogMessage[]
   completedQuestions: number
   totalQuestions: number
@@ -277,6 +282,9 @@ export interface SurveyProgress {
   inProgressRespondents: number
   terminatedRespondents: number
   currentRespondentIndex: number
+  failedRespondents: number
+  incompleteRespondents: number
+  answeredQuestions: number
 }
 
 export interface SentimentData {
@@ -335,24 +343,6 @@ export interface RoundSnapshot extends RunSnapshot {
   retryKind: "failed" | "incomplete" | null
 }
 
-export interface SurveyHistoryRecord {
-  id: string
-  runId: string
-  mode: SimulationMode
-  locale: Locale
-  savedAt: string
-  config: SurveyConfig
-  sessions: InterviewSession[]
-  respondents: RespondentProfile[]
-  progress: SurveyProgress
-  sentiment: SentimentData
-  questionAnalysis: QuestionAnalysis[]
-  demographicAnalysis: DemographicAnalysis[]
-  inferenceResults: InferenceResult[]
-  inferenceSummary: InferenceSummaryItem[]
-  responses: SurveyResponse[]
-}
-
 export const respondentDimensionKeys = [
   "gender",
   "ageRange",
@@ -373,8 +363,19 @@ export interface DimensionMetadata {
 export interface GroupedQuestionSummary {
   label: string
   respondentCount: number
-  totalResponses: number
+  validResponseCount: number
   analysis: QuestionAnalysis | null
+}
+
+export interface AnalysisScope {
+  populationCount: number
+  filteredRespondentCount: number
+  validResponseCount: number
+  excludedResponseCount: number
+  filters: DimensionFilters
+  groupBy: RespondentDimensionKey[]
+  label: string
+  smallSample: boolean
 }
 
 export interface AnalyticsQuery {
@@ -385,8 +386,62 @@ export interface AnalyticsQuery {
 
 export interface AnalyticsQueryResult {
   dimensionMetadata: DimensionMetadata[]
-  filteredRespondentCount: number
-  totalRespondentCount: number
+  scope: AnalysisScope
   filteredQuestionAnalysis: QuestionAnalysis | null
   groupedQuestionSummaries: GroupedQuestionSummary[]
+}
+
+export interface ExceptionRespondent {
+  respondentId: string
+  profile: RespondentProfile
+  completedQuestions: number
+  totalQuestions: number
+  lastValidAnswer: string | null
+  lastValidAnswerAt: string | null
+  status: SessionStatus
+  reason: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
+export interface ExceptionGroup {
+  status: SessionStatus
+  code: string
+  reason: string
+  count: number
+  respondents: ExceptionRespondent[]
+}
+
+export interface ExceptionReport {
+  roundId: string
+  totalCount: number
+  groups: ExceptionGroup[]
+}
+
+export type ExportFormat = "json" | "csv"
+export type ExportScope = "full" | "filtered" | "exceptions"
+export type ExportStatus = "processing" | "succeeded" | "failed"
+
+export interface ExportRequest {
+  format: ExportFormat
+  scope: ExportScope
+  filename: string
+  filters: DimensionFilters
+}
+
+export interface ExportRecord extends ExportRequest {
+  id: string
+  roundId: string
+  requestedByUserId: string
+  status: ExportStatus
+  createdAt: string
+  finishedAt: string | null
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+export interface ExportDownload {
+  blob: Blob
+  filename: string
+  recordId: string | null
 }

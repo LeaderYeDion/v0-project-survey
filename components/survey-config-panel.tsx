@@ -42,6 +42,7 @@ interface SurveyConfigPanelProps {
   isRunning: boolean
   runDisabled?: boolean
   mode: "interview" | "survey"
+  readOnly?: boolean
 }
 
 export function SurveyConfigPanel({
@@ -51,6 +52,7 @@ export function SurveyConfigPanel({
   isRunning,
   runDisabled = false,
   mode,
+  readOnly = false,
 }: SurveyConfigPanelProps) {
   const { messages } = useI18n()
   const [jsonMode, setJsonMode] = useState(false)
@@ -174,7 +176,10 @@ export function SurveyConfigPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+    <div
+      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+      aria-readonly={readOnly}
+    >
       {/* Header */}
       <div className="flex min-w-0 shrink-0 items-center justify-between gap-2 border-b border-border/50 p-3 sm:p-4">
         <div className="flex min-w-0 items-center gap-2">
@@ -201,6 +206,7 @@ export function SurveyConfigPanel({
           size="sm"
           onClick={() => setJsonMode(!jsonMode)}
           className="text-muted-foreground hover:text-foreground"
+          disabled={readOnly}
         >
           <FileJson className="w-4 h-4 mr-1" />
           {jsonMode ? messages.config.form : messages.common.json}
@@ -208,7 +214,8 @@ export function SurveyConfigPanel({
       </div>
 
       {/* Content */}
-      <ScrollArea className="min-h-0 flex-1 p-3 sm:p-4">
+      <ScrollArea className={readOnly ? "min-h-0 flex-1 p-3 opacity-80 sm:p-4" : "min-h-0 flex-1 p-3 sm:p-4"}>
+        <fieldset disabled={readOnly} className="contents">
         {jsonMode ? (
           <div className="space-y-3">
             <Label
@@ -695,6 +702,7 @@ export function SurveyConfigPanel({
             )}
           </div>
         )}
+        </fieldset>
       </ScrollArea>
 
       {/* Footer */}
@@ -702,7 +710,7 @@ export function SurveyConfigPanel({
         <Button
           className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
           onClick={onStartSimulation}
-          disabled={runDisabled || isRunning || config.questions.length === 0 || totalRespondents === 0}
+          disabled={readOnly || runDisabled || isRunning || config.questions.length === 0 || totalRespondents === 0}
         >
           {isRunning ? (
             <>

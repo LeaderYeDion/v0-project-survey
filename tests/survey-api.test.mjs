@@ -145,6 +145,47 @@ test("auth and owned resource clients use the backend contracts", async () => {
   })
 })
 
+test("round workflow clients use owner-scoped routes and exact retry payloads", async () => {
+  const api = await loadSurveyApi()
+  const originalFetch = globalThis.fetch
+  const originalDocument = globalThis.document
+  const calls = []
+  globalThis.document = { cookie: "survey_csrf=csrf" }
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, init })
+    return jsonResponse({})
+  }
+
+  try {
+    await api.apiListProjectRounds("en-US", "project-1")
+    await api.apiFetchRound("en-US", "round-1")
+    await api.apiPauseRound("en-US", "round-1")
+    await api.apiResumeRound("en-US", "round-1")
+    await api.apiCancelRound("en-US", "round-1")
+    await api.apiRetryRound("en-US", "round-1", "failed")
+    await api.apiCopyRound("en-US", "round-1")
+    await api.apiFetchRoundExceptions("en-US", "round-1")
+  } finally {
+    globalThis.fetch = originalFetch
+    globalThis.document = originalDocument
+  }
+
+  assert.deepEqual(
+    calls.map(call => [call.url, call.init.method]),
+    [
+      ["/survey-api/projects/project-1/rounds", undefined],
+      ["/survey-api/rounds/round-1", undefined],
+      ["/survey-api/rounds/round-1/pause", "POST"],
+      ["/survey-api/rounds/round-1/resume", "POST"],
+      ["/survey-api/rounds/round-1/cancel", "POST"],
+      ["/survey-api/rounds/round-1/retry", "POST"],
+      ["/survey-api/rounds/round-1/copy", "POST"],
+      ["/survey-api/rounds/round-1/exceptions", undefined],
+    ],
+  )
+  assert.deepEqual(JSON.parse(calls[5].init.body), { kind: "failed" })
+})
+
 test("stable API errors preserve code, message, details, and status", async () => {
   const api = await loadSurveyApi()
   const originalFetch = globalThis.fetch

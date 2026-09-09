@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { AuthSessionProvider } from '@/components/auth-session-provider'
 import { messages } from '@/lib/i18n/messages'
 import { getRequestLocale } from '@/lib/i18n/server'
+import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -58,6 +59,7 @@ export default async function RootLayout({
           <LocaleProvider initialLocale={locale}>
             <AuthSessionProvider>
               {children}
+              <Toaster />
               <Analytics />
             </AuthSessionProvider>
           </LocaleProvider>

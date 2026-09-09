@@ -13,8 +13,11 @@ import type {
   RoundSnapshot,
   SaveQuestionnaireDraftInput,
   SurveyConfig,
-  SurveyHistoryRecord,
   SimulationMode,
+  ExceptionReport,
+  ExportDownload,
+  ExportRecord,
+  ExportRequest,
 } from "./survey-contract"
 import type { Locale } from "./i18n/locale"
 
@@ -31,7 +34,7 @@ interface ApiErrorPayload {
 
 interface RequestOptions extends RequestInit {
   csrf?: boolean
-  responseType?: "json" | "blob"
+  responseType?: "json" | "download"
 }
 
 export class SurveyApiError extends Error {
@@ -117,9 +120,16 @@ async function request<T>(
       throw error
     }
     if (response.status === 204) return undefined as T
-    return (responseType === "blob"
-      ? await response.blob()
-      : await response.json()) as T
+    if (responseType === "download") {
+      return {
+        blob: await response.blob(),
+        filename: extractDownloadFilename(
+          response.headers.get("Content-Disposition"),
+        ),
+        recordId: response.headers.get("X-Export-Record-Id"),
+      } as T
+    }
+    return (await response.json()) as T
   } finally {
     outstandingRequests.delete(controller)
     callerSignal?.removeEventListener("abort", abortFromCaller)
@@ -237,35 +247,63 @@ export function apiCancelRound(locale: Locale, roundId: string): Promise<RoundSn
   return request(locale, `/rounds/${roundId}/cancel`, { method: "POST" })
 }
 
+export function apiPauseRound(locale: Locale, roundId: string): Promise<RoundSnapshot> {
+  return request(locale, `/rounds/${roundId}/pause`, { method: "POST" })
+}
+
+export function apiResumeRound(locale: Locale, roundId: string): Promise<RoundSnapshot> {
+  return request(locale, `/rounds/${roundId}/resume`, { method: "POST" })
+}
+
+export function apiRetryRound(
+  locale: Locale,
+  roundId: string,
+  kind: "failed" | "incomplete",
+): Promise<RoundSnapshot> {
+  return request(locale, `/rounds/${roundId}/retry`, {
+    method: "POST",
+    body: JSON.stringify({ kind }),
+  })
+}
+
+export function apiCopyRound(locale: Locale, roundId: string): Promise<Questionnaire> {
+  return request(locale, `/rounds/${roundId}/copy`, { method: "POST" })
+}
+
+export function apiFetchRoundExceptions(
+  locale: Locale,
+  roundId: string,
+  signal?: AbortSignal,
+): Promise<ExceptionReport> {
+  return request(locale, `/rounds/${roundId}/exceptions`, { signal })
+}
+
+export function apiListRoundExports(
+  locale: Locale,
+  roundId: string,
+  signal?: AbortSignal,
+): Promise<ExportRecord[]> {
+  return request(locale, `/rounds/${roundId}/exports`, { signal })
+}
+
+export function apiExportRound(
+  locale: Locale,
+  roundId: string,
+  input: ExportRequest,
+): Promise<ExportDownload> {
+  return request(locale, `/rounds/${roundId}/exports`, {
+    method: "POST",
+    body: JSON.stringify(input),
+    responseType: "download",
+  })
+}
+
 export function apiFetchDefaultTemplate(
   locale: Locale,
   mode: SimulationMode = "survey",
   signal?: AbortSignal,
 ): Promise<SurveyConfig> {
   return request(locale, `/templates/default?mode=${mode}`, { signal })
-}
-
-export const apiFetchRun = apiFetchRound
-export const apiCancelRun = apiCancelRound
-
-export function apiSaveRunToHistory(
-  _locale: Locale,
-  _runId: string,
-): Promise<SurveyHistoryRecord> {
-  return Promise.reject(legacyHistoryDisabledError())
-}
-
-export function apiFetchSurveyHistory(
-  _locale: Locale,
-): Promise<SurveyHistoryRecord[]> {
-  return Promise.reject(legacyHistoryDisabledError())
-}
-
-export function apiFetchSurveyHistoryById(
-  _locale: Locale,
-  _id: string,
-): Promise<SurveyHistoryRecord> {
-  return Promise.reject(legacyHistoryDisabledError())
 }
 
 export function apiQueryRunAnalytics(
@@ -281,33 +319,15 @@ export function apiQueryRunAnalytics(
   })
 }
 
-export function apiQueryHistoryAnalytics(
-  _locale: Locale,
-  _historyId: string,
-  _query: AnalyticsQuery,
-  _signal?: AbortSignal,
-): Promise<AnalyticsQueryResult> {
-  return Promise.reject(legacyHistoryDisabledError())
-}
-
-export async function apiExportSurveyResults(
-  locale: Locale,
-  source: { type: "run" | "history"; id: string },
-  format: "json" | "csv",
-): Promise<Blob> {
-  if (source.type === "history") {
-    return Promise.reject(legacyHistoryDisabledError())
+function extractDownloadFilename(contentDisposition: string | null): string {
+  if (!contentDisposition) return "research-export"
+  const encoded = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded)
+    } catch {
+      // Fall through to the ASCII header value.
+    }
   }
-  return request(locale, `/rounds/${source.id}/exports`, {
-    method: "POST",
-    body: JSON.stringify({ format, scope: "full", filename: "survey-results" }),
-    responseType: "blob",
-  })
-}
-
-function legacyHistoryDisabledError(): SurveyApiError {
-  return new SurveyApiError(410, {
-    code: "LEGACY_HISTORY_DISABLED",
-    message: "Legacy history endpoints are disabled",
-  })
+  return contentDisposition.match(/filename="?([^";]+)"?/i)?.[1] ?? "research-export"
 }

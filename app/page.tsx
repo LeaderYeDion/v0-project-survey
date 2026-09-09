@@ -33,7 +33,6 @@ import {
   type SurveyConfig,
   type SurveyProgress,
   type SentimentData,
-  type SurveyHistoryRecord,
   type RoundSnapshot,
   type SimulationMode,
   type Project,
@@ -42,7 +41,12 @@ import {
   type CreateQuestionnaireInput,
   apiCreateRound,
   apiFetchRound,
-  apiExportSurveyResults,
+  apiListProjectRounds,
+  apiPauseRound,
+  apiResumeRound,
+  apiCancelRound,
+  apiRetryRound,
+  apiCopyRound,
   apiListProjects,
   apiCreateProject,
   apiListQuestionnaires,
@@ -63,6 +67,14 @@ import {
   createDraftSaveQueue,
   type DraftSaveJob,
 } from "@/lib/draft-save-queue"
+import { RunControlBar } from "@/components/run-control-bar"
+import { RoundHistoryDialog } from "@/components/round-history-dialog"
+import {
+  createRunMutationGuard,
+  mergePolledRoundSnapshot,
+  shouldPollRound,
+  type RunAction,
+} from "@/lib/run-actions"
 
 type Workspace = "config" | "results" | "analytics"
 
@@ -85,6 +97,9 @@ const EMPTY_PROGRESS: SurveyProgress = {
   inProgressRespondents: 0,
   terminatedRespondents: 0,
   currentRespondentIndex: 0,
+  failedRespondents: 0,
+  incompleteRespondents: 0,
+  answeredQuestions: 0,
 }
 
 const EMPTY_SENTIMENT: SentimentData = {
@@ -103,7 +118,17 @@ export default function ResearcherDashboard() {
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace>("config")
   const [configSheetOpen, setConfigSheetOpen] = useState(false)
   const [analyticsSheetOpen, setAnalyticsSheetOpen] = useState(false)
-  const [viewingHistoryRecord, setViewingHistoryRecord] = useState<SurveyHistoryRecord | null>(null)
+  const [viewingHistoryRound, setViewingHistoryRound] = useState<RoundSnapshot | null>(null)
+  const [roundHistory, setRoundHistory] = useState<RoundSnapshot[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const [copyingRoundId, setCopyingRoundId] = useState<string | null>(null)
+  const [pendingRunAction, setPendingRunAction] = useState<RunAction | null>(null)
+  const [runFeedback, setRunFeedback] = useState<{
+    kind: "success" | "error"
+    message: string
+  } | null>(null)
+  const [focusedRespondentId, setFocusedRespondentId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [questionnaires, setQuestionnaires] = useState<Questionnaire[]>([])
   const [projectId, setProjectId] = useState<string | null>(null)
@@ -120,6 +145,7 @@ export default function ResearcherDashboard() {
   const revisionByQuestionnaireRef = useRef(new Map<string, number>())
   const configRef = useRef(config)
   const questionnaireIdRef = useRef(questionnaireId)
+  const runMutationGuardRef = useRef(createRunMutationGuard())
   const performDraftSaveRef = useRef(
     async (_job: QuestionnaireDraftSaveJob): Promise<void> => {},
   )
@@ -134,10 +160,7 @@ export default function ResearcherDashboard() {
   configRef.current = config
   questionnaireIdRef.current = questionnaireId
 
-  const isRunning =
-    currentRun?.status === "queued" ||
-    currentRun?.status === "running" ||
-    currentRun?.status === "pausing"
+  const isRunning = currentRun ? shouldPollRound(currentRun.status) : false
 
   const isSurveyConfigValid = (candidate: SurveyConfig) =>
     candidate.title.trim().length > 0 &&
@@ -174,7 +197,8 @@ export default function ResearcherDashboard() {
     setSaveStatus("saved")
     persistedConfigRef.current = JSON.stringify(questionnaire.config)
     setCurrentRun(null)
-    setViewingHistoryRecord(null)
+    setViewingHistoryRound(null)
+    setFocusedRespondentId(null)
   }, [])
 
   useEffect(() => {
@@ -266,9 +290,19 @@ export default function ResearcherDashboard() {
       if (error instanceof SurveyApiError && error.code === "DRAFT_CONFLICT") {
         setSaveStatus("conflicted")
         if (window.confirm(messages.resources.draftConflict)) {
-          const serverDraft = await apiGetQuestionnaire(job.locale, job.resourceId)
-          if (questionnaireIdRef.current === job.resourceId) {
-            applyQuestionnaire(serverDraft)
+          try {
+            const serverDraft = await apiGetQuestionnaire(job.locale, job.resourceId)
+            if (questionnaireIdRef.current === job.resourceId) {
+              applyQuestionnaire(serverDraft)
+            }
+          } catch (reloadError) {
+            if (
+              questionnaireIdRef.current === job.resourceId &&
+              !(reloadError instanceof DOMException && reloadError.name === "AbortError")
+            ) {
+              setSaveStatus("conflicted")
+              setResourceError(true)
+            }
           }
         }
       } else if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -303,18 +337,24 @@ export default function ResearcherDashboard() {
   ])
 
   useEffect(() => {
-    if (!currentRun || !isRunning) return
+    if (!currentRun || !shouldPollRound(currentRun.status)) return
     const controller = new AbortController()
+    const polledRoundId = currentRun.id
     const timer = window.setInterval(async () => {
       try {
         const next = await apiFetchRound(locale, currentRun.id, controller.signal)
-        setCurrentRun(next)
-        if (!["queued", "running"].includes(next.status)) {
+        setCurrentRun(current =>
+          mergePolledRoundSnapshot(current, next, polledRoundId),
+        )
+        if (!shouldPollRound(next.status)) {
           window.clearInterval(timer)
         }
       } catch (error) {
         if (!controller.signal.aborted) {
-          console.error("Polling error:", error)
+          const code = error instanceof SurveyApiError ? error.code : "SURVEY_API_ERROR"
+          const message = messages.apiErrors[code as keyof typeof messages.apiErrors] ??
+            messages.errors.polling
+          setRunFeedback({ kind: "error", message })
           window.clearInterval(timer)
         }
       }
@@ -323,49 +363,41 @@ export default function ResearcherDashboard() {
       controller.abort()
       window.clearInterval(timer)
     }
-  }, [currentRun?.id, isRunning, locale])
+  }, [currentRun?.id, currentRun?.status, locale, messages.apiErrors, messages.errors.polling])
 
-  const displaySessions =
-    viewingHistoryRecord?.sessions ?? currentRun?.sessions ?? []
-  const displayRespondents =
-    viewingHistoryRecord?.respondents ?? currentRun?.respondents ?? []
-  const displayProgress =
-    viewingHistoryRecord?.progress ?? currentRun?.progress ?? EMPTY_PROGRESS
-  const displaySentiment =
-    viewingHistoryRecord?.sentiment ?? currentRun?.sentiment ?? EMPTY_SENTIMENT
-  const displayQuestionAnalysis =
-    viewingHistoryRecord?.questionAnalysis ?? currentRun?.questionAnalysis ?? []
-  const displayDemographicAnalysis =
-    viewingHistoryRecord?.demographicAnalysis ??
-    currentRun?.demographicAnalysis ??
-    []
-  const displayQuestions = viewingHistoryRecord ? viewingHistoryRecord.config.questions : config.questions
-  const displayConfig = viewingHistoryRecord ? viewingHistoryRecord.config : config
-  const displayResponses =
-    viewingHistoryRecord?.responses ?? currentRun?.responses ?? []
-  const displayInferenceResults =
-    viewingHistoryRecord?.inferenceResults ?? currentRun?.inferenceResults ?? []
-  const displayInferenceSummary =
-    viewingHistoryRecord?.inferenceSummary ?? currentRun?.inferenceSummary ?? []
-  const displaySource = viewingHistoryRecord
-    ? { type: "history" as const, id: viewingHistoryRecord.id }
-    : currentRun
-      ? { type: "run" as const, id: currentRun.id }
-      : null
+  const displayRound = viewingHistoryRound ?? currentRun
+  const displaySessions = displayRound?.sessions ?? []
+  const displayRespondents = displayRound?.respondents ?? []
+  const displayProgress = displayRound?.progress ?? EMPTY_PROGRESS
+  const displaySentiment = displayRound?.sentiment ?? EMPTY_SENTIMENT
+  const displayQuestionAnalysis = displayRound?.questionAnalysis ?? []
+  const displayDemographicAnalysis = displayRound?.demographicAnalysis ?? []
+  const displayQuestions = displayRound?.config.questions ?? config.questions
+  const displayConfig = displayRound?.config ?? config
+  const displayResponses = displayRound?.responses ?? []
+  const displayInferenceResults = displayRound?.inferenceResults ?? []
+  const displayInferenceSummary = displayRound?.inferenceSummary ?? []
+
+  const localizedApiError = useCallback((error: unknown) => {
+    const code = error instanceof SurveyApiError ? error.code : "SURVEY_API_ERROR"
+    return messages.apiErrors[code as keyof typeof messages.apiErrors] ??
+      (error instanceof Error ? error.message : messages.apiErrors.SURVEY_API_ERROR)
+  }, [messages.apiErrors])
 
   const runSimulation = useCallback(async () => {
     if (runDisabled || !questionnaireId) return
 
     setActiveWorkspace("results")
     setConfigSheetOpen(false)
-    setViewingHistoryRecord(null)
+    setViewingHistoryRound(null)
+    setRunFeedback(null)
 
     try {
       setCurrentRun(await apiCreateRound(locale, questionnaireId))
     } catch (error) {
-      console.error("Simulation error:", error)
+      setRunFeedback({ kind: "error", message: localizedApiError(error) })
     }
-  }, [locale, questionnaireId, runDisabled])
+  }, [locale, localizedApiError, questionnaireId, runDisabled])
 
   const handleProjectChange = useCallback((nextProjectId: string) => {
     abortOutstandingSurveyRequests()
@@ -376,7 +408,7 @@ export default function ResearcherDashboard() {
     setConfig(EMPTY_CONFIG)
     setSaveStatus("idle")
     setCurrentRun(null)
-    setViewingHistoryRecord(null)
+    setViewingHistoryRound(null)
   }, [])
 
   const handleQuestionnaireChange = useCallback((nextQuestionnaireId: string) => {
@@ -386,7 +418,7 @@ export default function ResearcherDashboard() {
     setQuestionnaireId(nextQuestionnaireId)
     setSaveStatus("idle")
     setCurrentRun(null)
-    setViewingHistoryRecord(null)
+    setViewingHistoryRound(null)
   }, [])
 
   const handleCreateProject = useCallback(async (input: CreateProjectInput) => {
@@ -403,44 +435,93 @@ export default function ResearcherDashboard() {
     lockLocale()
   }, [applyQuestionnaire, locale, lockLocale, projectId])
 
-  const handleExport = useCallback(
-    async (format: "json" | "csv") => {
-      if (!displaySource) return
-      try {
-        const blob = await apiExportSurveyResults(locale, displaySource, format)
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = `survey-results.${format}`
-        a.click()
-        URL.revokeObjectURL(url)
-      } catch (error) {
-        console.error("Export error:", error)
-      }
-    },
-    [displaySource, locale]
-  )
-
   const handleSelectRespondent = useCallback((id: string) => {
-    // Could be used for additional actions
+    setFocusedRespondentId(id)
+    setActiveWorkspace("results")
+    setAnalyticsSheetOpen(false)
   }, [])
 
-  const handleLoadHistory = useCallback((record: SurveyHistoryRecord) => {
-    setViewingHistoryRecord(record)
-  }, [])
+  const loadRoundHistory = useCallback(async () => {
+    if (!projectId) return
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      setRoundHistory(await apiListProjectRounds(locale, projectId))
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setHistoryError(localizedApiError(error))
+      }
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [locale, localizedApiError, projectId])
 
-  const handleReturnToCurrent = useCallback(() => {
-    setViewingHistoryRecord(null)
-  }, [])
+  const handleSelectRound = useCallback(async (roundId: string) => {
+    setHistoryError(null)
+    try {
+      const snapshot = await apiFetchRound(locale, roundId)
+      setViewingHistoryRound(snapshot)
+      setMode(snapshot.mode)
+      setFocusedRespondentId(null)
+      setActiveWorkspace("results")
+    } catch (error) {
+      setHistoryError(localizedApiError(error))
+    }
+  }, [locale, localizedApiError])
+
+  const handleCopyRound = useCallback(async (roundId: string) => {
+    if (copyingRoundId) return
+    setCopyingRoundId(roundId)
+    setHistoryError(null)
+    try {
+      const copied = await apiCopyRound(locale, roundId)
+      setQuestionnaires(current => [copied, ...current.filter(item => item.id !== copied.id)])
+      applyQuestionnaire(copied)
+      lockLocale()
+    } catch (error) {
+      setHistoryError(localizedApiError(error))
+    } finally {
+      setCopyingRoundId(null)
+    }
+  }, [applyQuestionnaire, copyingRoundId, locale, localizedApiError, lockLocale])
+
+  const handleRunAction = useCallback(async (action: RunAction) => {
+    if (!displayRound || runMutationGuardRef.current.pendingAction() !== null) return
+    setPendingRunAction(action)
+    setRunFeedback(null)
+    try {
+      const next = await runMutationGuardRef.current.run(action, async () => {
+        if (action === "pause") return apiPauseRound(locale, displayRound.id)
+        if (action === "resume") return apiResumeRound(locale, displayRound.id)
+        if (action === "cancel") return apiCancelRound(locale, displayRound.id)
+        return apiRetryRound(
+          locale,
+          displayRound.id,
+          action === "retry_failed" ? "failed" : "incomplete",
+        )
+      })
+      if (!next) return
+      setCurrentRun(next)
+      setViewingHistoryRound(null)
+      setMode(next.mode)
+      setRoundHistory(current => [next, ...current.filter(item => item.id !== next.id)])
+      setRunFeedback({ kind: "success", message: messages.rounds.actionSucceeded })
+    } catch (error) {
+      setRunFeedback({ kind: "error", message: localizedApiError(error) })
+    } finally {
+      setPendingRunAction(null)
+    }
+  }, [displayRound, locale, localizedApiError, messages.rounds.actionSucceeded])
 
   const configPanel = (
     <SurveyConfigPanel
-      config={config}
-      onConfigChange={setConfig}
+      config={displayConfig}
+      onConfigChange={viewingHistoryRound ? () => {} : setConfig}
       onStartSimulation={runSimulation}
-      isRunning={isRunning}
-      runDisabled={runDisabled}
+      isRunning={isRunning && !viewingHistoryRound}
+      runDisabled={runDisabled || Boolean(viewingHistoryRound)}
       mode={mode}
+      readOnly={Boolean(viewingHistoryRound)}
     />
   )
 
@@ -451,6 +532,7 @@ export default function ResearcherDashboard() {
         respondents={displayRespondents}
         isRunning={isRunning}
         currentRespondentId={currentRun?.activeRespondentId ?? null}
+        focusedRespondentId={focusedRespondentId}
         inferenceResults={displayInferenceResults}
         onSelectRespondent={handleSelectRespondent}
       />
@@ -462,12 +544,14 @@ export default function ResearcherDashboard() {
         questions={displayQuestions}
         questionAnalysis={displayQuestionAnalysis}
         responses={displayResponses}
-        isRunning={isRunning && !viewingHistoryRecord}
+        isRunning={isRunning && !viewingHistoryRound}
+        focusedRespondentId={focusedRespondentId}
       />
     )
 
   const analyticsPanel = (
     <AnalyticsPanel
+      mode={mode}
       progress={displayProgress}
       sentiment={displaySentiment}
       sessions={displaySessions}
@@ -477,14 +561,9 @@ export default function ResearcherDashboard() {
       demographicAnalysis={displayDemographicAnalysis}
       inferenceResults={displayInferenceResults}
       inferenceSummary={displayInferenceSummary}
-      config={displayConfig}
-      onExport={handleExport}
       isRunning={isRunning}
-      onLoadHistory={handleLoadHistory}
-      onReturnToCurrent={handleReturnToCurrent}
-      viewingHistoryRecord={viewingHistoryRecord}
-      source={displaySource}
-      legacyHistoryEnabled={false}
+      roundId={displayRound?.id ?? null}
+      onFocusRespondent={handleSelectRespondent}
     />
   )
 
@@ -576,7 +655,7 @@ export default function ResearcherDashboard() {
                   className={`w-2 h-2 rounded-full ${
                     isRunning 
                       ? "bg-emerald-400 animate-pulse" 
-                      : viewingHistoryRecord 
+                      : viewingHistoryRound
                       ? "bg-amber-400"
                       : "bg-muted-foreground"
                   }`}
@@ -584,7 +663,7 @@ export default function ResearcherDashboard() {
                 <span className="text-xs text-muted-foreground">
                   {isRunning
                     ? messages.dashboard.running
-                    : viewingHistoryRecord
+                    : viewingHistoryRound
                       ? messages.dashboard.viewingHistory
                       : messages.dashboard.idle}
                 </span>
@@ -614,6 +693,35 @@ export default function ResearcherDashboard() {
                 <span role={saveStatus === "failed" || saveStatus === "conflicted" ? "alert" : "status"} className="text-xs text-muted-foreground">
                   {saveLabel}
                 </span>
+              )}
+              <RoundHistoryDialog
+                rounds={roundHistory}
+                questionnaires={questionnaires}
+                selectedRound={viewingHistoryRound}
+                loading={historyLoading}
+                error={historyError}
+                copyingRoundId={copyingRoundId}
+                onRefresh={() => void loadRoundHistory()}
+                onSelectRound={roundId => void handleSelectRound(roundId)}
+                onCopyRound={roundId => void handleCopyRound(roundId)}
+              />
+              {viewingHistoryRound && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setViewingHistoryRound(null)
+                    setMode(
+                      currentRun?.mode ??
+                        questionnaires.find(item => item.id === questionnaireId)?.mode ??
+                        mode,
+                    )
+                    setFocusedRespondentId(null)
+                  }}
+                >
+                  {messages.analytics.returnToCurrent}
+                </Button>
               )}
             </div>
           )}
@@ -647,6 +755,13 @@ export default function ResearcherDashboard() {
           </nav>
         )}
       </header>
+
+      <RunControlBar
+        round={displayRound}
+        pendingAction={pendingRunAction}
+        feedback={runFeedback}
+        onAction={action => void handleRunAction(action)}
+      />
 
       <main className="relative z-10 min-h-0 min-w-0 flex-1 overflow-hidden">
         {resourceError && (

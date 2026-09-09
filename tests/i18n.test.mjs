@@ -506,15 +506,14 @@ test("survey result panel state is not keyed or reset when locale changes", asyn
   }
 })
 
-test("analytics and history use the locale catalog and presentation formatters", async () => {
+test("analytics and durable round history use locale presentation formatters", async () => {
   const analytics = await readSource("../components/analytics-panel.tsx")
+  const history = await readSource("../components/round-history-dialog.tsx")
 
   assert.match(analytics, /const \{ locale, messages \} = useI18n\(\)/)
-  assert.match(
-    analytics,
-    /formatDate\(\s*locale,\s*viewingHistoryRecord\.savedAt,/,
-  )
-  assert.match(analytics, /formatDate\(\s*locale,\s*record\.savedAt,/)
+  assert.match(history, /const \{ locale, messages \} = useI18n\(\)/)
+  assert.match(history, /formatDate\(locale, round\.createdAt,/)
+  assert.match(history, /formatDate\(locale, record\.finishedAt \?\? record\.createdAt,/)
   assert.match(analytics, /formatInteger\(locale,\s*progress\.totalRespondents\)/)
   assert.match(analytics, /formatPercentage\(\s*locale,/)
   assert.match(
@@ -537,14 +536,15 @@ test("analytics API calls propagate the current locale", async () => {
 
   assert.match(
     analytics,
-    /apiQueryRunAnalytics\(locale,\s*source\.id,\s*query\)/,
+    /apiQueryRunAnalytics\(locale,\s*roundId,\s*query\)/,
   )
-  assert.match(analytics, /apiFetchSurveyHistory\(locale\)/)
-  assert.match(analytics, /apiSaveRunToHistory\(locale,\s*source\.id\)/)
-  assert.doesNotMatch(analytics, /apiQueryHistoryAnalytics/)
+  assert.doesNotMatch(
+    analytics,
+    /apiFetchSurveyHistory|apiSaveRunToHistory|apiQueryHistoryAnalytics/,
+  )
   assert.match(
     analytics,
-    /\[[^\]]*source\?\.type[\s\S]*?\blocale\b[^\]]*\]\)/,
+    /\[[^\]]*roundId[\s\S]*?\blocale\b[^\]]*\]\)/,
   )
 })
 
@@ -640,7 +640,7 @@ test("analytics results and metadata are synchronously keyed to query and source
 
   assert.match(
     analytics,
-    /const currentSourceKey = createAnalyticsSourceKey\(source\)/,
+    /const currentSourceKey = createAnalyticsSourceKey\([\s\S]*?type: "round", id: roundId/,
   )
   assert.match(
     analytics,
@@ -658,45 +658,16 @@ test("analytics results and metadata are synchronously keyed to query and source
   )
 })
 
-test("legacy history UI stays localized but is explicitly disabled", async () => {
+test("legacy history write model is removed and durable round history is owner scoped", async () => {
   const analytics = await readSource("../components/analytics-panel.tsx")
+  const history = await readSource("../components/round-history-dialog.tsx")
+  const api = await readSource("../lib/survey-api.ts")
 
-  assert.match(analytics, /createLatestRequestTracker/)
-  assert.match(analytics, /legacyHistoryEnabled = false/)
-  assert.match(analytics, /if \(!legacyHistoryEnabled\) return/)
-  assert.match(
-    analytics,
-    /const requestId = historyRequestTracker\.begin\(\)/,
-  )
-  assert.match(
-    analytics,
-    /historyRequestTracker\.isLatest\(requestId\)/,
-  )
-  assert.match(
-    analytics,
-    /catch \(error\) \{[\s\S]*?setHistoryError\(true\)/,
-  )
-  assert.match(
-    analytics,
-    /catch \(error\) \{[\s\S]*?setSaveError\(true\)/,
-  )
-  assert.match(
-    analytics,
-    /role="status"[\s\S]*?messages\.analytics\.loadingHistory/,
-  )
-  assert.match(
-    analytics,
-    /role="alert"[\s\S]*?messages\.errors\.historyLoad/,
-  )
-  assert.match(
-    analytics,
-    /role="alert"[\s\S]*?messages\.errors\.historySave/,
-  )
-  assert.match(
-    analytics,
-    /\{legacyHistoryEnabled && historyError && \([\s\S]*?messages\.errors\.historyLoad[\s\S]*?\)\}[\s\S]*?<ScrollArea/,
-  )
-  assert.match(analytics, /isSaving[\s\S]*?messages\.analytics\.savingSurvey/)
+  assert.doesNotMatch(analytics, /legacyHistoryEnabled|apiSaveRunToHistory|SurveyHistoryRecord/)
+  assert.doesNotMatch(api, /apiSaveRunToHistory|apiFetchSurveyHistory|LEGACY_HISTORY_DISABLED/)
+  assert.match(history, /apiListRoundExports\(locale, selectedRound\.id/)
+  assert.match(history, /selectedRound\.config/)
+  assert.match(history, /onCopyRound\(selectedRound\.id\)/)
 })
 
 test("analytics preserves backend-provided labels, questions, groups, and answers", async () => {
@@ -735,12 +706,11 @@ test("analytics contains no fixed Han-script UI literals beyond its backend prot
 
 test("analytics dialogs and charts use their accessibility wrappers correctly", async () => {
   const analytics = await readSource("../components/analytics-panel.tsx")
+  const exportDialog = await readSource("../components/export-dialog.tsx")
+  const historyDialog = await readSource("../components/round-history-dialog.tsx")
 
-  assert.match(analytics, /DialogDescription/)
-  assert.match(
-    analytics,
-    /<DialogDescription[^>]*>[\s\S]*?messages\.analytics\.historyDescription[\s\S]*?<\/DialogDescription>/,
-  )
+  assert.match(exportDialog, /DialogDescription/)
+  assert.match(historyDialog, /DialogDescription/)
   assert.doesNotMatch(
     analytics,
     /<ChartContainer[\s\S]*?<ResponsiveContainer[\s\S]*?<\/ResponsiveContainer>[\s\S]*?<\/ChartContainer>/,
@@ -754,7 +724,6 @@ test("analytics state is not keyed or reset when locale changes", async () => {
   for (const initializer of [
     /\[selectedQuestion,\s*setSelectedQuestion\] = useState<string>/,
     /\[selectedDemographic,\s*setSelectedDemographic\] = useState<string>\("city"\)/,
-    /\[historyDialogOpen,\s*setHistoryDialogOpen\] = useState\(false\)/,
     /\[dimensionFilters,\s*setDimensionFilters\] = useState<DimensionFilters>\(\{\}\)/,
     /\[groupByDimensions,\s*setGroupByDimensions\] = useState<RespondentDimensionKey\[]>\(\[\]\)/,
   ]) {
@@ -768,7 +737,7 @@ test("analytics state is not keyed or reset when locale changes", async () => {
   for (const effect of localeEffects) {
     assert.doesNotMatch(
       effect,
-      /setSelectedQuestion|setSelectedDemographic|setHistoryDialogOpen|setDimensionFilters|setGroupByDimensions|onReturnToCurrent/,
+      /setSelectedQuestion|setSelectedDemographic|setDimensionFilters|setGroupByDimensions/,
     )
   }
 })
@@ -870,6 +839,38 @@ test("owned workspace and application-session messages exist in both locales", (
   }
   assert.doesNotMatch(messages["en-US"].auth.instructions, /shared credentials/i)
   assert.doesNotMatch(messages["zh-CN"].auth.instructions, /共享账号/)
+})
+
+test("round workflow messages and stable API error codes exist in both locales", () => {
+  const stableCodes = [
+    "INVALID_RUN_TRANSITION",
+    "RUN_INTERRUPTED_BY_RESTART",
+    "NO_RETRYABLE_RESPONDENTS",
+    "CONFIG_VERSION_UNSUPPORTED",
+    "EXPORT_SCOPE_EMPTY",
+    "EXPORT_GENERATION_FAILED",
+    "STORAGE_UNAVAILABLE",
+  ]
+
+  for (const locale of ["zh-CN", "en-US"]) {
+    const catalog = messages[locale]
+    for (const key of [
+      "pause",
+      "resume",
+      "cancel",
+      "retryFailed",
+      "retryIncomplete",
+      "history",
+      "copy",
+      "export",
+      "exceptions",
+    ]) {
+      assert.equal(typeof catalog.rounds[key], "string", `${locale}: rounds.${key}`)
+    }
+    for (const code of stableCodes) {
+      assert.equal(typeof catalog.apiErrors[code], "string", `${locale}: ${code}`)
+    }
+  }
 })
 
 test("superseded login requests stay invalid after switching back to their locale", async () => {

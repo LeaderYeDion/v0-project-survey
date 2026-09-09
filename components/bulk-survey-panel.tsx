@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import {
   Users,
@@ -45,6 +45,7 @@ interface BulkSurveyPanelProps {
   questionAnalysis: QuestionAnalysis[]
   responses: SurveyResponse[]
   isRunning: boolean
+  focusedRespondentId: string | null
 }
 
 export function BulkSurveyPanel({
@@ -55,6 +56,7 @@ export function BulkSurveyPanel({
   questionAnalysis,
   responses,
   isRunning,
+  focusedRespondentId,
 }: BulkSurveyPanelProps) {
   const { locale, messages } = useI18n()
   const completedCount = sessions.filter(s => s.status === "completed").length
@@ -73,6 +75,17 @@ export function BulkSurveyPanel({
   const [currentResponseIndex, setCurrentResponseIndex] = useState(0)
   const [showQuestionStats, setShowQuestionStats] = useState(true)
   const [showResponseDetail, setShowResponseDetail] = useState(true)
+
+  useEffect(() => {
+    if (!focusedRespondentId) return
+    const index = responses.findIndex(
+      response => response.respondentId === focusedRespondentId,
+    )
+    if (index >= 0) {
+      setCurrentResponseIndex(index)
+      setShowResponseDetail(true)
+    }
+  }, [focusedRespondentId, responses])
 
   const currentResponse =
     responses.length > 0 ? responses[currentResponseIndex] : null

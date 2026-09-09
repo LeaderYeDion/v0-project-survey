@@ -15,6 +15,7 @@ interface ChatSimulationPanelProps {
   respondents: RespondentProfile[]
   isRunning: boolean
   currentRespondentId: string | null
+  focusedRespondentId: string | null
   inferenceResults: InferenceResult[]
   onSelectRespondent: (id: string) => void
 }
@@ -26,6 +27,7 @@ export function ChatSimulationPanel({
   respondents,
   isRunning,
   currentRespondentId,
+  focusedRespondentId,
   inferenceResults,
   onSelectRespondent
 }: ChatSimulationPanelProps) {
@@ -41,6 +43,12 @@ export function ChatSimulationPanel({
       setMobileView("conversation")
     }
   }, [currentRespondentId, selectedRespondentId])
+
+  useEffect(() => {
+    if (!focusedRespondentId) return
+    setSelectedRespondentId(focusedRespondentId)
+    setMobileView("conversation")
+  }, [focusedRespondentId])
 
   const selectedRespondent = respondents.find(r => r.id === selectedRespondentId)
   const selectedSession = sessions.find(s => s.respondentId === selectedRespondentId)
