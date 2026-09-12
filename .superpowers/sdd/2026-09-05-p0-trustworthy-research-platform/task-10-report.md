@@ -169,6 +169,29 @@ git diff --check: exit 0
 
 The build retained the known custom-Babel and skipped built-in type-validation warnings; the independent typecheck passed. Docker/live/browser acceptance was not rerun and remains pending because this documentation/hardening review did not establish a ready daemon.
 
+## Review-fix round 2
+
+Review against commit `dd4c305` found that the RUNBOOK's auth-safe inline health snippet sourced a Bash helper directly. That fails when pasted into macOS's default zsh because `common.sh` resolves itself through Bash-only `BASH_SOURCE`. It also found a remaining TROUBLESHOOTING sentence that incorrectly said `docker:status` checked the Compose project/database target.
+
+The health-command correction followed a test-first RED/GREEN cycle. The focused command was:
+
+```text
+node --test --test-name-pattern='docker health check runs from zsh' deploy/tests/deployment-contract.test.mjs
+```
+
+Before implementation it failed 0/1 with the expected `npm error Missing script: "docker:health"`. The minimal implementation added executable `deploy/scripts/check-health.sh` and mapped `npm run docker:health` to an explicit Bash invocation. The real behavior test launches that npm command from `/bin/zsh`, uses a private outer-auth fixture and fake curl boundary, and verifies all of the following:
+
+- the health endpoint is requested with fail/show-error and bounded timeout options;
+- the outer-auth password is absent from curl argv;
+- the generated curl config contains the credentials and is mode 600;
+- the temporary config is absent after the command exits.
+
+The final focused run passed 1/1 (906.390 ms). The complete deployment suite then passed 43/43 (1550.376 ms). Shell syntax and package JSON parsing exited 0. The 10-file Markdown structure/local-link check, focused review-contract scan, and `git diff --check` also exited 0.
+
+The RUNBOOK now exposes only `npm run docker:health` for the auth-safe path and explains why it works when invoked from zsh. The deploy command index includes the new command. RUNBOOK restore and TROUBLESHOOTING now require manual inspection of `COMPOSE_PROJECT_NAME` and `POSTGRES_DB` using a trusted local editor without printing the secret-bearing file; they explicitly state that `docker:status` neither prints nor independently verifies those fields.
+
+This round did not run or claim Docker image, live PostgreSQL, browser, persistence, backup/restore, or public-profile acceptance. Those gates remain pending for the same daemon-readiness limitation documented above.
+
 ## Self-review
 
 - Compared each living claim against current `compose.yaml`, Dockerfiles, entrypoint, npm lifecycle scripts, auth/session code, round recovery code, prior task reports, and the approved design.
@@ -177,10 +200,12 @@ The build retained the known custom-Babel and skipped built-in type-validation w
 - Confirmed deployment commands target current Compose scripts, not the replaced host-PID flow.
 - Confirmed public profile remains optional and application users remain authoritative when outer auth is enabled.
 - Confirmed Playwright was not opened against a nonexistent service; only its `npx` prerequisite and exact future CLI workflow were recorded.
-- Confirmed the initial Task 10 commit changed documentation only; review-fix round 1 changed only the private-file validator and its regression test outside documentation, without changing Dockerfiles, Compose, or product behavior.
+- Confirmed the initial Task 10 commit changed documentation only; review-fix round 1 changed the private-file validator and its regression test; review-fix round 2 added only the zsh-safe health wrapper/npm command and its behavior test outside documentation. Dockerfiles, Compose, and product behavior remain unchanged.
 
 ## Commit
 
 Initial Task 10 commit: `4392974 docs: record P0 verification with live acceptance pending`.
 
-The review-fix commit identifier is provided in the task handoff because adding a commit's own identifier to this tracked report would change that commit.
+Review-fix round 1 commit: `dd4c305 fix: harden P0 verification handoff`.
+
+The review-fix round 2 commit identifier is provided in the task handoff because adding a commit's own identifier to this tracked report would change that commit.

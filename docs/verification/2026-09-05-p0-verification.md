@@ -2,7 +2,7 @@
 
 > 设计基线：2026-09-05
 >
-> 执行日期：2026-09-09（文档收束：2026-09-11）
+> 执行日期：2026-09-09（文档收束：2026-09-11，review-fix：2026-09-12）
 >
 > 分支：`real-backend-v1`
 >
@@ -54,7 +54,7 @@ command -v npx
 | `npm run test:frontend` | PASS | 114 passed；Node 312.665 ms；wall 0.49 s | action/race/API/UI 源契约等；非真实浏览器 |
 | `npm run typecheck` | PASS | exit 0；wall 0.71 s | `tsc --noEmit` |
 | `npm run build` | PASS（批准的外部重跑） | compile 2.5 s；5/5 static pages；wall 3.86 s | 见构建环境与警告 |
-| `node --test deploy/tests/*.test.mjs` | PASS | 42 passed；Node 2.260 s；wall 2.30 s | 2026-09-11 review-fix 复验；Compose/Dockerfile/脚本契约和 stubbed 脚本行为 |
+| `node --test deploy/tests/*.test.mjs` | PASS | 43 passed；Node 1.550 s；wall 1.60 s | 2026-09-12 review-fix 复验；Compose/Dockerfile/脚本契约和 stubbed 脚本行为 |
 | `bash -n deploy/scripts/*.sh backend/docker-entrypoint.sh` | PASS | exit 0；wall 0.00 s | shell 语法 |
 | `docker compose config --quiet` | PASS with warnings | exit 0；wall 0.24 s | 未自动读取私密 `deploy.env`，对三个未设置 DB 变量各发出重复默认空值警告 |
 | 完整显式环境 + example seed 的 `docker compose --profile public ... config --quiet` | PASS | exit 0；wall 0.25 s | 无输出；只解析 Compose，不访问 daemon |
@@ -72,7 +72,7 @@ command -v npx
 
 ```text
 frontend: tests 114, pass 114, fail 0, duration_ms 312.664583
-deploy:   tests 42,  pass 42,  fail 0, duration_ms 2260.1695
+deploy:   tests 43,  pass 43,  fail 0, duration_ms 1550.376166
 ```
 
 Compose 的无 secret 静态渲染命令为：

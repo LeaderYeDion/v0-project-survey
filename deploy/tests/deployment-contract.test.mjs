@@ -243,6 +243,64 @@ test("enabled outer auth is written to a private curl configuration", async () =
   assert.equal((await stat(curlConfig)).mode & 0o777, 0o600)
 })
 
+test("docker health check runs from zsh without exposing outer auth in argv", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "survey-health-zsh-"))
+  const envFile = await privateEnvironment(tempDir)
+  const binDir = join(tempDir, "bin")
+  const curlArgs = join(tempDir, "curl-args")
+  const copiedConfig = join(tempDir, "curl-config-copy")
+  const curlMode = join(tempDir, "curl-config-mode")
+  await mkdir(binDir)
+  await writeFile(
+    join(binDir, "curl"),
+    `#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >"$HEALTH_CURL_ARGS"
+cp "$2" "$HEALTH_CURL_CONFIG"
+if stat -f '%Lp' "$2" >/dev/null 2>&1; then
+  stat -f '%Lp' "$2" >"$HEALTH_CURL_MODE"
+else
+  stat -c '%a' "$2" >"$HEALTH_CURL_MODE"
+fi
+printf '{"status":"ok"}\n'
+`,
+    { mode: 0o700 },
+  )
+
+  const result = await execFileAsync("zsh", ["-c", "npm run docker:health"], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      PATH: `${binDir}:${process.env.PATH}`,
+      TMPDIR: tempDir,
+      NPM_CONFIG_CACHE: join(tempDir, "npm-cache"),
+      DEPLOY_ENV_FILE: envFile,
+      DEPLOY_AUTH_ENABLED: "true",
+      DEPLOY_USERNAME: "survey",
+      DEPLOY_PASSWORD: "outer-auth-password-2026",
+      HEALTH_CURL_ARGS: curlArgs,
+      HEALTH_CURL_CONFIG: copiedConfig,
+      HEALTH_CURL_MODE: curlMode,
+    },
+  })
+
+  assert.match(result.stdout, /{"status":"ok"}/)
+  const invokedArgs = (await readFile(curlArgs, "utf8")).trim()
+  assert.match(
+    invokedArgs,
+    /^--config \S+ --fail --show-error --connect-timeout 3 --max-time 10 http:\/\/127\.0\.0\.1:3000\/survey-api\/health$/,
+  )
+  assert.doesNotMatch(invokedArgs, /outer-auth-password-2026/)
+  assert.equal(
+    await readFile(copiedConfig, "utf8"),
+    'user = "survey:outer-auth-password-2026"\n',
+  )
+  assert.equal((await readFile(curlMode, "utf8")).trim(), "600")
+
+  const healthConfig = invokedArgs.split(" ")[1]
+  await assert.rejects(stat(healthConfig), /ENOENT/)
+})
+
 test("persistence smoke routes every HTTP request through outer auth", async () => {
   const smoke = await read("deploy/tests/persistence-smoke.sh")
   const directCurlLines = smoke

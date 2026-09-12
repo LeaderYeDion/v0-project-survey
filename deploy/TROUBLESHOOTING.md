@@ -36,7 +36,7 @@ npm run docker:up
 
 ## 正确解读状态输出
 
-`npm run docker:status` 报告 Compose `ps`/health、配置的本地 URL、已保存的 public URL、按 Compose label 查到的数据库 volume，以及运行中 backend 的 Alembic revision。其中 `Local URL` 行只是配置地址，不是 HTTP 可达或登录成功的证明；脚本也不会执行业务登录。daemon 或 `compose ps` 失败时，命令会在输出其余状态前失败退出。
+`npm run docker:status` 报告 Compose `ps`/health、配置的本地 URL、已保存的 public URL、按 Compose label 查到的数据库 volume，以及运行中 backend 的 Alembic revision。它不打印或独立验证 `COMPOSE_PROJECT_NAME`/`POSTGRES_DB`。其中 `Local URL` 行只是配置地址，不是 HTTP 可达或登录成功的证明；脚本也不会执行业务登录。daemon 或 `compose ps` 失败时，命令会在输出其余状态前失败退出。
 
 如需证明应用可达，在状态命令成功后再执行[RUNBOOK 中基于私密配置的健康请求](./RUNBOOK.md#5-状态健康与日志)；它同时适用于开启或关闭外围认证的部署。
 
@@ -159,7 +159,7 @@ npm run docker:backup
 npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 ```
 
-执行前状态脚本核对 Compose project/database。`pg_restore --clean` 会改写目标；需要演练时使用隔离 Compose project/database，不要在主数据库试错。
+执行前，用可信的本地编辑器打开 mode-600 `deploy/config/deploy.env`，人工核对 `COMPOSE_PROJECT_NAME` 和 `POSTGRES_DB`；不要为了核对而把包含密码的整个文件打印到共享终端或日志。`docker:status` 不打印这两个字段，不能代替该核对。`pg_restore --clean` 会改写目标；需要演练时使用隔离 Compose project/database，不要在主数据库试错。
 
 ## Quick Tunnel 没有 URL 或返回 502
 

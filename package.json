@@ -16,6 +16,7 @@
     "docker:build": "docker compose --env-file deploy/config/deploy.env build",
     "docker:up": "bash deploy/scripts/start.sh",
     "docker:status": "bash deploy/scripts/status.sh",
+    "docker:health": "bash deploy/scripts/check-health.sh",
     "docker:logs": "docker compose --env-file deploy/config/deploy.env logs -f",
     "docker:down": "bash deploy/scripts/stop.sh",
     "docker:backup": "bash deploy/scripts/backup-db.sh",

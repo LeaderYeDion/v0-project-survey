@@ -122,19 +122,12 @@ curl --fail http://127.0.0.1:3000/survey-api/health
 不论外围认证是否启用，都可从私密配置生成短生存期、mode-600 的 curl config：
 
 ```bash
-source deploy/scripts/common.sh
-load_deploy_env
-ensure_runtime_dir
-health_config="$(mktemp "$RUNTIME_DIR/curl-health.XXXXXX")"
-chmod 600 "$health_config"
-trap 'rm -f "$health_config"' EXIT
-write_deploy_curl_config "$health_config"
-curl --config "$health_config" "$(origin_url)/survey-api/health"
-rm -f "$health_config"
-trap - EXIT
+npm run docker:health
 ```
 
-启用外围认证时，不要改用带明文密码的命令行参数；上述 helper 会从当前 `deploy.env` 写入 curl config。应用业务接口仍需 `researcher0N` 会话。
+npm script 会显式调用 Bash，因此可从 macOS 默认 zsh 直接执行，不会在 zsh 中 `source` 依赖 `BASH_SOURCE` 的 helper。脚本校验 mode-600 `deploy.env`，创建短生存期的 mode-600 curl config，并在成功、请求失败或中断时清理它。启用外围认证时，凭据只写入该 config，不进入 curl 命令行参数。
+
+启用外围认证时，不要改用带明文密码的命令行参数；该命令会从当前 `deploy.env` 写入 curl config。应用业务接口仍需 `researcher0N` 会话。
 
 ## 6. 普通停止、重启与升级
 
@@ -193,6 +186,8 @@ chmod 600 deploy/backups/<backup>.dump
 npm run docker:status
 npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 ```
+
+执行恢复前，用可信的本地编辑器打开 mode-600 `deploy/config/deploy.env`，人工核对 `COMPOSE_PROJECT_NAME` 和 `POSTGRES_DB`。不要把包含密码的整个文件打印到共享终端或日志。`docker:status` 不打印这两个目标字段，不能代替该配置核对。
 
 脚本拒绝缺少 `--confirm`、缺失、空或非 mode-600 文件；实际使用 `pg_restore --clean --if-exists --exit-on-error --no-owner --no-privileges`。恢复后再次检查 health、迁移 revision、用户和项目数据。
 

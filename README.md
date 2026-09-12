@@ -97,7 +97,7 @@ bash -n deploy/scripts/*.sh backend/docker-entrypoint.sh
 docker compose config --quiet
 ```
 
-2026-09-09 实际执行并于 2026-09-11 复验的非 Docker 自动化/静态子矩阵为后端 127/127、前端 114/114、部署契约 42/42，类型检查、Next.js 生产构建、shell 语法和 Compose 配置模型检查均通过。`docker compose build`、live Compose/PostgreSQL 和 Playwright 五视口验收因本机 daemon 无法在有界检查内就绪而未执行；因此完整验证矩阵仍是 pending，不能由这些结果替代。
+2026-09-09 实际执行并于 2026-09-12 复验的非 Docker 自动化/静态子矩阵为后端 127/127、前端 114/114、部署契约 43/43，类型检查、Next.js 生产构建、shell 语法和 Compose 配置模型检查均通过。`docker compose build`、live Compose/PostgreSQL 和 Playwright 五视口验收因本机 daemon 无法在有界检查内就绪而未执行；因此完整验证矩阵仍是 pending，不能由这些结果替代。
 
 ## 明确边界
 

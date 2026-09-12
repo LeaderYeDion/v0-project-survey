@@ -55,6 +55,7 @@ npm run docker:init       # 创建缺少的私密配置，不覆盖有效现有�
 npm run docker:build      # 构建 frontend/backend 镜像
 npm run docker:up         # 构建并启动三个核心服务，等待健康
 npm run docker:status     # 容器健康、URL、volume、迁移 revision
+npm run docker:health     # 使用私密配置安全请求同源 health
 npm run docker:logs       # 跟随 Compose 日志
 npm run docker:backup     # 创建私密 pg_dump custom-format 备份
 npm run docker:down       # 普通停止，保留数据库 volume
