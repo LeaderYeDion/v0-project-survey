@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import {
   mkdtemp,
   mkdir,
@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
@@ -299,6 +300,120 @@ printf '{"status":"ok"}\n'
 
   const healthConfig = invokedArgs.split(" ")[1]
   await assert.rejects(stat(healthConfig), /ENOENT/)
+})
+
+test("docker health check cleans credentials on HUP INT and TERM", async () => {
+  for (const { signal, exitCode } of [
+    { signal: "SIGHUP", exitCode: 129 },
+    { signal: "SIGINT", exitCode: 130 },
+    { signal: "SIGTERM", exitCode: 143 },
+  ]) {
+    const tempDir = await mkdtemp(join(tmpdir(), "survey-health-signal-"))
+    const envFile = await privateEnvironment(tempDir)
+    const binDir = join(tempDir, "bin")
+    const curlArgs = join(tempDir, "curl-args")
+    const curlMode = join(tempDir, "curl-config-mode")
+    const configPathFile = join(tempDir, "curl-config-path")
+    const readyFile = join(tempDir, "curl-ready")
+    await mkdir(binDir)
+    await writeFile(
+      join(binDir, "curl"),
+      `#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >"$HEALTH_CURL_ARGS"
+printf '%s\n' "$2" >"$HEALTH_CONFIG_PATH"
+if stat -f '%Lp' "$2" >/dev/null 2>&1; then
+  stat -f '%Lp' "$2" >"$HEALTH_CURL_MODE"
+else
+  stat -c '%a' "$2" >"$HEALTH_CURL_MODE"
+fi
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+: >"$HEALTH_CURL_READY"
+while :; do sleep 1; done
+`,
+      { mode: 0o700 },
+    )
+
+    const child = spawn("bash", ["deploy/scripts/check-health.sh"], {
+      cwd: projectRoot,
+      detached: true,
+      env: {
+        ...process.env,
+        PATH: `${binDir}:${process.env.PATH}`,
+        TMPDIR: tempDir,
+        DEPLOY_ENV_FILE: envFile,
+        DEPLOY_AUTH_ENABLED: "true",
+        DEPLOY_USERNAME: "survey",
+        DEPLOY_PASSWORD: "outer-auth-password-2026",
+        HEALTH_CURL_ARGS: curlArgs,
+        HEALTH_CURL_MODE: curlMode,
+        HEALTH_CONFIG_PATH: configPathFile,
+        HEALTH_CURL_READY: readyFile,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+
+    let stdout = ""
+    let stderr = ""
+    let closed = false
+    child.stdout.on("data", chunk => {
+      stdout += chunk
+    })
+    child.stderr.on("data", chunk => {
+      stderr += chunk
+    })
+    const completion = new Promise((resolve, reject) => {
+      child.once("error", reject)
+      child.once("close", (code, receivedSignal) => {
+        closed = true
+        resolve({ code, receivedSignal })
+      })
+    })
+
+    try {
+      let ready = false
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        try {
+          await stat(readyFile)
+          ready = true
+          break
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error
+          await delay(10)
+        }
+      }
+      assert.equal(ready, true, `${signal} fixture did not become ready`)
+
+      child.kill(signal)
+      let timeout
+      const result = await new Promise((resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${signal} health process did not exit`)),
+          3000,
+        )
+        completion.then(resolve, reject)
+      }).finally(() => clearTimeout(timeout))
+
+      assert.deepEqual(result, { code: exitCode, receivedSignal: null })
+      assert.equal((await readFile(curlMode, "utf8")).trim(), "600")
+      const invokedArgs = await readFile(curlArgs, "utf8")
+      assert.doesNotMatch(invokedArgs, /outer-auth-password-2026/)
+      assert.doesNotMatch(stdout, /outer-auth-password-2026/)
+      assert.doesNotMatch(stderr, /outer-auth-password-2026/)
+      const healthConfig = (await readFile(configPathFile, "utf8")).trim()
+      await assert.rejects(stat(healthConfig), /ENOENT/)
+    } finally {
+      if (!closed) {
+        try {
+          process.kill(-child.pid, "SIGKILL")
+        } catch (error) {
+          if (error.code !== "ESRCH") throw error
+        }
+      }
+    }
+  }
 })
 
 test("persistence smoke routes every HTTP request through outer auth", async () => {

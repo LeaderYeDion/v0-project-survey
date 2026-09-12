@@ -126,6 +126,7 @@ npm run docker:health
 ```
 
 npm script 会显式调用 Bash，因此可从 macOS 默认 zsh 直接执行，不会在 zsh 中 `source` 依赖 `BASH_SOURCE` 的 helper。脚本校验 mode-600 `deploy.env`，创建短生存期的 mode-600 curl config，并在成功、请求失败或中断时清理它。启用外围认证时，凭据只写入该 config，不进入 curl 命令行参数。
+收到 HUP、INT 或 TERM 时，脚本先删除该私密 config，再分别以等价状态码 129、130 或 143 退出。
 
 启用外围认证时，不要改用带明文密码的命令行参数；该命令会从当前 `deploy.env` 写入 curl config。应用业务接口仍需 `researcher0N` 会话。
 

@@ -192,6 +192,23 @@ The RUNBOOK now exposes only `npm run docker:health` for the auth-safe path and 
 
 This round did not run or claim Docker image, live PostgreSQL, browser, persistence, backup/restore, or public-profile acceptance. Those gates remain pending for the same daemon-readiness limitation documented above.
 
+## Review-fix round 3
+
+Review against commit `2145ffb` identified that `check-health.sh` had only an EXIT trap. A directly delivered signal could terminate the wrapper as a signal rather than route through an explicit private-config cleanup path with a stable signal-equivalent exit code.
+
+The correction followed a strict test-first RED/GREEN cycle. A blocking fake curl records only its config path, mode, and argv. The first test version delivered HUP, INT, and TERM to the isolated process group. Before implementation, it failed 0/1 on its first SIGHUP scenario:
+
+```text
+actual:   { code: null, receivedSignal: "SIGHUP" }
+expected: { code: 129,  receivedSignal: null }
+```
+
+That RED runner completed in 555.926 ms. Explicit HUP/INT/TERM handlers then made the process-group case green. Before further production changes, the test was strengthened to signal only the wrapper PID, matching a supervisor-directed interruption. This correctly went RED again: SIGHUP did not complete inside three seconds because Bash deferred its trap while the foreground fake curl remained blocked.
+
+The final implementation supervises curl as a background child. On HUP/INT/TERM the handler exits 129/130/143 through the EXIT cleanup; cleanup disables re-entry, terminates and waits for the child, removes the config, and preserves the selected code. The direct-PID focused test passed 1/1 (4752.342 ms). For each signal it confirms the corresponding exit code, mode 600 and deletion, and confirms the outer-auth password appeared in neither curl argv nor wrapper stdout/stderr. The complete deployment suite passed 44/44 (5399.823 ms), and shell syntax exited 0. The 10-file Markdown structure/local-link check, focused signal-cleanup contract scan, and `git diff --check` also exited 0.
+
+The RUNBOOK now records that the private config is removed before the signal-equivalent exit. This round did not run or claim Docker image, live PostgreSQL, browser, persistence, backup/restore, or public-profile acceptance; those gates remain pending.
+
 ## Self-review
 
 - Compared each living claim against current `compose.yaml`, Dockerfiles, entrypoint, npm lifecycle scripts, auth/session code, round recovery code, prior task reports, and the approved design.
@@ -200,7 +217,7 @@ This round did not run or claim Docker image, live PostgreSQL, browser, persiste
 - Confirmed deployment commands target current Compose scripts, not the replaced host-PID flow.
 - Confirmed public profile remains optional and application users remain authoritative when outer auth is enabled.
 - Confirmed Playwright was not opened against a nonexistent service; only its `npx` prerequisite and exact future CLI workflow were recorded.
-- Confirmed the initial Task 10 commit changed documentation only; review-fix round 1 changed the private-file validator and its regression test; review-fix round 2 added only the zsh-safe health wrapper/npm command and its behavior test outside documentation. Dockerfiles, Compose, and product behavior remain unchanged.
+- Confirmed the initial Task 10 commit changed documentation only; review-fix round 1 changed the private-file validator and its regression test; review-fix rounds 2–3 added the zsh-safe health wrapper/npm command, explicit signal cleanup, and their behavior tests outside documentation. Dockerfiles, Compose, and product behavior remain unchanged.
 
 ## Commit
 
@@ -208,4 +225,6 @@ Initial Task 10 commit: `4392974 docs: record P0 verification with live acceptan
 
 Review-fix round 1 commit: `dd4c305 fix: harden P0 verification handoff`.
 
-The review-fix round 2 commit identifier is provided in the task handoff because adding a commit's own identifier to this tracked report would change that commit.
+Review-fix round 2 commit: `2145ffb fix: make deployment health check zsh-safe`.
+
+The review-fix round 3 commit identifier is provided in the task handoff because adding a commit's own identifier to this tracked report would change that commit.
