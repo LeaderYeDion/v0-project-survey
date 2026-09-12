@@ -20,7 +20,9 @@ from app.api.errors import (
     ApiError,
     api_error_handler,
     request_validation_error_handler,
+    storage_error_handler,
 )
+from app.db.errors import STORAGE_ERRORS
 from app.db.session import DatabaseSettings, create_session_factory
 from app.mocks.catalog import MockCatalog
 from app.mocks.engine import MockEngine
@@ -128,6 +130,8 @@ def create_app(
     )
     application.state.research_service = configured_research
     application.add_exception_handler(ApiError, api_error_handler)
+    for storage_error in STORAGE_ERRORS:
+        application.add_exception_handler(storage_error, storage_error_handler)
     application.add_exception_handler(
         RequestValidationError,
         request_validation_error_handler,

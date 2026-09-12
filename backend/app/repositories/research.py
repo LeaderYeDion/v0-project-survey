@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.db.errors import storage_session
 from app.db.models import (
     ConfigVersionRow,
     ProjectRow,
@@ -32,7 +33,7 @@ class ResearchRepository:
         payload: Mapping[str, Any],
     ) -> ProjectRow:
         row = ProjectRow(owner_user_id=owner_id, **payload)
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 session.add(row)
                 await session.flush()
@@ -44,7 +45,7 @@ class ResearchRepository:
             .where(ProjectRow.owner_user_id == owner_id)
             .order_by(desc(ProjectRow.updated_at), ProjectRow.id)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return tuple((await session.scalars(statement)).all())
 
     async def get_project_for_owner(
@@ -56,7 +57,7 @@ class ResearchRepository:
             ProjectRow.id == project_id,
             ProjectRow.owner_user_id == owner_id,
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return await session.scalar(statement)
 
     async def update_project(
@@ -74,7 +75,7 @@ class ResearchRepository:
             .values(**payload, updated_at=datetime.now(UTC))
             .returning(ProjectRow)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 return await session.scalar(statement)
 
@@ -88,7 +89,7 @@ class ResearchRepository:
             ProjectRow.id == project_id,
             ProjectRow.owner_user_id == owner_id,
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 if await session.scalar(project_statement) is None:
                     return None
@@ -110,7 +111,7 @@ class ResearchRepository:
                 ProjectRow.owner_user_id == owner_id,
             )
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return await session.scalar(statement)
 
     async def list_questionnaires_for_owner(
@@ -127,7 +128,7 @@ class ResearchRepository:
             )
             .order_by(desc(QuestionnaireRow.updated_at), QuestionnaireRow.id)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return tuple((await session.scalars(statement)).all())
 
     async def save_draft(
@@ -156,7 +157,7 @@ class ResearchRepository:
             )
             .returning(QuestionnaireRow)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 return await session.scalar(statement)
 
@@ -173,7 +174,7 @@ class ResearchRepository:
                 ProjectRow.owner_user_id == owner_id,
             )
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return await session.scalar(statement)
 
     async def freeze_versions(
@@ -182,7 +183,7 @@ class ResearchRepository:
         questionnaire_id: UUID,
         payload: VersionFreezePayload,
     ) -> FrozenVersionRows | None:
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 questionnaire = await session.scalar(
                     select(QuestionnaireRow)
@@ -356,7 +357,7 @@ class ResearchRepository:
                 QuestionnaireVersionRow.id,
             )
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return tuple((await session.scalars(statement)).all())
 
     async def list_config_versions_for_owner(
@@ -376,7 +377,7 @@ class ResearchRepository:
                 ConfigVersionRow.id,
             )
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return tuple((await session.scalars(statement)).all())
 
 

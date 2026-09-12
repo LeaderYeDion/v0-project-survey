@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.db.errors import storage_session
 from app.db.models import ExportRecordRow, ProjectRow, ResearchRoundRow
 from app.repositories.protocols import RoundRepositoryProtocol
 
@@ -37,7 +38,7 @@ class ExportRepository:
     ) -> ExportRecordRow | None:
         if self._session_factory is None:
             return await self._create_in_memory(owner_id, round_id, payload)
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 owned = await session.scalar(
                     select(ResearchRoundRow.id)
@@ -105,7 +106,7 @@ class ExportRepository:
             )
             .order_by(desc(ExportRecordRow.created_at), desc(ExportRecordRow.id))
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return tuple((await session.scalars(statement)).all())
 
     async def mark_succeeded(
@@ -200,7 +201,7 @@ class ExportRepository:
             .values(**values)
             .returning(ExportRecordRow)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 return await session.scalar(statement)
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
+from uuid import UUID, uuid4
 
 from fastapi import Request
 from fastapi.encoders import jsonable_encoder
@@ -27,14 +29,30 @@ async def api_error_handler(
     _request: Request,
     error: ApiError,
 ) -> JSONResponse:
+    headers = {}
+    if error.code == "STORAGE_UNAVAILABLE":
+        request_id = str(uuid4())
+        resources = [str(value) for value in _request.path_params.values() if isinstance(value, UUID)]
+        logging.getLogger(__name__).warning(
+            "STORAGE_UNAVAILABLE request_id=%s resource_ids=%s",
+            request_id, ",".join(resources),
+        )
+        headers["X-Request-Id"] = request_id
     return JSONResponse(
         status_code=error.status_code,
+        headers=headers,
         content={
             "code": error.code,
             "message": error.message,
             "details": error.details,
         },
     )
+
+
+async def storage_error_handler(request: Request, _error: Exception) -> JSONResponse:
+    from app.db.errors import storage_unavailable
+
+    return await api_error_handler(request, storage_unavailable())
 
 
 async def request_validation_error_handler(

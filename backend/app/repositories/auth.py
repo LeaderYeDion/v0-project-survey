@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.db.errors import storage_session
 from app.db.models import UserRow, UserSessionRow
 
 
@@ -27,7 +28,7 @@ class AuthRepository:
             password_hash=password_hash,
             locale=locale,
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 session.add(row)
                 await session.flush()
@@ -37,11 +38,11 @@ class AuthRepository:
         statement = select(UserRow).where(
             UserRow.username == _normalize_username(username)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return await session.scalar(statement)
 
     async def get_user(self, user_id: UUID) -> UserRow | None:
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return await session.get(UserRow, user_id)
 
     async def create_session(
@@ -57,7 +58,7 @@ class AuthRepository:
             csrf_token_hash=csrf_token_hash,
             expires_at=expires_at,
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 session.add(row)
                 await session.flush()
@@ -70,7 +71,7 @@ class AuthRepository:
         statement = select(UserSessionRow).where(
             UserSessionRow.token_hash == token_hash
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return await session.scalar(statement)
 
     async def revoke_session(self, token_hash: str) -> None:
@@ -82,7 +83,7 @@ class AuthRepository:
             )
             .values(revoked_at=datetime.now(UTC))
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 await session.execute(statement)
 
@@ -96,7 +97,7 @@ class AuthRepository:
             .where(UserRow.username == _normalize_username(username))
             .values(password_hash=password_hash, updated_at=datetime.now(UTC))
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 result = await session.execute(statement)
         return bool(result.rowcount)

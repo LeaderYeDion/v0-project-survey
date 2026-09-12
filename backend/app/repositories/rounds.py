@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.db.errors import storage_session
 from app.db.models import (
     ConfigVersionRow,
     InferenceResultRow,
@@ -60,7 +61,7 @@ class RoundRepository:
         owner_id: UUID,
         payload: Mapping[str, Any],
     ) -> ResearchRoundRow:
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 owned = await session.scalar(
                     select(QuestionnaireRow.id)
@@ -163,7 +164,7 @@ class RoundRepository:
                 ProjectRow.owner_user_id == owner_id,
             )
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return await session.scalar(statement)
 
     async def get_owner_id(self, round_id: UUID) -> UUID | None:
@@ -172,7 +173,7 @@ class RoundRepository:
             .join(ResearchRoundRow, ResearchRoundRow.project_id == ProjectRow.id)
             .where(ResearchRoundRow.id == round_id)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return await session.scalar(statement)
 
     async def list_rounds_for_owner(
@@ -193,7 +194,7 @@ class RoundRepository:
             desc(ResearchRoundRow.created_at),
             desc(ResearchRoundRow.id),
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return tuple((await session.scalars(statement)).all())
 
     async def transition(
@@ -261,7 +262,7 @@ class RoundRepository:
             .values(**values)
             .returning(ResearchRoundRow)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 row = await session.scalar(statement)
                 if row is None:
@@ -300,7 +301,7 @@ class RoundRepository:
             )
             .returning(ResearchRoundRow)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 return await session.scalar(statement)
 
@@ -327,7 +328,7 @@ class RoundRepository:
             )
             .returning(ResearchRoundRow)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 return await session.scalar(statement)
 
@@ -364,7 +365,7 @@ class RoundRepository:
             )
             .returning(ResearchRoundRow)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 round_row = await session.scalar(statement)
                 if round_row is None:
@@ -406,7 +407,7 @@ class RoundRepository:
         owner_id: UUID,
         round_id: UUID,
     ) -> RoundResultRows | None:
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             round_row = await session.scalar(
                 select(ResearchRoundRow)
                 .join(ProjectRow, ProjectRow.id == ResearchRoundRow.project_id)
@@ -534,7 +535,7 @@ class RoundRepository:
             )
             .order_by(RoundRespondentRow.ordinal)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             return tuple((await session.scalars(statement)).all())
 
     async def reconcile_interrupted_rounds(
@@ -554,7 +555,7 @@ class RoundRepository:
             .order_by(ResearchRoundRow.created_at, ResearchRoundRow.id)
             .with_for_update(skip_locked=True)
         )
-        async with self._session_factory() as session:
+        async with storage_session(self._session_factory) as session:
             async with session.begin():
                 rows = tuple((await session.scalars(statement)).all())
                 for row in rows:
