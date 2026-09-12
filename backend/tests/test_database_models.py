@@ -144,7 +144,7 @@ def test_ownership_and_list_paths_are_indexed() -> None:
         table = Base.metadata.tables[table_name]
         indexed_columns = {
             column.name
-            for index in table.indexes
+            for index in [*table.indexes, *(constraint for constraint in table.constraints if isinstance(constraint, UniqueConstraint))]
             for column in index.columns
         }
         assert indexed_columns >= column_names, table_name
@@ -234,6 +234,20 @@ def test_initial_migration_compiles_for_postgresql() -> None:
     assert sql.count("CREATE TABLE") == len(EXPECTED_TABLES)
     assert "CONSTRAINT ck_research_rounds_status CHECK" in sql
     assert "ck_research_rounds_ck_research_rounds_status" not in sql
+    assert "CREATE INDEX ix_round_respondents_round_ordinal" not in sql
+    assert "CREATE INDEX ix_sessions_round_respondent" not in sql
+    assert "CREATE INDEX ix_messages_session_ordinal" not in sql
+
+
+def test_indexes_do_not_duplicate_unique_constraint_paths() -> None:
+    for table in Base.metadata.tables.values():
+        unique_paths = {
+            tuple(column.name for column in constraint.columns)
+            for constraint in table.constraints
+            if isinstance(constraint, UniqueConstraint)
+        }
+        for index in table.indexes:
+            assert tuple(column.name for column in index.columns) not in unique_paths, index.name
 
 
 def _unique_column_sets(table) -> set[frozenset[str]]:

@@ -551,12 +551,6 @@ def upgrade() -> None:
             name="uq_round_respondents_ordinal",
         ),
     )
-    op.create_index(
-        "ix_round_respondents_round_ordinal",
-        "round_respondents",
-        ["round_id", "ordinal"],
-        unique=False,
-    )
     op.create_foreign_key(
         "fk_research_rounds_active_respondent_id_round_respondents",
         "research_rounds",
@@ -598,12 +592,6 @@ def upgrade() -> None:
             name="uq_sessions_round_respondent_id",
         ),
     )
-    op.create_index(
-        "ix_sessions_round_respondent",
-        "sessions",
-        ["round_respondent_id"],
-        unique=False,
-    )
     op.create_table(
         "messages",
         _id_column(),
@@ -631,12 +619,6 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name="pk_messages"),
         sa.UniqueConstraint("session_id", "ordinal", name="uq_messages_ordinal"),
-    )
-    op.create_index(
-        "ix_messages_session_ordinal",
-        "messages",
-        ["session_id", "ordinal"],
-        unique=False,
     )
     op.create_table(
         "responses",

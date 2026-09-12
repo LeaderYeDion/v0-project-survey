@@ -87,7 +87,7 @@ class AuthService:
         ):
             raise ApiError(
                 403,
-                "AUTH_CSRF_INVALID",
+                "CSRF_INVALID",
                 "CSRF validation failed",
             )
 

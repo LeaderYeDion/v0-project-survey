@@ -112,7 +112,7 @@ async def test_business_routes_require_authentication_and_csrf() -> None:
         )
         assert logged_in.status_code == 200
         assert missing_csrf.status_code == 403
-        assert missing_csrf.json()["code"] == "AUTH_CSRF_INVALID"
+        assert missing_csrf.json()["code"] == "CSRF_INVALID"
 
 
 @pytest.mark.asyncio

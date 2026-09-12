@@ -191,7 +191,7 @@ async def test_authenticated_logout_requires_csrf_and_same_origin(
         headers={"Origin": "https://survey.test"},
     )
     assert missing_header.status_code == 403
-    assert missing_header.json()["code"] == "AUTH_CSRF_INVALID"
+    assert missing_header.json()["code"] == "CSRF_INVALID"
 
     wrong_origin = await client.post(
         "/api/auth/logout",
@@ -201,7 +201,7 @@ async def test_authenticated_logout_requires_csrf_and_same_origin(
         },
     )
     assert wrong_origin.status_code == 403
-    assert wrong_origin.json()["code"] == "AUTH_ORIGIN_INVALID"
+    assert wrong_origin.json()["code"] == "CSRF_INVALID"
 
     logged_out = await client.post(
         "/api/auth/logout",
@@ -239,7 +239,14 @@ async def test_authenticated_mutation_requires_matching_csrf_cookie(
     )
 
     assert response.status_code == 403
-    assert response.json()["code"] == "AUTH_CSRF_INVALID"
+    assert response.json()["code"] == "CSRF_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_default_template_requires_a_session(client: httpx.AsyncClient) -> None:
+    response = await client.get("/api/templates/default")
+    assert response.status_code == 401
+    assert response.json()["code"] == "AUTH_SESSION_EXPIRED"
 
 
 @pytest.mark.asyncio

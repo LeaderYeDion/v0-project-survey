@@ -212,4 +212,4 @@ async def test_csrf_validation_uses_the_stored_hash(
         await auth_service.validate_csrf(created.token, "wrong-token")
 
     assert caught.value.status_code == 403
-    assert caught.value.code == "AUTH_CSRF_INVALID"
+    assert caught.value.code == "CSRF_INVALID"

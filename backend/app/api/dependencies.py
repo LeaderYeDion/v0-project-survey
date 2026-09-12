@@ -123,7 +123,7 @@ def _first_forwarded_value(value: str | None) -> str | None:
 def _origin_error() -> ApiError:
     return ApiError(
         403,
-        "AUTH_ORIGIN_INVALID",
+        "CSRF_INVALID",
         "Request origin does not match the application origin",
     )
 
@@ -131,6 +131,6 @@ def _origin_error() -> ApiError:
 def _csrf_error() -> ApiError:
     return ApiError(
         403,
-        "AUTH_CSRF_INVALID",
+        "CSRF_INVALID",
         "CSRF validation failed",
     )

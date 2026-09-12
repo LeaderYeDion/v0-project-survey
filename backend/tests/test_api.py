@@ -40,11 +40,17 @@ def test_simulation_termination_setting_rejects_invalid_value(
 
 @pytest.fixture
 async def client():
-    app = create_app()
+    repository = FakeAuthRepository()
+    user = await repository.add_user("template-reader")
+    user.locale = "en-US"
+    app = create_app(auth_service=AuthService(repository))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as api_client:
+        await api_client.post("/api/auth/login", json={
+            "username": "template-reader", "password": "Research-Password-01!",
+        })
         yield api_client
 
 

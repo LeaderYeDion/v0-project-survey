@@ -128,7 +128,7 @@ async def test_round_mutations_require_csrf(round_api) -> None:
     )
 
     assert response.status_code == 403
-    assert response.json()["code"] == "AUTH_CSRF_INVALID"
+    assert response.json()["code"] == "CSRF_INVALID"
 
 
 @pytest.mark.asyncio
@@ -156,6 +156,6 @@ async def test_copy_round_is_owned_and_requires_csrf(round_api) -> None:
     assert cross_owner.status_code == 404
     assert cross_owner.json()["code"] == "RESOURCE_NOT_FOUND"
     assert missing_csrf.status_code == 403
-    assert missing_csrf.json()["code"] == "AUTH_CSRF_INVALID"
+    assert missing_csrf.json()["code"] == "CSRF_INVALID"
     assert unauthenticated.status_code == 401
     assert unauthenticated.json()["code"] == "AUTH_SESSION_EXPIRED"

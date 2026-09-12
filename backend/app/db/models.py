@@ -476,7 +476,6 @@ class RoundRespondentRow(Base):
             "total_questions >= 0",
             name="ck_round_respondents_total_questions",
         ),
-        Index("ix_round_respondents_round_ordinal", "round_id", "ordinal"),
     )
 
     id: Mapped[UUID] = _uuid_pk()
@@ -520,7 +519,6 @@ class SessionRow(Base):
             "'failed', 'cancelled')",
             name="ck_sessions_status",
         ),
-        Index("ix_sessions_round_respondent", "round_respondent_id"),
     )
 
     id: Mapped[UUID] = _uuid_pk()
@@ -546,7 +544,6 @@ class MessageRow(Base):
             "role IN ('interviewer', 'respondent')",
             name="ck_messages_role",
         ),
-        Index("ix_messages_session_ordinal", "session_id", "ordinal"),
     )
 
     id: Mapped[UUID] = _uuid_pk()

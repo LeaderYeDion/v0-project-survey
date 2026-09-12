@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.language import require_language
+from app.api.dependencies import get_current_user
 from app.schemas.survey import SimulationMode, SurveyConfig
 
 router = APIRouter(
     prefix="/api/templates",
     tags=["templates"],
-    dependencies=[Depends(require_language)],
+    dependencies=[Depends(get_current_user), Depends(require_language)],
 )
 
 
