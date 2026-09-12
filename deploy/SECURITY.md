@@ -1,80 +1,84 @@
-# Quick Tunnel 安全模型
+# Docker 部署安全模型
 
-## 能保证什么
+## 业务身份与数据隔离
 
-在脚本和配置未被修改的前提下：
+五个应用用户是业务身份的唯一来源。API 从 HttpOnly `survey_session` 解析当前用户，浏览器不能传入任意 owner ID。项目是所有权根；问卷、版本、轮次、结果、分析、异常与导出都通过 owner-scoped 仓储查询访问。
 
-- Next.js 只监听 `127.0.0.1:3000`；
-- FastAPI 只监听配置的 `127.0.0.1` 后端端口（默认 8000），不直接连接 Tunnel；
-- 不开放路由器或主机入站端口；
-- cloudflared 只连接该 loopback origin；
-- 应用页面和 API 要求有效签名 Cookie，未登录的浏览器导航只进入独立登录页；
-- 登录页使用 12 小时 `HttpOnly`、`SameSite=Strict` 会话，部署健康检查兼容 Basic Authorization；
-- 缺少认证配置时 fail-closed 返回 503；
-- `npm stop` 先关 Tunnel，再关 Next.js 和 FastAPI；
-- 停止成功只在进程、临时网址和端口验证全部通过后报告。
+不存在和跨用户资源统一返回 `404 RESOURCE_NOT_FOUND`，避免确认他人资源是否存在。产品内没有跨用户管理员读取、项目共享、角色或注册功能。
 
-## 不能保证什么
+## 密码、会话和 CSRF
 
-- Quick Tunnel 的 SLA、固定网址或生产稳定性；
-- 未授权请求完全到不了本机：请求会到达 Next.js Proxy 后才被拒绝；
-- 防御 Next.js、依赖或业务代码自身的未知漏洞；
-- 保护其他程序开放的端口；
-- 防御本地恶意软件或操作系统漏洞；
-- 多用户权限、登录审计、速率限制或账号锁定。
+- 初始密码只存在于 mode-600 的 `deploy/config/seed-users.json`；
+- PostgreSQL 只保存 Argon2id 密码 hash；
+- 原始会话 token 仅进入 HttpOnly、SameSite=Strict、Path=/ Cookie，数据库只保存 token hash；
+- HTTPS 请求的会话 Cookie 带 Secure；
+- 状态变更同时校验可读 `survey_csrf` Cookie、`X-CSRF-Token`、数据库中的 CSRF hash 以及 Origin/转发 Host；
+- 登出撤销数据库会话并清除 Cookie；过期/撤销/停用用户统一得到 `401 AUTH_SESSION_EXPIRED`。
 
-## 凭据管理
+不要把会话 token 或密码放进 `localStorage`、`sessionStorage`、URL、日志、Issue 或聊天。
 
-`deploy/config/deploy.env` 必须保持 `chmod 600`。
+## 可选外围门禁
 
-建议：
+`DEPLOY_AUTH_ENABLED=false` 是默认值。启用时，Next.js proxy 对入口增加一层共同外围凭据；健康脚本把这些凭据写入临时 mode-600 curl config，而不是命令行参数。
 
-- 使用 `deploy:init` 生成的 48 位随机密码；
-- 公网地址与密码通过不同渠道发送；
-- 不在终端历史、截图、日志或聊天中粘贴密码；
-- 每次人员变化后先停止服务、轮换密码、再重新启动；
-- 怀疑泄漏时立即执行 `npm stop`。
+外围门禁不是应用身份：通过它之后仍要使用 `researcher0N` 登录。外围 Cookie 或 Basic Authorization 不会创建 `CurrentUser`，也不能绕过 FastAPI 所有权。共享凭据没有个人审计能力，只应作为临时公网演示的附加限制。
 
-登录提交与 Cookie 依赖 Quick Tunnel 提供的 HTTPS。不要把同一账号密码用于其他网站。登录页所需的 Next.js 静态资源可匿名读取，但不包含调研配置或结果数据。
+## 网络暴露
 
-## kill 不同进程的结果
+- 仅 frontend 发布到 `127.0.0.1:${LOCAL_PORT}`；
+- backend/db 只在 Compose internal network；
+- PostgreSQL 没有宿主端口；
+- cloudflared 只连接 edge network 和 frontend；
+- 无需路由器端口转发；
+- Quick Tunnel 把未授权请求传到 frontend 边界后再拒绝，并非让请求完全不到达本机。
 
-### 只 kill Next.js
+loopback 和 Tunnel 降低直接暴露，但不能修复 Next.js、依赖、业务代码、Docker Desktop 或本机操作系统漏洞。
 
-- 3000 关闭；
-- Tunnel 可能仍在线；
-- 公网只能得到 origin unavailable；
-- 仍应执行 `npm stop` 清理 Tunnel 和状态文件。
+## 文件与 secret
 
-### 只 kill FastAPI
+以下路径被 Git 忽略，并必须限制权限：
 
-- 配置的后端端口关闭；
-- 页面和登录仍可访问，但 `/survey-api/*` 调研功能失败；
-- FastAPI 内存中的运行和历史记录丢失；
-- 执行 `npm stop` 清理剩余应用与 Tunnel。
+| 路径 | 权限 | 内容 |
+| --- | --- | --- |
+| `deploy/config/deploy.env` | 600 | 数据库和可选外围门禁配置 |
+| `deploy/config/seed-users.json` | 600 | 五个初始应用用户密码 |
+| `deploy/backups/*.dump` | 600 | 数据库完整备份 |
+| `deploy/runtime/` | 700 目录，文件私密 | 临时 curl 配置和 public URL |
 
-### 只 kill cloudflared
+Compose 通过只读 secret 提供种子文件。backend 仅在 root bootstrap 中读取 mounted secret，将其复制到容器内 survey 用户拥有的 mode-600 临时文件，然后通过 `gosu` 永久降权到 UID 10001。Alembic、种子同步和 Uvicorn 都在降权后运行。frontend runtime 也使用非 root 用户。
 
-- 公网入口立即失效；
-- Next.js 仍只在本机 loopback 可访问；
-- 执行 `npm stop` 清理应用。
+## 数据保留与破坏性操作
 
-### 执行 `npm stop`
+普通 restart、build/up、失败回滚和 `npm run docker:down` 都保留 PostgreSQL named volume。只有显式 `down --volumes` 删除数据库数据；该命令必须和日常操作分开，并在执行前完成可恢复备份。
 
-- 校验并停止 cloudflared；
-- 删除临时网址；
-- 校验并停止 Next.js；
-- 校验并停止 FastAPI；
-- 检查 PID、匹配进程和配置的前后端端口；
-- 有任何残留即返回非零。
+恢复使用 `--clean --if-exists`，会改写目标数据库。恢复脚本要求非空、mode-600 备份和显式 `--confirm`，但操作者仍必须先核对 `COMPOSE_PROJECT_NAME` 与 `POSTGRES_DB`。
+
+## 日志与敏感内容
+
+应用日志可以记录错误码、资源 ID 和请求关联 ID，不应记录密码、原始 session/CSRF token 或完整敏感回答。共享日志前先检查：
+
+```bash
+docker compose --env-file deploy/config/deploy.env logs --no-color
+```
+
+不要把私密 env、seed、curl config 或备份加入诊断附件。
 
 ## 安全事件处理
 
-1. 执行 `npm stop`；
-2. 执行 `npm run deploy:verify-stopped`；
-3. 确认配置的前后端 TCP 端口没有 listener；
-4. 修改本地密码；
-5. 检查 backend、Next.js 和 cloudflared 日志；
-6. 确认无异常后重新启动，获得全新的公网地址。
+1. 关闭公网与核心服务：`npm run docker:down`；
+2. 确认 `npm run docker:status` 没有运行中的项目服务；
+3. 若怀疑数据受损，先保留现场和离线备份，不要清卷；
+4. 轮换受影响的应用密码；启用外围门禁时同时轮换其密码；
+5. 检查容器日志、数据库会话和异常导出记录；
+6. 修复后重建镜像并重新启动；public profile 会获得新临时 URL；
+7. 验证旧会话失效和跨用户隔离。
 
-若停止返回 `UNSAFE`，不要使用宽泛的 `pkill node`、`pkill uvicorn` 或 `pkill cloudflared`。先确认具体 PID 和命令。
+不要使用宽泛的 `pkill`、`docker system prune --volumes` 或未经确认的 `down -v` 处理事件；它们可能影响其他服务或破坏证据和数据。
+
+## 不在保证范围内
+
+- Quick Tunnel 固定地址、SLA 或生产 DDoS/访问控制；
+- 注册、MFA、账号锁定、审计后台或组织级权限；
+- 本地恶意软件、已取得 Docker/主机权限的攻击者；
+- 真实 AI 模型或真实调研数据的合规治理；
+- 多 backend worker 的分布式任务安全和生产 SLA。

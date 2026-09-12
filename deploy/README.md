@@ -1,96 +1,88 @@
-# 零费用临时公网部署
+# Docker / macOS 部署导航
 
-本目录提供面向 macOS 的 Cloudflare Quick Tunnel 部署工具。它不需要购买域名、Cloudflare 账号、API Token、DNS 配置或路由器端口转发。
+当前部署由 Docker Compose 管理三个核心服务：`frontend`（Next.js）、`backend`（FastAPI）和 `db`（PostgreSQL 17）。可选 `cloudflared` 位于 `public` profile。宿主机只发布 `127.0.0.1:${LOCAL_PORT}:3000`；backend 和 db 不发布宿主端口。
 
-默认安全模型：
+> 验证状态：Compose/Dockerfile/脚本契约与配置渲染已通过；2026-09-09 本机 Docker daemon 未能在有界检查内返回，因此 image build、live PostgreSQL、volume 持久化、备份恢复和公网入口仍待现场验收。不要把静态检查写成 live 通过。
 
-- Next.js 只监听 `127.0.0.1:3000`；
-- FastAPI 默认只监听 `127.0.0.1:8000`，端口冲突时可在 `deploy.env` 中调整，并由 Next.js Rewrite 代理；
-- cloudflared 仅建立出站连接；
-- Cloudflare 每次启动分配一个随机 HTTPS `trycloudflare.com` 地址；
-- Next.js 全局 Proxy 对应用页面和 API 执行认证，浏览器使用独立登录页与 12 小时签名 Cookie 会话；
-- 部署脚本的本地与公网健康检查继续使用 Basic Authorization，不改变一键启停契约；
-- 本地账号密码保存在 Git 忽略且权限为 `600` 的配置文件；
-- cloudflared 不安装为系统服务；
-- `npm stop` 依次关闭 Tunnel、Next.js、FastAPI，并验证进程、临时网址和两个端口全部消失。
-
-停止成功后，刚才的 Quick Tunnel 不再连接本机。它不等于整台计算机绝对零风险；操作系统、其他服务和应用自身漏洞仍需独立保护。
-
-## 五分钟开始
+## 快速开始
 
 ```bash
-brew install cloudflared
-bash backend/scripts/bootstrap.sh
-npm run deploy:init
+docker info
+npm run docker:init
+npm run docker:build
+npm run docker:up
 ```
 
-查看或修改生成的账号密码：
+打开 [http://127.0.0.1:3000](http://127.0.0.1:3000)，使用 `deploy/config/seed-users.json` 中 `researcher01`–`researcher05` 任一账号登录。两个生成文件都被 Git 忽略并必须保持 mode 600：
+
+- `deploy/config/deploy.env`
+- `deploy/config/seed-users.json`
+
+如果 `docker info` 没有 Server 区域或一直停在 starting，先按[故障排查](./TROUBLESHOOTING.md)恢复 daemon，不要继续把 `docker compose config` 的成功当成容器可运行。
+
+## 认证模型
+
+五个应用用户是研究数据归属的唯一业务身份。登录后 FastAPI 使用数据库会话、CSRF 和 owner-scoped 查询保护项目、问卷、轮次、分析和导出。
+
+`DEPLOY_AUTH_ENABLED=true` 可增加一个外围共享门禁，默认关闭。外围门禁只能阻止未授权请求进入 frontend；它不会创建应用 `CurrentUser`，也不能代替五个应用用户登录或绕过所有权。
+
+## 数据生命周期
+
+- `docker compose restart`：保留 PostgreSQL named volume；
+- 重新构建/替换 frontend 或 backend 容器：保留 volume；
+- `npm run docker:down`：普通停止，保留 volume；
+- `docker compose ... down --volumes`：破坏性清库，删除 volume。
+
+普通停止：
 
 ```bash
-$EDITOR deploy/config/deploy.env
+npm run docker:down
 ```
 
-生成的配置中 `SIMULATION_TERMINATION_ENABLED=false` 会关闭模拟受访者和
-调研方的两类随机提前终止，使问卷与调研默认回答全部问题。需要恢复原有
-随机终止行为时，将它改为 `true`，再停止并重新启动部署。该参数只接受
-小写的 `true` 或 `false`。
-
-检查并启动：
+备份与显式恢复：
 
 ```bash
-npm run deploy:check
-npm run deploy:start
+npm run docker:backup
+npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 ```
 
-启动完成后，终端会打印类似：
-
-```text
-https://random-words.trycloudflare.com
-```
-
-把该地址发给使用者。浏览器会进入项目自己的登录页；使用 `deploy.env` 中的 `DEPLOY_USERNAME` 和 `DEPLOY_PASSWORD` 登录。普通页面访问不会再显示浏览器原生账号密码对话框。
+备份是 PostgreSQL custom-format、无 owner/privilege 的 mode-600 文件。恢复使用 `--clean --if-exists --exit-on-error`，会改写目标应用数据库，因此必须先确认目标并保留可用备份。
 
 ## 日常命令
 
 ```bash
-npm run deploy:init            # 首次生成私密账号密码，不覆盖已有文件
-npm run deploy:check           # 离线检查配置与安全前提
-npm run deploy:start           # 构建、启动应用和 Quick Tunnel
-npm run deploy:status          # 查看临时网址和运行状态
-npm stop                       # 先关 Tunnel，再关应用并验证
-npm run deploy:verify-stopped  # 独立复核入口已关闭
+npm run docker:init       # 创建缺少的私密配置，不覆盖有效现有文件
+npm run docker:build      # 构建 frontend/backend 镜像
+npm run docker:up         # 构建并启动三个核心服务，等待健康
+npm run docker:status     # 容器健康、URL、volume、迁移 revision
+npm run docker:logs       # 跟随 Compose 日志
+npm run docker:backup     # 创建私密 pg_dump custom-format 备份
+npm run docker:down       # 普通停止，保留数据库 volume
 ```
 
-## 必须了解的限制
+可选公网入口：
 
-Quick Tunnel 是 Cloudflare 提供的免费开发/演示工具：
+```bash
+npm run docker:up -- --public
+```
 
-- 地址每次启动都会变化；
-- 没有 SLA 或可用性保证；
-- 最多 200 个并发中的请求；
-- 不支持 Server-Sent Events；
-- 不提供 Cloudflare Access 邮箱白名单；
-- 只有单个共享账号密码，不提供多用户审计或权限管理。
+跳过重复 build：
 
-本项目当前前端流程不依赖 SSE。不要把这一方案当作正式生产部署。
-
-FastAPI 当前使用内存仓储；执行 `npm stop`、后端崩溃或重启都会清空运行和历史记录。
-
-## 为什么不直接暴露公网 IP
-
-公网 IP 方案要求 Next.js 监听外网接口并配置路由器端口转发。即使有登录页，端口扫描和攻击请求仍会直接到达本机 Web 服务器，也可能受 CGNAT、动态 IP 和 TLS 证书问题影响。
-
-本方案保持 loopback-only，不开放任何入站端口。
+```bash
+npm run docker:up -- --no-build
+```
 
 ## 文档导航
 
-- [架构与信任边界](./ARCHITECTURE.md)
-- [首次部署与日常操作](./RUNBOOK.md)
-- [安全模型与停止验证](./SECURITY.md)
-- [故障排查](./TROUBLESHOOTING.md)
+- [RUNBOOK](./RUNBOOK.md)：首次部署、日常启停、升级、备份恢复、清库和验收
+- [ARCHITECTURE](./ARCHITECTURE.md)：服务、网络、身份、持久化和恢复语义
+- [SECURITY](./SECURITY.md)：会话、CSRF、所有权、secret、容器权限和事件处理
+- [TROUBLESHOOTING](./TROUBLESHOOTING.md)：Docker、配置、健康、迁移、登录、数据和 Tunnel 故障
+- [P0 验证记录](../docs/verification/2026-09-05-p0-verification.md)：已经执行与仍待执行的证据
 
-## 官方资料
+## 当前限制
 
-- [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
-- [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/)
-- [Next.js Proxy](https://nextjs.org/docs/app/api-reference/file-conventions/proxy)
+- Quick Tunnel 使用随机 `trycloudflare.com` 地址，无固定域名或正式 SLA。
+- 系统仍使用 Mock Engine，不提供真实 AI 或正式研究结论。
+- 本轮没有注册、项目共享、角色管理、审计后台或独立任务 Worker。
+- Docker Desktop/engine 是本地部署的必要前提；只有 CLI 配置渲染成功不能证明 daemon、volume 或数据库正常。

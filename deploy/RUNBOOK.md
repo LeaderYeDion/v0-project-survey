@@ -1,180 +1,210 @@
-# 零费用 Quick Tunnel 操作手册
+# Docker / macOS 操作手册
 
 ## 1. 前置条件
 
-- macOS；
-- Node.js、npm 和项目依赖已安装；
-- 后端 Python 3.14.6 虚拟环境已初始化；
-- 不在路由器上配置任何端口转发；
-- 不需要域名或 Cloudflare 账号。
+- macOS 上已安装并启动 Docker Desktop；
+- `docker compose version` 可用；
+- Node.js/npm 已安装；
+- 仓库依赖已通过 `npm install` 或 `npm ci` 安装；
+- 本地端口（默认 3000）未被其他服务占用。
 
-安装 cloudflared：
-
-```bash
-brew install cloudflared
-cloudflared version
-bash backend/scripts/bootstrap.sh
-```
-
-不要执行：
+先确认真正的 daemon 就绪，而不只确认 Docker CLI 存在：
 
 ```bash
-cloudflared tunnel login
-cloudflared tunnel create
-cloudflared service install
-sudo cloudflared service install
+docker version
+docker compose version
+docker info
 ```
 
-## 2. 清理默认 cloudflared 配置冲突
+`docker info` 必须返回 Server 信息。若 permission denied、Engine API 500、只显示 client，或 Docker Desktop 长时间为 `starting`，转到[故障排查](./TROUBLESHOOTING.md)。
 
-Quick Tunnel 不能与默认 `config.yml` 或 `config.yaml` 一起使用。检查：
+## 2. 初始化私密配置
 
 ```bash
-find ~/.cloudflared /etc/cloudflared /usr/local/etc/cloudflared \
-  -maxdepth 1 \( -name config.yml -o -name config.yaml \) 2>/dev/null
+npm run docker:init
 ```
 
-如果存在且仍需保留，临时重命名，例如：
-
-```bash
-mv ~/.cloudflared/config.yml ~/.cloudflared/config.yml.named-tunnel-disabled
-```
-
-不要删除不确定用途的配置。
-
-## 3. 生成本地账号密码
-
-```bash
-npm run deploy:init
-```
-
-脚本会创建：
+脚本创建缺少的文件，但不覆盖任何已有私密文件：
 
 ```text
 deploy/config/deploy.env
+deploy/config/seed-users.json
 ```
 
-文件权限为 `600`，内容类似：
+两个文件必须是普通文件、权限严格为 `600`。种子文件包含五个名称固定、密码独立随机生成的用户：`researcher01` 到 `researcher05`。
 
 ```bash
-LOCAL_HOST=127.0.0.1
-LOCAL_PORT=3000
-BACKEND_HOST=127.0.0.1
-BACKEND_PORT=8000
-SURVEY_BACKEND_URL=http://127.0.0.1:8000
-SIMULATION_TERMINATION_ENABLED=false
-DEPLOY_AUTH_ENABLED=true
-DEPLOY_USERNAME=survey
-DEPLOY_PASSWORD=<48位随机十六进制密码>
+chmod 600 deploy/config/deploy.env deploy/config/seed-users.json
 ```
 
-查看或修改：
+如果仓库从 2026-07 的 host-process 部署升级，旧 `deploy.env` 可能含 `LOCAL_HOST`、`BACKEND_PORT` 等字段而缺少 PostgreSQL/Compose 字段。初始化会保护已有文件而不会重写它；先安全保留旧文件，再重新初始化：
 
 ```bash
-$EDITOR deploy/config/deploy.env
-chmod 600 deploy/config/deploy.env
+mv deploy/config/deploy.env deploy/config/deploy.env.pre-compose
+npm run docker:init
 ```
 
-用户名只能包含字母、数字、点、下划线和连字符；密码至少 20 个字符。不要把该文件发到聊天、Issue 或 Git。
+确认新文件至少包含 `COMPOSE_PROJECT_NAME`、`LOCAL_PORT`、`POSTGRES_DB`、`POSTGRES_USER`、强随机 `POSTGRES_PASSWORD`、`SIMULATION_TERMINATION_ENABLED` 和 `DEPLOY_AUTH_ENABLED`。不要把密码输出到聊天、日志或 Git。
 
-8000 被占用时，可以把 `BACKEND_PORT` 和 `SURVEY_BACKEND_URL` 改为同一个空闲端口，例如 8010；`BACKEND_HOST` 必须保持 `127.0.0.1`。
+## 3. 构建与启动
 
-`SIMULATION_TERMINATION_ENABLED=false` 是默认设置：问卷和调研中的模拟受访者会回答全部问题，受访者主动终止和调研方终止均不触发。设置为 `true` 会同时恢复这两类随机终止规则；参数只接受小写的 `true` 或 `false`。修改后先执行 `npm stop`，再运行 `npm run deploy:start`，让新值随 FastAPI 启动生效。
-
-## 4. 部署前检查
+单独构建：
 
 ```bash
-npm run deploy:check
+npm run docker:build
 ```
 
-它会离线检查依赖、Python 3.14.6 后端环境、私密文件权限、loopback、端口、认证强度和 cloudflared 默认配置冲突，不调用 Cloudflare API，也不启动进程。
-
-如果端口 3000 或 8000 已被其他服务占用：
+构建并启动三个核心服务：
 
 ```bash
-lsof -nP -iTCP:3000 -sTCP:LISTEN
-lsof -nP -iTCP:8000 -sTCP:LISTEN
+npm run docker:up
 ```
 
-请先确认进程身份并由其所有者停止。部署脚本不会擅自 kill。
+启动脚本会校验 Docker/Compose 和私密文件，构建镜像，依次等待 db、backend、frontend 健康，然后请求同源 `/survey-api/health`。任何部分启动失败都会执行普通 Compose down，不删除 volume。
 
-## 5. 一键启动
+已构建镜像时：
 
 ```bash
-npm run deploy:start
+npm run docker:up -- --no-build
 ```
 
-脚本依次：
-
-1. 获取生命周期锁；
-2. 检查配置；
-3. 构建生产版本；
-4. 启动仅监听 `BACKEND_HOST:BACKEND_PORT`（默认 `127.0.0.1:8000`）的 FastAPI，并携带 `Accept-Language: zh-CN` 检查 `/api/health`；
-5. 启动仅监听 `127.0.0.1:3000` 的 Next.js；
-6. 使用 Basic Authorization 与 `Accept-Language: zh-CN` 验证本地页面和 `/survey-api/health`，并确认未认证请求返回 401；
-7. 启动匿名 Quick Tunnel；
-8. 提取随机 HTTPS 地址；
-9. 使用相同健康检查验证公网页面和代理后的 FastAPI；
-10. 打印公网地址。
-
-任一步失败都会停止本轮已启动的 Tunnel、Next.js 和 FastAPI。
-
-运行日志位于 `deploy/runtime/backend.log`、`next.log` 和 `cloudflared.log`。
-
-查看状态和地址：
+同时启动可选 Quick Tunnel：
 
 ```bash
-npm run deploy:status
+npm run docker:up -- --public
 ```
 
-## 6. 使用者访问
+启动成功后本地地址为 `http://127.0.0.1:${LOCAL_PORT}`（默认 3000）。public profile 成功时脚本打印并保存本轮随机 HTTPS 地址。
 
-将本轮的 `https://*.trycloudflare.com` 地址发送给使用者，并通过安全渠道单独告知账号密码。
+## 4. 首次登录和五账号
 
-使用者：
+用安全编辑器查看 `deploy/config/seed-users.json`，选择 `researcher01`–`researcher05` 任一账号登录。不要把完整文件粘贴到终端输出或共享记录。
 
-1. 在浏览器打开临时地址；
-2. 在项目登录页输入账号密码；
-3. 凭据正确后进入应用并获得 12 小时浏览器会话。
+backend 每次启动都会执行幂等种子同步：
 
-界面只支持简体中文 `zh-CN` 和英文 `en-US`。第一次访问时，已有 `survey_locale` Cookie 优先；没有 Cookie 时按浏览器语言选择，中文浏览器使用 `zh-CN`，其他语言使用 `en-US`。登录页和工作台右上角始终提供语言切换，选择会写入 Cookie，供后续访问优先使用。
+- 缺少的固定用户会创建；
+- 已存在用户保留数据库中的密码 hash 和 locale；
+- 修改 seed 文件不会自动重置已存在用户密码；
+- 数据库不保存明文密码。
 
-登录 API 与所有 `/survey-api/*` 请求都会发送当前语言的精确 `Accept-Language`。FastAPI 业务接口只接受 `zh-CN` 或 `en-US`，缺少或不支持的值会返回 400；健康接口不要求该请求头，响应语言默认是 `zh-CN`。部署启动脚本仍显式发送 `Accept-Language: zh-CN`，使直连、认证后的本地代理和公网代理健康检查都覆盖语言请求契约。
-
-错误凭据会按当前界面语言留在登录页显示。部署脚本和其他非 HTML 请求的错误凭据仍得到 `401 Authentication required`。语言切换只翻译界面、格式化显示和部分接口错误，不会翻译 FastAPI 已返回的问卷、受访者、回答或导出内容；当前 Mock Engine 生成的内容在英文界面中仍可能是中文。
-
-## 7. 一键停止
+重置一个账号时在运行中的 backend 容器执行 CLI。避免把密码留在 shell 历史；以下交互读取方式仍会把值短暂传给容器进程参数，应仅在可信本机使用：
 
 ```bash
-npm stop
+read -r -s reset_password
+docker compose --env-file deploy/config/deploy.env exec backend \
+  python -m app.cli reset-password \
+  --username researcher01 \
+  --password "$reset_password"
+unset reset_password
 ```
 
-脚本先停止 cloudflared，删除临时网址状态，再停止 Next.js 和 FastAPI，最后检查 PID、匹配进程以及配置的前后端端口。
-
-再次验证：
+## 5. 状态、健康与日志
 
 ```bash
-npm run deploy:verify-stopped
+npm run docker:status
+npm run docker:logs
 ```
 
-人工复核：
+状态脚本显示：
+
+- Compose 服务和 health；
+- 本地 URL；
+- public URL（如启用）；
+- 带 Compose label 的数据库 volume；
+- backend 的当前 Alembic revision。
+
+只检查本地同源健康：
 
 ```bash
-pgrep -fl cloudflared
-lsof -nP -iTCP:3000 -sTCP:LISTEN
-lsof -nP -iTCP:8000 -sTCP:LISTEN
+curl --fail http://127.0.0.1:3000/survey-api/health
 ```
 
-与本项目相关的输出应为空。
+如果启用了外围认证，健康请求必须携带外围凭据；应用业务接口仍需 `researcher0N` 会话。
 
-## 8. 下次启动
+## 6. 普通停止、重启与升级
 
-账号密码文件会保留，但公网地址会变化：
+普通停止：
 
 ```bash
-npm run deploy:start
+npm run docker:down
 ```
 
-必须把新地址重新发给使用者。需要更换密码时，先 `npm stop`，编辑 `deploy.env`，再重新启动。
+实现等价于带 `public` profile 的 `docker compose down --remove-orphans`，不带 `-v`/`--volumes`，因此保留 PostgreSQL volume。
 
-FastAPI 使用内存仓储；停止或重启后端会清空当前运行和历史记录。
+普通容器重启：
+
+```bash
+docker compose --env-file deploy/config/deploy.env restart backend
+```
+
+升级前先备份，然后构建并重新启动；backend 启动时自动执行 Alembic upgrade：
+
+```bash
+npm run docker:backup
+npm run docker:build
+npm run docker:up -- --no-build
+```
+
+不要在没有备份和迁移审查的情况下对重要数据升级。
+
+## 7. 备份
+
+数据库必须运行且健康：
+
+```bash
+npm run docker:backup
+```
+
+脚本在 db 容器中执行：
+
+```text
+pg_dump --format=custom --no-owner --no-privileges
+```
+
+先写入 mode-600 临时文件，确认非空后原子移动到 `deploy/backups/`。输出的最终路径类似：
+
+```text
+deploy/backups/survey-survey-YYYYMMDDTHHMMSSZ-<pid>.dump
+```
+
+把备份复制到受控的加密存储，并定期执行隔离恢复演练。仅“生成了文件”不能证明它可恢复。
+
+## 8. 恢复
+
+恢复会清理并改写当前 `deploy.env` 指向的应用数据库。先检查目标项目、数据库和备份权限：
+
+```bash
+chmod 600 deploy/backups/<backup>.dump
+npm run docker:status
+npm run docker:restore -- deploy/backups/<backup>.dump --confirm
+```
+
+脚本拒绝缺少 `--confirm`、缺失、空或非 mode-600 文件；实际使用 `pg_restore --clean --if-exists --exit-on-error --no-owner --no-privileges`。恢复后再次检查 health、迁移 revision、用户和项目数据。
+
+## 9. 持久化验收
+
+daemon 就绪后执行仓库提供的 live smoke：
+
+```bash
+npm run docker:up
+bash deploy/tests/persistence-smoke.sh
+```
+
+脚本覆盖两个用户、跨用户列表/直接访问、项目/问卷/轮次、backend restart、普通 down/up、非空备份和随机隔离 Compose 项目中的恢复。它仅对生成的隔离项目使用 `down --volumes`；不会删除主部署 volume。
+
+## 10. 明确清库（破坏性）
+
+以下命令不可恢复地删除当前 Compose 项目的 PostgreSQL volume。先运行备份并确认 `COMPOSE_PROJECT_NAME`：
+
+```bash
+docker compose \
+  --env-file deploy/config/deploy.env \
+  --profile public \
+  down --volumes --remove-orphans
+```
+
+日常停止、重启、升级和失败回滚都不应使用 `--volumes`。
+
+## 11. 完整验收交接
+
+执行持久化 smoke 后，继续按[P0 验证记录](../docs/verification/2026-09-05-p0-verification.md)验证五账号登出/401、五视口工作流、分析/异常/导出和可选 Quick Tunnel。所有条件通过前，不把完整 P0 标为完成。

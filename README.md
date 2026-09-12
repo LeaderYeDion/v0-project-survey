@@ -1,85 +1,120 @@
-# v0-project-survey
+# Survey Agent Simulator
 
-一个面向产品与研究团队的 AI 模拟调研平台，用于在真正后端上线之前快速探索访谈话术、应答逻辑、情绪趋势与人群分布。每次提交会触发 v0 部署，因此在本地调试即是 Live Preview。
+一个面向产品与研究团队的 Mock 调研平台，用于验证“项目—问卷—配置版本—研究轮次—分析—导出”的完整工作流。系统已经实现应用用户、严格的数据归属、PostgreSQL 持久化、可恢复运行控制和三服务 Docker 部署；回答与推断仍由 Mock Engine 生成，不代表真实 AI 或真实研究结论。
 
-## 当前阶段
+## 当前状态
 
-本项目目前是使用 FastAPI Mock 后端驱动的可交互原型，适合验证“配置—运行—个体结果—聚合分析—导出”的产品流程和界面设计。调研编排、Mock 回答、访谈推断、历史、统计和导出已从前端迁移至 `backend/`；它尚未接入真实 AI 模型、持久化数据库或项目/研究轮次/配置版本体系，因此当前结果只应用于演示、探索、预实验和假设生成。
+- P0-A 响应式工作区已经完成并有历史浏览器证据。
+- P0-B/P0-C 的代码与静态/自动化验证已经完成。
+- 完整 P0 验收仍待 Docker daemon 可用后执行：真实 PostgreSQL 迁移与持久化、五账号隔离、备份/隔离恢复、后端重启与普通 down/up、五视口浏览器流程及可选 Quick Tunnel。
 
-完整现状、问题池、路线图与逐轮记录见 [项目迭代文档](./docs/PROJECT_ITERATION.md)。
+因此，本仓库当前状态是“实现完成，现场验收待补”，不是“完整 P0 已完成”。详细证据和待执行命令见 [P0 验证记录](./docs/verification/2026-09-05-p0-verification.md)。
 
-## 业务逻辑
-- **配置驱动的模拟**：通过左侧配置面板调整问卷名称、描述、响应预算和问题库（文本/选择/量表），还可以定义性别、年龄段、职业、城市、收入及人数等受访者片段。配置支持切换到 JSON 编辑模式，便于导入导出整套设定。
-- **AI 调研流程模拟**：前端创建运行并轮询 FastAPI 快照；`backend/app/services/run_service.py` 负责任务编排，`mock_engine.py` 生成虚拟受访者和回答。每位受访者的对话、情绪、完成状态与终止原因都会被记录；当前回答并非由真实模型生成。
-- **访谈推断任务（Mock）**：访谈模式可在运行前启用画像推断和态度判断，基于访谈文本生成受访者字段、态度标签、理由和证据引用；当前由 FastAPI Mock 服务生成，不代表真实模型或真实研究结论。
-- **多维分析与导出**：分析面板实时汇总进度、情绪饼图、问题答复分布、受访者画像和维度聚合。问题分析支持按照性别/年龄/职业/城市/收入等维度筛选组合（例如“性别 = 男、收入 20-30 万、城市 = 北京”），也支持多维 group by（如同时分组性别 + 收入 + 城市）。历史记录可以保存、回放，数据可导出为 JSON/CSV 供进一步分析。
+## 已实现能力
 
-## 架构概览
-- **Next.js App Router + 响应式工作区**：`app/layout.tsx` 加载字体与全局样式（`app/globals.css`），`components/theme-provider.tsx` 强制暗黑主题。`app/page.tsx` 按三段式断点编排工作区：小于 768 px 使用“配置/结果/分析”顶部 Tabs，768–1199 px 使用结果中心与配置/分析 Sheet，1200 px 以上使用可拖拽并记忆栏宽的三栏桌面工作台。
-- **`app/page.tsx`：前端工作区协调器**：此 client 组件负责调用运行/轮询/导出接口，保存当前接口快照、模式、历史选择和工作区等展示状态；移动端启动模拟后自动切到结果工作区。
-- **数据层与服务封装**：`lib/survey-api.ts` 是 `/survey-api/*` HTTP Client，Next.js Rewrite 将请求转发到 FastAPI。后端包含运行、Mock、分析、历史和导出服务；历史记录保存在 FastAPI 进程内存中，前端刷新后仍可访问，后端重启后丢失。
+- 预置 `researcher01` 至 `researcher05` 五个应用账号；不提供注册、找回密码或产品内用户管理。
+- 项目、问卷、不可变问卷版本、不可变完整配置版本、研究轮次、结果与导出记录都通过当前应用用户归属；跨用户直接访问按不存在处理并返回 `404 RESOURCE_NOT_FOUND`。
+- 问卷草稿使用 revision 乐观并发和自动保存；开始运行时固化配置，之后修改草稿不会改变历史轮次。
+- 研究轮次支持暂停、继续、取消、重试失败样本、重试未完成样本，以及从历史复制为新草稿；原轮次和原版本保持不变。
+- 分析明确显示总体、当前筛选、有效回答、排除数量和分组人数；有效样本少于 30 时显示探索性提示；终止/失败可下钻到受访者证据。
+- JSON/CSV 导出支持 `full`、`filtered`、`exceptions` 三种范围、服务端安全文件名和可追溯的处理/成功/失败记录。
+- `zh-CN`/`en-US` 双语界面以及 390、768、1024、1280、1440 px 三段式响应式工作区。
 
-## 核心组件
-- **`SurveyConfigPanel`（配置工作区）**：管理元数据、响应时间滑块、可折叠问题列表及其选项、受访者片段（性别/年龄/职业/城市/收入/人数）；访谈模式可额外启用画像推断和态度判断任务；内容独立滚动，运行按钮固定在面板底部。
-- **`ChatSimulationPanel` 与 `BulkSurveyPanel`（结果工作区）**：前者展示逐条访谈对话、受访者列表、状态气泡和单个受访者的推断结果；移动端提供“受访者/对话”局部切换；后者以响应式卡片和图表展示批量完成情况、问题指标、问卷细节。
-- **`AnalyticsPanel`（分析工作区）**：分为概览、问题分析、人群分析和推断页，包含快速统计卡片、完成率、情绪/状态分布、维度筛选与分组、推断分布、导出/保存/历史按钮；桌面端常驻右栏，平板端通过 Sheet 打开，移动端通过顶部 Tabs 到达。
-- **共享 UI**：`components/ui`（由 ShadCN 生成）提供按钮、徽章、选择框、标签页、滑块、对话框、表格、图表容器等原语，图表部分基于 Recharts，对轴标签与提示信息进行了本地化。
+## 架构
 
-## 交互流程
-1. **选择模式**：进入页面后先选择“访谈”或“问卷”模式，确保中间面板呈现对应视图。
-2. **编辑配置**：在左侧输入调研标题/描述、设置响应时长、添加问题（文本/选择/量表），并指定受访者片段（性别、年龄段、职业、城市、收入与人数），可切换 JSON 模式快速批量编辑。
-3. **执行模拟**：点击“运行模拟”后由 FastAPI 创建后台运行，前端轮询完整快照并同步展示进度、回答和分析。
-4. **检视分析**：右侧分析面板实时更新：概览卡片、情绪/状态图、问题答复分布（支持多维筛选、group by、提示轴标签）、城市/收入画像、访谈推断分布、导出/保存/历史等操作。
-5. **沉淀与复用**：成功模拟后可保存历史记录，稍后通过历史列表回放；也可导出 JSON/CSV，在其他平台继续分析或归档。
-
-> 注意：历史记录目前保存在 FastAPI 进程内存中，后端重启后丢失。JSON/CSV 内容由后端生成，浏览器负责下载。
-
-## 当前迭代重点
-
-1. **研究轮次、配置快照与持久化（下一轮实施目标）**：建立“项目—研究轮次—配置版本”模型，使每次运行可保存、重新打开和复现，并补齐保存/导出的明确反馈。
-2. **响应式布局与滚动模型（P0-A 已完成）**：五个目标视口已无页面级横纵溢出；移动端、平板和桌面分别使用 Tabs、Sheet 和三栏工作台。
-3. **分析口径与异常解释**：明确区分总体、当前筛选和分组比较，始终展示有效样本数，并支持终止/失败原因汇总与下钻。
-
-详细范围、优先级依据、完成定义和 P0/P1/P2 路线图见 [项目迭代文档](./docs/PROJECT_ITERATION.md)。
-
-## 文档维护约定
-
-- 每次功能、修复或架构迭代必须在同一变更中更新 `docs/PROJECT_ITERATION.md`，记录目标、完成内容、验证、遗留问题和下一步；
-- 当项目定位、核心能力、架构、运行命令或最高优先级变化时，同时更新本 README；
-- `docs/AI问卷调研系统用户体验评价与迭代建议.md` 与 `LAYOUT_EVALUATION_REPORT.md` 作为历史评估依据保留，不承担实时状态维护职责；
-- 规划中的能力不得写成已实现能力，状态更新以代码、构建结果和浏览器验证为准。
-
-## 安全本地公网部署
-
-项目提供零费用 Cloudflare Quick Tunnel 部署工具：
-
-- Next.js 仅监听 `127.0.0.1:3000`；
-- 不需要域名、Cloudflare 账号、API Token、DNS 或端口转发；
-- 每次启动获得一个随机 HTTPS `trycloudflare.com` 地址；
-- 浏览器通过独立登录页输入本地维护的共享账号密码，成功后使用 12 小时签名 Cookie 会话访问应用；
-- 部署健康检查仍兼容 Basic Authorization，普通页面访问不再触发浏览器原生认证弹窗；
-- `npm run deploy:start` 一键构建并启动应用与 Tunnel，失败自动回滚；
-- `npm stop` 先关闭 Tunnel、再关闭应用，并验证 PID、临时网址与端口全部消失；
-- 本地密码、PID、临时网址和日志均不会提交到 Git。
-
-首次配置、日常操作与安全边界见 [deploy 部署手册](./deploy/README.md)。Quick Tunnel 地址每次启动都会变化，只适合个人使用、测试和演示，不作为正式生产部署。
-
-## 运行方式
-```bash
-npm install
-bash backend/scripts/bootstrap.sh
-npm run dev:full
+```text
+浏览器
+  │ 同源页面、应用会话 Cookie、CSRF
+  ▼
+frontend（Next.js，唯一绑定 127.0.0.1 的服务）
+  │ /survey-api/*，Compose 内部网络
+  ▼
+backend（FastAPI，迁移、种子、Mock 执行与业务所有权）
+  │ PostgreSQL 事务
+  ▼
+db（PostgreSQL 17）
+  │
+  ▼
+survey_postgres_data named volume
 ```
 
-也可以在两个终端分别启动：
+可选 `cloudflared` 服务位于 `public` profile，只连接 frontend。可选的外围共享认证默认关闭；即使启用，也不能代替五个应用用户的业务身份。
+
+## Docker 快速开始（推荐）
+
+前提：Docker Desktop 已经启动，且 `docker info` 能正常返回服务端信息。
 
 ```bash
+npm install
+npm run docker:init
+npm run docker:build
+npm run docker:up
+```
+
+初始化会生成两个 Git 忽略、权限为 `600` 的私密文件：
+
+- `deploy/config/deploy.env`：Compose、数据库和可选外围认证配置；
+- `deploy/config/seed-users.json`：五个预置应用账号的初始密码。
+
+浏览器访问 [http://127.0.0.1:3000](http://127.0.0.1:3000)，使用种子文件中的任一账号登录。后端启动时依次执行 Alembic 迁移和幂等种子同步；已存在用户的密码不会因重启而被重置。
+
+```bash
+npm run docker:status
+npm run docker:logs
+npm run docker:backup
+npm run docker:down
+```
+
+`npm run docker:down` 是普通停止，不删除数据库 volume。`docker compose down -v` 会永久删除数据库数据，只能在明确清库时使用。恢复备份会覆盖目标应用数据库，必须显式确认：
+
+```bash
+npm run docker:restore -- deploy/backups/<backup>.dump --confirm
+```
+
+完整操作、升级、备份恢复和公网入口见 [部署手册](./deploy/README.md)。
+
+## 非 Docker 开发
+
+前端和后端仍可分别启动，但完整应用登录与持久化流程需要可用 PostgreSQL 和 `DATABASE_URL=postgresql+asyncpg://...`：
+
+```bash
+bash backend/scripts/bootstrap.sh
 npm run dev:backend
 npm run dev
 ```
-浏览器访问 [http://localhost:3000](http://localhost:3000) 即可本地体验。
 
-仓库当前以 `package-lock.json` 和 npm 命令作为默认基准。如团队改用 pnpm 或 yarn，应统一包管理器并只维护对应的唯一锁文件，避免依赖解析结果漂移。
+默认地址为 `http://127.0.0.1:8000` 和 `http://127.0.0.1:3000`。没有数据库配置时只保留部分纯 Mock/测试组合，应用用户登录不可用；日常完整体验应使用 Compose。
+
+## 验证
+
+```bash
+backend/.venv/bin/python -m pytest backend/tests -q
+npm run test:frontend
+npm run typecheck
+npm run build
+node --test deploy/tests/*.test.mjs
+bash -n deploy/scripts/*.sh backend/docker-entrypoint.sh
+docker compose config --quiet
+```
+
+2026-09-09 的新鲜非浏览器结果为后端 127/127、前端 114/114、部署契约 41/41，类型检查、生产构建、shell 语法和 Compose 模型检查均通过。Docker image build、live Compose/PostgreSQL 和 Playwright 五视口验收因本机 daemon 无法在有界检查内就绪而未执行，不能由这些静态结果替代。
+
+## 明确边界
+
+- Mock Engine、Mock 推断和样例回答仅适合流程验证、演示、预实验和假设生成。
+- 不提供真实 AI、真实受访者、代表性抽样或正式研究结论。
+- 不提供注册、项目共享、角色/管理员跨用户读取、审计后台、Redis/Celery 或固定公网 SLA。
+- Quick Tunnel 地址临时且可能受网络或 Cloudflare 服务限制，不是生产部署。
+
+## 文档
+
+- [项目迭代台账](./docs/PROJECT_ITERATION.md)
+- [验证记录](./docs/verification/2026-09-05-p0-verification.md)
+- [部署导航](./deploy/README.md)
+- [后端开发说明](./backend/README.md)
+
+历史评估文档保留当时事实，不承担实时状态维护。功能、架构、运行命令或验收状态变化时，应在同一变更中更新 README、项目迭代台账和相应运行手册。
 
 ## 构建于 v0
-本仓库已连接至 [v0](https://v0.app) 项目，推送至 `main` 会自动触发部署。
+
+本仓库已连接至 [v0](https://v0.app) 项目；推送到配置的发布分支可能触发部署。任何托管环境仍需单独提供 PostgreSQL、私密配置和迁移/种子流程。
