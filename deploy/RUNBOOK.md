@@ -113,13 +113,28 @@ npm run docker:logs
 - 带 Compose label 的数据库 volume；
 - backend 的当前 Alembic revision。
 
-只检查本地同源健康：
+仅当 `DEPLOY_AUTH_ENABLED=false` 时，可直接检查本地同源健康：
 
 ```bash
 curl --fail http://127.0.0.1:3000/survey-api/health
 ```
 
-如果启用了外围认证，健康请求必须携带外围凭据；应用业务接口仍需 `researcher0N` 会话。
+不论外围认证是否启用，都可从私密配置生成短生存期、mode-600 的 curl config：
+
+```bash
+source deploy/scripts/common.sh
+load_deploy_env
+ensure_runtime_dir
+health_config="$(mktemp "$RUNTIME_DIR/curl-health.XXXXXX")"
+chmod 600 "$health_config"
+trap 'rm -f "$health_config"' EXIT
+write_deploy_curl_config "$health_config"
+curl --config "$health_config" "$(origin_url)/survey-api/health"
+rm -f "$health_config"
+trap - EXIT
+```
+
+启用外围认证时，不要改用带明文密码的命令行参数；上述 helper 会从当前 `deploy.env` 写入 curl config。应用业务接口仍需 `researcher0N` 会话。
 
 ## 6. 普通停止、重启与升级
 

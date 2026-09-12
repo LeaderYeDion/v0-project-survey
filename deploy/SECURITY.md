@@ -8,7 +8,7 @@
 
 ## 密码、会话和 CSRF
 
-- 初始密码只存在于 mode-600 的 `deploy/config/seed-users.json`；
+- 初始明文密码由 mode-600 的宿主文件 `deploy/config/seed-users.json` 保存；容器启动时它还会通过只读 Compose secret 挂载，并复制为容器内私密副本；
 - PostgreSQL 只保存 Argon2id 密码 hash；
 - 原始会话 token 仅进入 HttpOnly、SameSite=Strict、Path=/ Cookie，数据库只保存 token hash；
 - HTTPS 请求的会话 Cookie 带 Secure；
@@ -45,7 +45,7 @@ loopback 和 Tunnel 降低直接暴露，但不能修复 Next.js、依赖、业�
 | `deploy/backups/*.dump` | 600 | 数据库完整备份 |
 | `deploy/runtime/` | 700 目录，文件私密 | 临时 curl 配置和 public URL |
 
-Compose 通过只读 secret 提供种子文件。backend 仅在 root bootstrap 中读取 mounted secret，将其复制到容器内 survey 用户拥有的 mode-600 临时文件，然后通过 `gosu` 永久降权到 UID 10001。Alembic、种子同步和 Uvicorn 都在降权后运行。frontend runtime 也使用非 root 用户。
+Compose 通过只读 secret 挂载宿主种子文件。backend 仅在 root bootstrap 中读取该挂载，将其复制到 `/app/runtime/seed-users.json`，owner 为 `survey`、mode 为 600，然后通过 `gosu` 永久降权到 UID 10001。该容器内副本供 Alembic 后的种子同步读取，入口脚本不会显式删除它；该副本在容器被替换或删除时才随容器可写层一起消失。Uvicorn 及种子同步都在降权后运行，frontend runtime 也使用非 root 用户。
 
 ## 数据保留与破坏性操作
 
@@ -66,7 +66,7 @@ docker compose --env-file deploy/config/deploy.env logs --no-color
 ## 安全事件处理
 
 1. 关闭公网与核心服务：`npm run docker:down`；
-2. 确认 `npm run docker:status` 没有运行中的项目服务；
+2. 运行 `npm run docker:status` 查看 Compose `ps`；只有命令成功且服务列表为空时，才能据此确认没有运行中的项目服务，`Local URL` 行不是健康证据；
 3. 若怀疑数据受损，先保留现场和离线备份，不要清卷；
 4. 轮换受影响的应用密码；启用外围门禁时同时轮换其密码；
 5. 检查容器日志、数据库会话和异常导出记录；

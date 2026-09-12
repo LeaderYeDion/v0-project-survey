@@ -5,7 +5,7 @@
 ## 当前状态
 
 - P0-A 响应式工作区已经完成并有历史浏览器证据。
-- P0-B/P0-C 的代码与静态/自动化验证已经完成。
+- P0-B/P0-C 的代码实现完成，已执行的非 Docker 自动化/静态检查通过；完整验证矩阵尚未完成。
 - 完整 P0 验收仍待 Docker daemon 可用后执行：真实 PostgreSQL 迁移与持久化、五账号隔离、备份/隔离恢复、后端重启与普通 down/up、五视口浏览器流程及可选 Quick Tunnel。
 
 因此，本仓库当前状态是“实现完成，现场验收待补”，不是“完整 P0 已完成”。详细证据和待执行命令见 [P0 验证记录](./docs/verification/2026-09-05-p0-verification.md)。
@@ -97,7 +97,7 @@ bash -n deploy/scripts/*.sh backend/docker-entrypoint.sh
 docker compose config --quiet
 ```
 
-2026-09-09 的新鲜非浏览器结果为后端 127/127、前端 114/114、部署契约 41/41，类型检查、生产构建、shell 语法和 Compose 模型检查均通过。Docker image build、live Compose/PostgreSQL 和 Playwright 五视口验收因本机 daemon 无法在有界检查内就绪而未执行，不能由这些静态结果替代。
+2026-09-09 实际执行并于 2026-09-11 复验的非 Docker 自动化/静态子矩阵为后端 127/127、前端 114/114、部署契约 42/42，类型检查、Next.js 生产构建、shell 语法和 Compose 配置模型检查均通过。`docker compose build`、live Compose/PostgreSQL 和 Playwright 五视口验收因本机 daemon 无法在有界检查内就绪而未执行；因此完整验证矩阵仍是 pending，不能由这些结果替代。
 
 ## 明确边界
 

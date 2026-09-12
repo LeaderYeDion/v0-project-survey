@@ -8,11 +8,11 @@
 >
 > 代码基线：`99522df`（Task 10 文档提交之前）
 >
-> 结论：**实现与静态/自动化验证完成；live Docker/PostgreSQL/浏览器验收待补。完整 P0 未标记完成。**
+> 结论：**实现完成，已执行的非 Docker 自动化/静态检查通过；要求的完整矩阵未完成，live Docker/PostgreSQL/浏览器验收待补。完整 P0 未标记完成。**
 
 ## 1. 结论边界
 
-Task 1–9 已实现 PostgreSQL schema、五用户认证、owner-scoped 研究资源、不可变版本、可恢复轮次、明确分析、异常下钻、范围导出、前端工作流和三服务 Compose 部署。Task 10 从干净 Git 状态重新运行非浏览器矩阵并更新存活文档。
+Task 1–9 已实现 PostgreSQL schema、五用户认证、owner-scoped 研究资源、不可变版本、可恢复轮次、明确分析、异常下钻、范围导出、前端工作流和三服务 Compose 部署。Task 10 从干净 Git 状态重新运行 daemon 不可用时仍能完成的非 Docker 自动化/静态子矩阵，并更新存活文档。
 
 本机 Docker CLI/Compose 存在，但 daemon 未在有界检查内返回可用 Server 信息。由于 Docker frontend 没有启动，本轮无法使用 Playwright 执行当前完整业务流。以下两类证据必须严格分开：
 
@@ -44,7 +44,9 @@ command -v npx
 
 结果：exit 0，路径为 `/Users/mymac/.local/state/fnm_multishells/39179_1788664171453/bin/npx`。这只证明 CLI wrapper 的依赖存在，不代表浏览器流程已执行。
 
-## 3. 本轮新鲜非浏览器矩阵
+## 3. 本轮新鲜非 Docker 自动化/静态子矩阵
+
+下表只覆盖本轮实际执行的子矩阵。Task 10 要求的 `docker compose build` 因 daemon readiness gate 未通过而 **NOT RUN**；因此不得把本节称为完整非浏览器矩阵或完整 P0 验证。
 
 | 检查 | 结果 | 计数/耗时 | 备注 |
 | --- | --- | --- | --- |
@@ -52,10 +54,11 @@ command -v npx
 | `npm run test:frontend` | PASS | 114 passed；Node 312.665 ms；wall 0.49 s | action/race/API/UI 源契约等；非真实浏览器 |
 | `npm run typecheck` | PASS | exit 0；wall 0.71 s | `tsc --noEmit` |
 | `npm run build` | PASS（批准的外部重跑） | compile 2.5 s；5/5 static pages；wall 3.86 s | 见构建环境与警告 |
-| `node --test deploy/tests/*.test.mjs` | PASS | 41 passed；Node 2.408 s；wall 2.44 s | Compose/Dockerfile/脚本契约和 stubbed 脚本行为 |
+| `node --test deploy/tests/*.test.mjs` | PASS | 42 passed；Node 2.260 s；wall 2.30 s | 2026-09-11 review-fix 复验；Compose/Dockerfile/脚本契约和 stubbed 脚本行为 |
 | `bash -n deploy/scripts/*.sh backend/docker-entrypoint.sh` | PASS | exit 0；wall 0.00 s | shell 语法 |
 | `docker compose config --quiet` | PASS with warnings | exit 0；wall 0.24 s | 未自动读取私密 `deploy.env`，对三个未设置 DB 变量各发出重复默认空值警告 |
 | 完整显式环境 + example seed 的 `docker compose --profile public ... config --quiet` | PASS | exit 0；wall 0.25 s | 无输出；只解析 Compose，不访问 daemon |
+| `docker compose build` / `npm run docker:build` | **NOT RUN** | 无耗时/退出码 | Docker daemon 未被证明 ready；不属于上述通过子矩阵 |
 
 完整后端输出摘要：
 
@@ -69,7 +72,7 @@ command -v npx
 
 ```text
 frontend: tests 114, pass 114, fail 0, duration_ms 312.664583
-deploy:   tests 41,  pass 41,  fail 0, duration_ms 2408.368209
+deploy:   tests 42,  pass 42,  fail 0, duration_ms 2260.1695
 ```
 
 Compose 的无 secret 静态渲染命令为：
@@ -172,11 +175,12 @@ cd output/playwright/p0
 ```bash
 "$PWCLI" --session p0 eval \
   "({innerWidth,innerHeight,clientWidth:document.documentElement.clientWidth,clientHeight:document.documentElement.clientHeight,scrollWidth:document.documentElement.scrollWidth,scrollHeight:document.documentElement.scrollHeight})"
+"$PWCLI" --session p0 console error
 "$PWCLI" --session p0 console warning
 "$PWCLI" --session p0 screenshot
 ```
 
-验收要求 `innerWidth/clientWidth` 与目标宽度一致、`innerHeight/clientHeight` 与目标高度一致、无页面级横纵溢出，console error/warning 为 0。覆盖流程：
+验收要求 `innerWidth/clientWidth` 与目标宽度一致、`innerHeight/clientHeight` 与目标高度一致、无页面级横纵溢出；分别执行 `console error` 和 `console warning`，两类计数都必须为 0。覆盖流程：
 
 1. 应用用户登录和 `/auth/me` 身份；
 2. 创建项目和问卷，编辑后等待自动保存；

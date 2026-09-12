@@ -7,6 +7,7 @@ import {
   readFile,
   readdir,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -123,6 +124,30 @@ test("initialization preserves an existing private file while creating the missi
   const users = JSON.parse(await readFile(seedFile, "utf8"))
   assert.equal(users.length, 5)
   assert.equal((await stat(seedFile)).mode & 0o777, 0o600)
+})
+
+test("private credential validation rejects symbolic links", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "survey-private-symlink-"))
+  const privateTarget = join(tempDir, "private-target")
+  const linkedFile = join(tempDir, "deploy.env")
+  await writeFile(privateTarget, "PRIVATE_CONFIGURATION=not-followed\n", {
+    mode: 0o600,
+  })
+  await symlink(privateTarget, linkedFile)
+
+  await assert.rejects(
+    execFileAsync(
+      "bash",
+      [
+        "-c",
+        'source deploy/scripts/common.sh; assert_private_file "$1"',
+        "assert-private-file",
+        linkedFile,
+      ],
+      { cwd: projectRoot },
+    ),
+    /must not be a symbolic link/,
+  )
 })
 
 test("prerequisites validate Docker Compose and private configuration files", async () => {

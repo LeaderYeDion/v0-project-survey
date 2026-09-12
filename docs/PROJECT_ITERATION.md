@@ -20,7 +20,7 @@
 
 生产部署模型由 Next.js frontend、FastAPI backend 和 PostgreSQL db 三个独立 Compose 服务组成。PostgreSQL 使用 named volume；普通 restart、容器重建和普通 `docker compose down` 设计为保留数据，只有显式 `down --volumes` 删除数据。
 
-代码、自动化和静态部署契约已经完成；本机 Docker daemon 在有界检查内未能返回服务端信息，因此真实容器、数据库 volume、迁移/种子、备份恢复、五账号和五视口浏览器验收没有执行。当前不能宣称完整 P0 已验收。
+代码实现和已执行的非 Docker 自动化/静态部署契约检查已经完成；要求的完整矩阵尚未完成。本机 Docker daemon 在有界检查内未能返回服务端信息，因此 `docker compose build`、真实容器、数据库 volume、迁移/种子、备份恢复、五账号和五视口浏览器验收没有执行。当前不能宣称完整 P0 已验收。
 
 ### 当前实现能力
 
@@ -37,17 +37,17 @@
 | 前端 | `zh-CN`/`en-US`；移动 Tabs、平板 Sheet、桌面可拖拽三栏；服务端身份与 CSRF 请求边界 |
 | 部署 | frontend/backend/db、内部网络、loopback-only frontend、PostgreSQL volume、备份/恢复脚本、可选 cloudflared profile |
 
-### 最新实测基线
+### 最新非 Docker 自动化/静态实测基线
 
-2026-09-09 从干净分支状态运行：
+2026-09-09 从干净分支状态运行，并于 2026-09-11 完成 review-fix 复验：
 
 - 后端：127/127 通过，pytest 报告 2.92 s；
 - 前端：114/114 通过，Node runner 报告 312.665 ms；
-- 部署契约：41/41 通过，Node runner 报告 2.408 s；
+- 部署契约：42/42 通过，最新 Node runner 报告 2.260 s；
 - `npm run typecheck`、`npm run build`、shell 语法和 Compose 配置模型通过；
 - 构建仍提示已有自定义 Babel 配置可移除，并明确跳过 Next 内置类型检查；独立 `tsc --noEmit` 已通过；
 - 普通 sandbox 中 Turbopack helper 不能完成，取消后以批准的外部运行通过；
-- Docker daemon 检查未得到可用服务端，live Compose/PostgreSQL/Playwright 未执行。
+- Docker daemon 检查未得到可用服务端，`docker compose build`、live Compose/PostgreSQL/Playwright 未执行；本清单只是完整矩阵的已执行子集。
 
 历史 P0-A 浏览器基线（2026-06-27）曾验证 390×844、768×720、1024×720、1280×720、1440×720 文档宽高等于视口且页面级溢出为 0；该证据早于当前持久化工作流，不能替代本轮完整五视口业务验收。
 
@@ -123,7 +123,7 @@
 - **版本/提交**：`real-backend-v1`，Task 1–9 提交序列及本轮文档提交
 - **目标**：把五用户、所有权、PostgreSQL、可恢复轮次、明确分析、范围导出和三服务部署实现收束为可验证、可运维的事实；只有完整 live 闭环通过才宣布 P0 完成。
 - **完成内容**：Task 1–9 的实现和审查结果已合并；重写 README、后端与全部部署手册；建立逐项验证记录和 daemon 恢复后的精确命令。
-- **验证**：后端 127/127、前端 114/114、部署契约 41/41，类型检查、生产构建、shell 语法、Compose 模型和文档检查通过。生产构建保留现有 Babel/内置类型跳过警告，独立类型检查通过。
+- **验证**：已执行的非 Docker 自动化/静态子矩阵中，后端 127/127、前端 114/114、部署契约 42/42，类型检查、生产构建、shell 语法、Compose 模型和文档检查通过。`docker compose build` 明确为 NOT RUN。生产构建保留现有 Babel/内置类型跳过警告，独立类型检查通过。
 - **遗留问题**：Docker daemon 无法在有界探测内返回；未运行 image build/up、真实 PostgreSQL、持久化 smoke、五账号与五视口浏览器、真实备份/恢复和 Quick Tunnel。本轮不宣称这些通过。
 - **下一步**：按验证记录“待补验收命令”执行 live 闭环；仅在全部条件通过后更新 P0 状态。
 

@@ -2,9 +2,9 @@
 
 ## Status
 
-Task 10 completed the fresh non-browser verification matrix and replaced every living README/deployment manual with the current PostgreSQL/Compose/application-user architecture. It also created the evidence-linked P0 verification record and exact daemon-ready handoff commands.
+Task 10 completed the daemon-independent automated/static subset that could be executed on this workstation and replaced every living README/deployment manual with the current PostgreSQL/Compose/application-user architecture. It also created the evidence-linked P0 verification record and exact daemon-ready handoff commands. The required full matrix was not completed: `docker compose build` was **NOT RUN**, and all live Docker/PostgreSQL/browser checks remain pending.
 
-The correct release status is **implementation and static/automated verification complete; live acceptance pending**. Complete P0 is not marked complete because Docker daemon readiness, live PostgreSQL/persistence/backup/restore, five-account, five-viewport browser, and optional public-profile checks were not executed.
+The correct release status is **implementation complete; the executed non-Docker automated/static subset passes; the required full matrix and live acceptance remain pending**. Complete P0 is not marked complete because `docker compose build`, Docker daemon readiness, live PostgreSQL/persistence/backup/restore, five-account, five-viewport browser, and optional public-profile checks were not executed.
 
 ## Files
 
@@ -27,6 +27,13 @@ Created:
 Updated local SDD ledger:
 
 - `.superpowers/sdd/2026-09-05-p0-trustworthy-research-platform/progress.md`
+
+Review-fix round 1 additionally changed:
+
+- `deploy/scripts/common.sh`
+- `deploy/tests/deployment-contract.test.mjs`
+
+and corrected the current security/verification wording in the README, backend README, project iteration document, RUNBOOK, SECURITY, TROUBLESHOOTING, and verification record.
 
 ## Required context review
 
@@ -51,7 +58,7 @@ command -v npx: exit 0
 /Users/mymac/.local/state/fnm_multishells/39179_1788664171453/bin/npx
 ```
 
-Non-browser matrix:
+Executed non-Docker automated/static subset (not the complete required matrix):
 
 ```text
 backend pytest: 127 passed in 2.92s; wall 3.13s
@@ -62,6 +69,7 @@ deploy Node tests: 41 passed, 0 failed; runner 2.408s; wall 2.44s
 shell syntax: exit 0; wall 0.00s
 docker compose config --quiet: exit 0; wall 0.24s
 fully specified public-profile Compose render: exit 0; wall 0.25s
+docker compose build / npm run docker:build: NOT RUN; daemon readiness gate did not pass
 ```
 
 The exact bare Compose config command emitted six non-failing warnings because it does not load the private env file and three database variables defaulted to blank twice during interpolation. The fully specified non-secret static render emitted no output.
@@ -125,6 +133,42 @@ markdown structure and local links: ok (9 files)
 
 The final stale-claim scan matched only the backend README sentence that explicitly labels `MemoryRepository` as a test double rather than the deployment data source. It found no live claim that history is process memory/restart-lost, a shared outer credential is the application identity, the database is absent, or P0-B/P0-C are unstarted. `git diff --check` exited 0. The staged diff and final Git state were inspected immediately before/after commit.
 
+## Review-fix round 1
+
+Review against commit `4392974` found one implementation hardening opportunity and several documentation precision problems.
+
+The credential-file hardening followed a test-first RED/GREEN cycle. The focused RED command was:
+
+```text
+node --test --test-name-pattern='private credential validation rejects symbolic links' deploy/tests/deployment-contract.test.mjs
+```
+
+It failed 0/1 because a symlink to a mode-600 target produced the existing generic mode error instead of the required explicit symbolic-link rejection. `assert_private_file` was then changed to reject `-L` before checking file type or mode. The unchanged focused command passed 1/1 (45.813 ms), and the complete deployment suite passed 42/42 (2260.170 ms).
+
+Documentation corrections:
+
+- seed plaintext is described at every current touchpoint: the mode-600 host file is mounted read-only and copied during root bootstrap to `/app/runtime/seed-users.json`, owned by `survey`/UID 10001 with mode 600; the entrypoint does not delete it, and it disappears with the container writable layer when the container is replaced or removed;
+- the verification record instructs each viewport to collect both `console error` and `console warning`, requiring both counts to be zero;
+- every summary describes the green matrix as the executed non-Docker automated/static subset and explicitly records `docker compose build` as NOT RUN;
+- the RUNBOOK limits direct unauthenticated health curl to `DEPLOY_AUTH_ENABLED=false` and gives a short-lived mode-600 curl-config method valid in both modes;
+- TROUBLESHOOTING states exactly what `docker:status` prints, makes clear that `Local URL` is configuration rather than a reachability probe, and explains its early failure behavior when daemon/Compose is unavailable.
+
+Fresh review-fix verification:
+
+```text
+focused symlink regression: 1 passed; 45.813 ms
+complete deploy tests: 42 passed; 2260.170 ms
+shell syntax: exit 0
+typecheck: exit 0
+frontend tests: 114 passed; 416.849 ms
+backend tests: 127 passed in 3.52 s
+production build: exit 0; compile 3.4 s; 5/5 static pages
+markdown structure and local links: 10 files; exit 0
+git diff --check: exit 0
+```
+
+The build retained the known custom-Babel and skipped built-in type-validation warnings; the independent typecheck passed. Docker/live/browser acceptance was not rerun and remains pending because this documentation/hardening review did not establish a ready daemon.
+
 ## Self-review
 
 - Compared each living claim against current `compose.yaml`, Dockerfiles, entrypoint, npm lifecycle scripts, auth/session code, round recovery code, prior task reports, and the approved design.
@@ -133,10 +177,10 @@ The final stale-claim scan matched only the backend README sentence that explici
 - Confirmed deployment commands target current Compose scripts, not the replaced host-PID flow.
 - Confirmed public profile remains optional and application users remain authoritative when outer auth is enabled.
 - Confirmed Playwright was not opened against a nonexistent service; only its `npx` prerequisite and exact future CLI workflow were recorded.
-- Confirmed no product code, tests, Dockerfiles, Compose model, or deployment scripts were changed in Task 10.
+- Confirmed the initial Task 10 commit changed documentation only; review-fix round 1 changed only the private-file validator and its regression test outside documentation, without changing Dockerfiles, Compose, or product behavior.
 
 ## Commit
 
-Truthful commit message: `docs: record P0 verification with live acceptance pending`.
+Initial Task 10 commit: `4392974 docs: record P0 verification with live acceptance pending`.
 
-The resulting identifier is provided in the task handoff because adding a commit's own identifier to this tracked report would change the commit.
+The review-fix commit identifier is provided in the task handoff because adding a commit's own identifier to this tracked report would change that commit.

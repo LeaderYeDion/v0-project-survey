@@ -33,6 +33,7 @@ file_mode() {
 
 assert_private_file() {
   local file="$1"
+  [ ! -L "$file" ] || die "$file must not be a symbolic link"
   [ -f "$file" ] || die "Missing private file: $file"
   local mode
   mode="$(file_mode "$file")"

@@ -34,6 +34,12 @@ npm run docker:up
 
 `docker compose config --quiet` 只解析配置，不访问 daemon；它成功不能证明镜像、容器、数据库或 volume 可用。
 
+## 正确解读状态输出
+
+`npm run docker:status` 报告 Compose `ps`/health、配置的本地 URL、已保存的 public URL、按 Compose label 查到的数据库 volume，以及运行中 backend 的 Alembic revision。其中 `Local URL` 行只是配置地址，不是 HTTP 可达或登录成功的证明；脚本也不会执行业务登录。daemon 或 `compose ps` 失败时，命令会在输出其余状态前失败退出。
+
+如需证明应用可达，在状态命令成功后再执行[RUNBOOK 中基于私密配置的健康请求](./RUNBOOK.md#5-状态健康与日志)；它同时适用于开启或关闭外围认证的部署。
+
 ## 缺少或过时的私密配置
 
 创建缺少的当前 Compose 配置：
@@ -106,11 +112,13 @@ npm run docker:up -- --no-build
 
 ## frontend 健康，但业务登录失败
 
-先确认同源 backend 健康：
+仅在 `DEPLOY_AUTH_ENABLED=false` 时，可用无凭据 curl 确认同源 backend 健康：
 
 ```bash
 curl --fail http://127.0.0.1:3000/survey-api/health
 ```
+
+启用外围认证时，使用[RUNBOOK 中基于私密配置的 curl config](./RUNBOOK.md#5-状态健康与日志)，不要把外围密码写进命令行。
 
 应用登录必须使用 `deploy/config/seed-users.json` 中的 `researcher0N`，不是可选的外围 `DEPLOY_USERNAME`。如果用户已存在，修改 seed 文件不会覆盖数据库密码；使用 backend CLI 显式 reset-password。
 

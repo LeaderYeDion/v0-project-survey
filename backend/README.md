@@ -6,7 +6,7 @@ FastAPI 后端负责应用用户认证、所有权校验、项目/问卷/不可�
 
 Compose 中 backend 等待健康的 PostgreSQL，然后入口脚本依次执行：
 
-1. root bootstrap 把只读种子 secret 复制为 `survey` 用户拥有的 mode-600 临时文件；
+1. root bootstrap 把只读种子 secret 复制为 `survey` 用户拥有的 `/app/runtime/seed-users.json` mode-600 容器内副本；入口脚本不删除该副本，它随容器可写层在容器替换/删除时消失；
 2. 永久降权到 UID 10001；
 3. `alembic upgrade head`；
 4. `python -m app.cli seed-users --file ...`；
