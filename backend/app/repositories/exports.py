@@ -128,6 +128,26 @@ class ExportRepository:
             },
         )
 
+    async def fail_stale_processing(self, stale_before: datetime, finished_at: datetime):
+        values = {
+            "status": "failed", "finished_at": finished_at,
+            "error_code": "EXPORT_GENERATION_INTERRUPTED",
+            "error_message": "Export generation was interrupted. Please retry.",
+        }
+        if self._session_factory is None:
+            async with self._lock:
+                stale = [row for row in self._records.values() if row.status == "processing" and row.created_at <= stale_before]
+                for row in stale:
+                    for name, value in values.items():
+                        setattr(row, name, value)
+                return tuple(_copy_row(row) for row in stale)
+        statement = (update(ExportRecordRow)
+            .where(ExportRecordRow.status == "processing", ExportRecordRow.created_at <= stale_before)
+            .values(**values).returning(ExportRecordRow))
+        async with storage_session(self._session_factory) as session:
+            async with session.begin():
+                return tuple((await session.scalars(statement)).all())
+
     async def mark_failed(
         self,
         owner_id: UUID,

@@ -261,6 +261,10 @@ class RoundRepositoryProtocol(Protocol):
 
 
 class ExportRepositoryProtocol(Protocol):
+    async def fail_stale_processing(
+        self, stale_before: datetime, finished_at: datetime,
+    ) -> Sequence[ExportRecordRow]: ...
+
     async def create_export(
         self,
         owner_id: UUID,

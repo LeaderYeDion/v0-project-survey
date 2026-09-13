@@ -32,7 +32,12 @@ async def api_error_handler(
     headers = {}
     if error.code == "STORAGE_UNAVAILABLE":
         request_id = str(uuid4())
-        resources = [str(value) for value in _request.path_params.values() if isinstance(value, UUID)]
+        resources = []
+        for value in _request.path_params.values():
+            try:
+                resources.append(str(UUID(str(value))))
+            except ValueError:
+                continue
         logging.getLogger(__name__).warning(
             "STORAGE_UNAVAILABLE request_id=%s resource_ids=%s",
             request_id, ",".join(resources),

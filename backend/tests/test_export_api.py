@@ -216,3 +216,22 @@ async def test_exports_hide_cross_owner_rounds(export_api) -> None:
     for response in (listed, generated):
         assert response.status_code == 404
         assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_finalize_storage_failure_is_safe_503_and_records_failure(export_api, monkeypatch, caplog):
+    from sqlalchemy.exc import OperationalError
+    application, alice, _, round_id = export_api
+    async def fail(*_args):
+        raise OperationalError("private-answer", {}, Exception("private-token"))
+    monkeypatch.setattr(application.state.export_service.repository, "mark_succeeded", fail)
+    response = await alice.post(f"/api/rounds/{round_id}/exports",
+        headers={"X-CSRF-Token": alice.cookies["survey_csrf"]}, json={"format": "json", "scope": "full"})
+    assert response.status_code == 503
+    assert response.json()["code"] == "STORAGE_UNAVAILABLE"
+    assert round_id in caplog.text
+    records = (await alice.get(f"/api/rounds/{round_id}/exports")).json()
+    assert records[0]["status"] == "failed"
+    assert records[0]["errorCode"] == "STORAGE_UNAVAILABLE"
+    assert "private-answer" not in response.text + str(records) + caplog.text
+    assert "private-token" not in response.text + str(records) + caplog.text
