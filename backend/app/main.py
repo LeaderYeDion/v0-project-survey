@@ -38,6 +38,7 @@ from app.services.inference_analysis_service import InferenceAnalysisService
 from app.services.inference_service import InferenceService
 from app.services.run_service import RunService
 from app.services.research_service import ResearchService
+from app.services.recovery_service import RecoveryService
 
 
 HEAD_MIGRATION_REVISION = "20260905_0001"
@@ -93,11 +94,14 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_application: FastAPI):
-        if service is not None:
-            await service.executor.reconcile_interrupted_rounds()
+        recovery = _application.state.recovery
+        if recovery is not None:
+            await recovery.start()
         try:
             yield
         finally:
+            if recovery is not None:
+                await recovery.stop()
             if service is not None:
                 await service.executor.shutdown()
 
@@ -127,6 +131,10 @@ def create_app(
         AuthService(AuthRepository(session_factory))
         if session_factory is not None
         else None
+    )
+    application.state.recovery = (
+        RecoveryService(service.executor, application.state.export_service)
+        if service is not None else None
     )
     application.state.research_service = configured_research
     application.add_exception_handler(ApiError, api_error_handler)

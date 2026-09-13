@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -13,6 +14,8 @@ from app.db.models import (
     RoundRespondentRow,
     SessionRow,
 )
+from app.api.errors import ApiError
+from app.db.errors import STORAGE_ERRORS
 from app.repositories.protocols import RoundCheckpoint, RoundRepositoryProtocol
 from app.schemas.survey import (
     DialogMessage,
@@ -24,6 +27,9 @@ from app.schemas.survey import (
 from app.services.inference_service import InferenceService
 from app.services.research_service import ResearchService
 from app.services.simulation_engine import SimulationEngine
+
+
+logger = logging.getLogger(__name__)
 
 
 class RoundExecutor:
@@ -85,10 +91,21 @@ class RoundExecutor:
                 leased.row_version,
             )
             raise RuntimeError("round status changed while starting")
-        self._tasks[normalized_id] = asyncio.create_task(
+        task = asyncio.create_task(
             self._execute(owner_id, normalized_id)
         )
+        self._tasks[normalized_id] = task
+        task.add_done_callback(
+            lambda completed: self._forget_task(normalized_id, completed)
+        )
         return running
+
+    def _forget_task(self, round_id: UUID, task: asyncio.Task[None]) -> None:
+        # A completed task must never remove a replacement scheduled by resume.
+        if self._tasks.get(round_id) is task:
+            del self._tasks[round_id]
+        if not task.cancelled() and task.exception() is not None:
+            logger.warning("ROUND_EXECUTION_FAILED resource_id=%s", round_id)
 
     async def wait(self, round_id: UUID | str) -> ResearchRoundRow:
         normalized_id = _uuid(round_id)
@@ -109,38 +126,54 @@ class RoundExecutor:
         )
 
     async def shutdown(self) -> None:
-        for round_id in tuple(self._tasks):
-            owner_id = await self._repository.get_owner_id(round_id)
-            if owner_id is None:
-                continue
-            while True:
-                current = await self._repository.get_for_owner(
-                    owner_id,
-                    round_id,
-                )
-                if (
-                    current is None
-                    or current.status not in {"queued", "running", "pausing"}
-                    or current.lease_owner != self._lease_owner
-                ):
-                    break
-                paused = await self._repository.transition(
-                    owner_id,
-                    round_id,
-                    current.row_version,
-                    frozenset({current.status}),
-                    "paused",
-                )
-                if paused is not None:
-                    break
+        tasks = tuple(self._tasks.items())
+        for _, task in tasks:
+            task.cancel()
+        await asyncio.gather(*(task for _, task in tasks), return_exceptions=True)
+        for round_id, _ in tasks:
+            try:
+                await self._pause_owned_round(round_id)
+            except Exception as error:
+                if not _is_storage_failure(error):
+                    raise
+                logger.warning("STORAGE_UNAVAILABLE resource_id=%s operation=shutdown", round_id)
+
+    async def _pause_owned_round(self, round_id: UUID) -> None:
+        owner_id = await self._repository.get_owner_id(round_id)
+        if owner_id is None:
+            return
+        while True:
+            current = await self._repository.get_for_owner(owner_id, round_id)
+            if (
+                current is None
+                or current.status not in {"queued", "running", "pausing"}
+                or current.lease_owner != self._lease_owner
+            ):
+                break
+            paused = await self._repository.transition(
+                owner_id, round_id, current.row_version,
+                frozenset({current.status}), "paused",
+            )
+            if paused is not None:
+                break
 
     async def _execute(self, owner_id: UUID, round_id: UUID) -> None:
         try:
             await self._run(owner_id, round_id)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            await self._fail_round(owner_id, round_id)
+        except Exception as error:
+            if not _is_storage_failure(error):
+                await self._fail_round(owner_id, round_id)
+                return
+            logger.warning("STORAGE_UNAVAILABLE resource_id=%s operation=execute", round_id)
+            try:
+                await self._pause_owned_round(round_id)
+            except Exception as pause_error:
+                if not _is_storage_failure(pause_error):
+                    raise
+                # Durable lease expiration makes this recoverable once storage returns.
+                logger.warning("STORAGE_UNAVAILABLE resource_id=%s operation=pause", round_id)
 
     async def _run(self, owner_id: UUID, round_id: UUID) -> None:
         config_row = await self._repository.get_for_owner(owner_id, round_id)
@@ -203,6 +236,8 @@ class RoundExecutor:
                 if not should_continue:
                     return
             except Exception as error:
+                if _is_storage_failure(error):
+                    raise
                 if not await self._fail_respondent(
                     owner_id,
                     round_id,
@@ -661,3 +696,9 @@ def _terminate(
 
 def _uuid(value: UUID | str) -> UUID:
     return value if isinstance(value, UUID) else UUID(value)
+
+
+def _is_storage_failure(error: Exception) -> bool:
+    return isinstance(error, STORAGE_ERRORS) or (
+        isinstance(error, ApiError) and error.code == "STORAGE_UNAVAILABLE"
+    )

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 
@@ -296,3 +299,62 @@ async def test_pause_winning_final_completion_cas_becomes_resumable() -> None:
     assert paused.status == "paused"
     await harness.service.resume(harness.owner_id, created.id)
     assert (await harness.service.wait(created.id)).status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_completed_task_is_released_without_breaking_existing_waiter():
+    engine = CheckpointGateEngine()
+    harness = await build_round_harness(engine=engine)
+    created = await harness.service.create(harness.owner_id, harness.questionnaire_id, "zh-CN")
+    await engine.answer_started.wait()
+    waiter = asyncio.create_task(harness.service.wait(created.id))
+    await asyncio.sleep(0)
+    engine.allow_answer.set()
+    assert (await waiter).status == "completed"
+    assert not harness.service.executor._tasks
+    assert (await harness.service.wait(created.id)).status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_blocked_worker_and_preserves_last_checkpoint():
+    engine = CheckpointGateEngine()
+    harness = await build_round_harness(engine=engine)
+    created = await harness.service.create(harness.owner_id, harness.questionnaire_id, "zh-CN")
+    await engine.answer_started.wait()
+    worker = harness.service.executor._tasks[UUID(created.id)]
+    try:
+        await harness.service.executor.shutdown()
+        assert worker.done()
+        assert not harness.service.executor._tasks
+        rows = await harness.repository.get_result_rows_for_owner(harness.owner_id, UUID(created.id))
+        assert rows.round.status == "paused"
+        assert rows.responses == ()
+        assert rows.messages == ()
+    finally:
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+
+
+@pytest.mark.asyncio
+async def test_storage_checkpoint_failure_pauses_without_failing_respondent(caplog):
+    from sqlalchemy.exc import OperationalError
+    class UnavailableSecondAnswer(MemoryRepository):
+        async def checkpoint(self, *args):
+            if any(row.question_id == "q2" for row in args[-1].responses):
+                raise OperationalError("private-answer", {}, Exception("private-token"))
+            return await super().checkpoint(*args)
+    config = valid_config()
+    config["respondentConfigs"][0]["count"] = 1
+    config["questions"].append({"id": "q2", "type": "text", "question": "Why?"})
+    harness = await build_round_harness(repository=UnavailableSecondAnswer(), config=config)
+    created = await harness.service.create(harness.owner_id, harness.questionnaire_id, "zh-CN")
+    settled = await harness.service.wait(created.id)
+    assert settled.status == "paused"
+    assert settled.progress.failedRespondents == 0
+    assert list(settled.responses[0].answers) == ["q1"]
+    assert settled.sessions[0].errorCode is None
+    assert created.id in caplog.text
+    assert "STORAGE_UNAVAILABLE" in caplog.text
+    assert "private-answer" not in caplog.text
+    assert "private-token" not in caplog.text
