@@ -31,6 +31,26 @@ test("run actions match active and terminal states", async () => {
   assert.deepEqual(allowedRunActions("failed", 1, 1), [])
 })
 
+test("terminal history never inherits running state or active respondent from the current round", async () => {
+  const { getRoundDisplayState } = await loadRunActions()
+  assert.equal(typeof getRoundDisplayState, "function")
+  const current = { id: "current", status: "running", activeRespondentId: "current-person" }
+  const history = { id: "old", status: "completed", activeRespondentId: null }
+  assert.deepEqual(getRoundDisplayState(current, history), {
+    round: history, isRunning: false, activeRespondentId: null, status: "history",
+  })
+  assert.deepEqual(getRoundDisplayState(current, null), {
+    round: current, isRunning: true, activeRespondentId: "current-person", status: "running",
+  })
+  assert.deepEqual(getRoundDisplayState(null, null), {
+    round: null, isRunning: false, activeRespondentId: null, status: "idle",
+  })
+  const activeHistory = { ...history, status: "running", activeRespondentId: "history-person" }
+  assert.deepEqual(getRoundDisplayState(current, activeHistory), {
+    round: activeHistory, isRunning: true, activeRespondentId: "history-person", status: "history",
+  })
+})
+
 function deferred() {
   let resolve
   let reject
@@ -39,6 +59,29 @@ function deferred() {
     reject = rejectPromise
   })
   return { promise, resolve, reject }
+}
+
+for (const kind of ["list", "detail", "copy"]) {
+  for (const outcome of ["resolve", "reject"]) {
+    test(`${kind} ignores a stale ${outcome} after a newer same-kind request`, async () => {
+      const { createRoundResourceRequestGuard } = await loadRunActions()
+      const guard = createRoundResourceRequestGuard(() => ({ projectId: "p", questionnaireId: "q" }))
+      const first = deferred()
+      const pending = guard.run(kind, () => first.promise)
+      assert.deepEqual(await guard.run(kind, async () => "new"), { status: "success", value: "new" })
+      first[outcome](outcome === "resolve" ? "old" : new Error("stale failure"))
+      assert.deepEqual(await pending, { status: "stale" })
+    })
+  }
+  test(`${kind} ignores a rejected request after resource invalidation`, async () => {
+    const { createRoundResourceRequestGuard } = await loadRunActions()
+    const guard = createRoundResourceRequestGuard(() => ({ projectId: "p", questionnaireId: "q" }))
+    const first = deferred()
+    const pending = guard.run(kind, () => first.promise)
+    guard.invalidate()
+    first.reject(new Error("old resource failed"))
+    assert.deepEqual(await pending, { status: "stale" })
+  })
 }
 
 test("a round history list completion is stale after a project switch", async () => {

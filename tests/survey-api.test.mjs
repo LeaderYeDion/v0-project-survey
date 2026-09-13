@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import test from "node:test"
 import ts from "typescript"
+import { messages } from "../lib/i18n/messages.ts"
 
 async function loadSurveyApi() {
   const source = readFileSync("lib/survey-api.ts", "utf8")
@@ -33,6 +34,54 @@ function jsonResponse(body, { status = 200 } = {}) {
     headers: status === 204 ? undefined : { "Content-Type": "application/json" },
   })
 }
+
+test("CSRF_INVALID errors resolve to localized feedback without expiring the app identity", async () => {
+  const api = await loadSurveyApi()
+  const originalFetch = globalThis.fetch
+  let expiryCount = 0
+  const unsubscribe = api.onAuthSessionExpired(() => { expiryCount += 1 })
+  globalThis.fetch = async () => jsonResponse({ code: "CSRF_INVALID", message: "diagnostic fallback", details: null }, { status: 403 })
+  try {
+    for (const locale of ["en-US", "zh-CN"]) {
+      await assert.rejects(api.apiLogout(locale), error => {
+        assert.equal(error.code, "CSRF_INVALID")
+        const localized = messages[locale].apiErrors[error.code]
+        assert.equal(typeof localized, "string")
+        assert.notEqual(localized, error.message)
+        return true
+      })
+    }
+    assert.equal(expiryCount, 0)
+  } finally { unsubscribe(); globalThis.fetch = originalFetch }
+})
+
+test("expired deployment access returns the browser to the login boundary", async () => {
+  const api = await loadSurveyApi()
+  const originalFetch = globalThis.fetch
+  let expiryCount = 0
+  const unsubscribe = api.onAuthSessionExpired(() => { expiryCount += 1 })
+  globalThis.fetch = async () => jsonResponse({ code: "DEPLOY_AUTH_REQUIRED", message: "Deployment access required", details: null }, { status: 401 })
+  try {
+    await assert.rejects(api.apiListProjects("en-US"), { code: "DEPLOY_AUTH_REQUIRED" })
+    assert.equal(expiryCount, 1)
+  } finally { unsubscribe(); globalThis.fetch = originalFetch }
+})
+
+test("an aborted old auth failure cannot expire a newer application session", async () => {
+  const api = await loadSurveyApi()
+  const originalFetch = globalThis.fetch
+  const controller = new AbortController()
+  let expiryCount = 0, finish
+  const unsubscribe = api.onAuthSessionExpired(() => { expiryCount += 1 })
+  globalThis.fetch = () => new Promise(resolve => { finish = resolve })
+  try {
+    const pending = api.apiMe("en-US", controller.signal)
+    controller.abort()
+    finish(jsonResponse({ code: "AUTH_SESSION_EXPIRED", message: "Old session", details: null }, { status: 401 }))
+    await assert.rejects(pending, { name: "AbortError" })
+    assert.equal(expiryCount, 0)
+  } finally { unsubscribe(); globalThis.fetch = originalFetch }
+})
 
 test("survey API uses the same-origin backend path", () => {
   const source = readFileSync("lib/survey-api.ts", "utf8")

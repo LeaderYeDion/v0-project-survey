@@ -44,6 +44,11 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => onAuthSessionExpired(expireSession), [expireSession])
 
   useEffect(() => {
+    if (pathname === "/login") {
+      setUser(null)
+      setStatus("unauthenticated")
+      return
+    }
     const controller = new AbortController()
     setStatus("loading")
     apiMe(locale, controller.signal)

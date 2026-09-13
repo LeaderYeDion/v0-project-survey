@@ -8,10 +8,12 @@ import { LoginForm } from "./login-form"
 
 interface LoginPageContentProps {
   nextPath: string
+  stage: "deployment" | "application"
 }
 
 export function LoginPageContent({
   nextPath,
+  stage,
 }: LoginPageContentProps): React.JSX.Element {
   const { messages } = useI18n()
 
@@ -46,14 +48,14 @@ export function LoginPageContent({
 
         <div className="mt-7">
           <h2 className="text-xl font-semibold text-foreground">
-            {messages.auth.welcomeBack}
+            {stage === "deployment" ? messages.auth.deploymentAccess : messages.auth.welcomeBack}
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            {messages.auth.instructions}
+            {stage === "deployment" ? messages.auth.deploymentInstructions : messages.auth.instructions}
           </p>
         </div>
 
-        <LoginForm nextPath={nextPath} />
+        <LoginForm nextPath={nextPath} stage={stage} />
 
         <div className="mt-6 flex items-start gap-2 border-t border-border/60 pt-4 text-xs leading-5 text-muted-foreground">
           <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />

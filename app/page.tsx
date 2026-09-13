@@ -69,10 +69,12 @@ import {
 } from "@/lib/draft-save-queue"
 import { RunControlBar } from "@/components/run-control-bar"
 import { RoundHistoryDialog } from "@/components/round-history-dialog"
+import { createEffectRequestTracker } from "@/lib/latest-request"
 import {
   createRoundResourceRequestGuard,
   createRunMutationGuard,
   mergePolledRoundSnapshot,
+  getRoundDisplayState,
   shouldPollRound,
   type RunAction,
 } from "@/lib/run-actions"
@@ -147,6 +149,17 @@ export default function ResearcherDashboard() {
   const configRef = useRef(config)
   const projectIdRef = useRef(projectId)
   const questionnaireIdRef = useRef(questionnaireId)
+  const resourceIdentityRef = useRef("")
+  resourceIdentityRef.current = JSON.stringify([user?.id, authStatus, locale])
+  const projectLoadTrackerRef = useRef(createEffectRequestTracker(
+    () => resourceIdentityRef.current,
+  ))
+  const questionnaireListTrackerRef = useRef(createEffectRequestTracker(
+    () => JSON.stringify([resourceIdentityRef.current, projectIdRef.current]),
+  ))
+  const questionnaireLoadTrackerRef = useRef(createEffectRequestTracker(
+    () => JSON.stringify([resourceIdentityRef.current, projectIdRef.current, questionnaireIdRef.current]),
+  ))
   const runMutationGuardRef = useRef(createRunMutationGuard())
   const roundResourceRequestGuardRef = useRef(
     createRoundResourceRequestGuard(() => ({
@@ -217,10 +230,17 @@ export default function ResearcherDashboard() {
   }, [])
 
   useEffect(() => {
-    if (authStatus !== "authenticated") return
+    if (authStatus !== "authenticated" || !user) return
+    const request = projectLoadTrackerRef.current.begin()
     setResourceError(false)
-    apiListProjects(locale)
-      .then(ownedProjects => {
+    void request.run(signal => apiListProjects(locale, signal))
+      .then(result => {
+        if (result.status === "stale") return
+        if (result.status === "error") {
+          if (!(result.error instanceof DOMException && result.error.name === "AbortError")) setResourceError(true)
+          return
+        }
+        const ownedProjects = result.value
         setProjects(ownedProjects)
         setProjectId(current =>
           current && ownedProjects.some(project => project.id === current)
@@ -228,53 +248,54 @@ export default function ResearcherDashboard() {
             : ownedProjects[0]?.id ?? null,
         )
       })
-      .catch(error => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setResourceError(true)
-        }
-      })
-  }, [authStatus, locale])
+    return request.abort
+  }, [authStatus, locale, user?.id])
 
   useEffect(() => {
+    if (authStatus !== "authenticated" || !user) return
     if (!projectId) {
       setQuestionnaires([])
       setQuestionnaireId(null)
       return
     }
+    const request = questionnaireListTrackerRef.current.begin()
     setResourceError(false)
-    const loadingProjectId = projectId
-    apiListQuestionnaires(locale, projectId)
-      .then(ownedQuestionnaires => {
-        if (loadingProjectId !== projectId) return
+    void request.run(signal => apiListQuestionnaires(locale, projectId, signal))
+      .then(result => {
+        if (result.status === "stale") return
+        if (result.status === "error") {
+          if (!(result.error instanceof DOMException && result.error.name === "AbortError")) setResourceError(true)
+          return
+        }
+        const ownedQuestionnaires = result.value
         setQuestionnaires(ownedQuestionnaires)
-        const selected = ownedQuestionnaires.find(item => item.id === questionnaireId)
+        const selected = ownedQuestionnaires.find(item => item.id === questionnaireIdRef.current)
         setQuestionnaireId(selected?.id ?? ownedQuestionnaires[0]?.id ?? null)
         if (ownedQuestionnaires.length === 0) {
           setConfig(EMPTY_CONFIG)
           setSaveStatus("idle")
         }
       })
-      .catch(error => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setResourceError(true)
-        }
-      })
-  }, [locale, projectId])
+    return request.abort
+  }, [authStatus, locale, projectId, user?.id])
 
   useEffect(() => {
-    if (!questionnaireId) return
-    apiGetQuestionnaire(locale, questionnaireId)
-      .then(questionnaire => {
-        if (questionnaireIdRef.current === questionnaire.id) {
-          applyQuestionnaire(questionnaire)
+    if (authStatus !== "authenticated" || !user || !questionnaireId) return
+    const request = questionnaireLoadTrackerRef.current.begin()
+    setResourceError(false)
+    void request.run(signal => apiGetQuestionnaire(locale, questionnaireId, signal))
+      .then(result => {
+        if (result.status === "stale") return
+        if (result.status === "error") {
+          if (!(result.error instanceof DOMException && result.error.name === "AbortError")) setResourceError(true)
+          return
+        }
+        if (questionnaireIdRef.current === result.value.id) {
+          applyQuestionnaire(result.value)
         }
       })
-      .catch(error => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setResourceError(true)
-        }
-      })
-  }, [applyQuestionnaire, locale, questionnaireId])
+    return request.abort
+  }, [applyQuestionnaire, authStatus, locale, projectId, questionnaireId, user?.id])
 
   performDraftSaveRef.current = async job => {
     if (questionnaireIdRef.current === job.resourceId) {
@@ -380,7 +401,12 @@ export default function ResearcherDashboard() {
     }
   }, [currentRun?.id, currentRun?.status, locale, messages.apiErrors, messages.errors.polling])
 
-  const displayRound = viewingHistoryRound ?? currentRun
+  const {
+    round: displayRound,
+    isRunning: displayIsRunning,
+    activeRespondentId: displayActiveRespondentId,
+    status: displayStatus,
+  } = getRoundDisplayState(currentRun, viewingHistoryRound)
   const displaySessions = displayRound?.sessions ?? []
   const displayRespondents = displayRound?.respondents ?? []
   const displayProgress = displayRound?.progress ?? EMPTY_PROGRESS
@@ -421,6 +447,7 @@ export default function ResearcherDashboard() {
     projectIdRef.current = nextProjectId
     questionnaireIdRef.current = null
     setProjectId(nextProjectId)
+    setQuestionnaires([])
     setQuestionnaireId(null)
     setConfig(EMPTY_CONFIG)
     setSaveStatus("idle")
@@ -551,7 +578,7 @@ export default function ResearcherDashboard() {
       config={displayConfig}
       onConfigChange={viewingHistoryRound ? () => {} : setConfig}
       onStartSimulation={runSimulation}
-      isRunning={isRunning && !viewingHistoryRound}
+      isRunning={displayIsRunning}
       runDisabled={runDisabled || Boolean(viewingHistoryRound)}
       mode={mode}
       readOnly={Boolean(viewingHistoryRound)}
@@ -563,8 +590,8 @@ export default function ResearcherDashboard() {
       <ChatSimulationPanel
         sessions={displaySessions}
         respondents={displayRespondents}
-        isRunning={isRunning}
-        currentRespondentId={currentRun?.activeRespondentId ?? null}
+        isRunning={displayIsRunning}
+        currentRespondentId={displayActiveRespondentId}
         focusedRespondentId={focusedRespondentId}
         inferenceResults={displayInferenceResults}
         onSelectRespondent={handleSelectRespondent}
@@ -577,7 +604,7 @@ export default function ResearcherDashboard() {
         questions={displayQuestions}
         questionAnalysis={displayQuestionAnalysis}
         responses={displayResponses}
-        isRunning={isRunning && !viewingHistoryRound}
+        isRunning={displayIsRunning}
         focusedRespondentId={focusedRespondentId}
       />
     )
@@ -594,7 +621,7 @@ export default function ResearcherDashboard() {
       demographicAnalysis={displayDemographicAnalysis}
       inferenceResults={displayInferenceResults}
       inferenceSummary={displayInferenceSummary}
-      isRunning={isRunning}
+      isRunning={displayIsRunning}
       roundId={displayRound?.id ?? null}
       onFocusRespondent={handleSelectRespondent}
     />
@@ -686,17 +713,17 @@ export default function ResearcherDashboard() {
               <div className="flex shrink-0 items-center gap-2 rounded-full border border-border/50 bg-secondary/50 px-3 py-1.5">
                 <div
                   className={`w-2 h-2 rounded-full ${
-                    isRunning 
+                    displayStatus === "running"
                       ? "bg-emerald-400 animate-pulse" 
-                      : viewingHistoryRound
+                      : displayStatus === "history"
                       ? "bg-amber-400"
                       : "bg-muted-foreground"
                   }`}
                 />
                 <span className="text-xs text-muted-foreground">
-                  {isRunning
+                  {displayStatus === "running"
                     ? messages.dashboard.running
-                    : viewingHistoryRound
+                    : displayStatus === "history"
                       ? messages.dashboard.viewingHistory
                       : messages.dashboard.idle}
                 </span>

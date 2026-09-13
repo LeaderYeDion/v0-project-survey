@@ -775,7 +775,7 @@ test("login page keeps redirect sanitization on the server and delegates localiz
 
   assert.match(source, /export default async function LoginPage/)
   assert.match(source, /getSafeRedirectPath\(requestedNext\)/)
-  assert.match(source, /return <LoginPageContent nextPath=\{nextPath\} \/>/)
+  assert.match(source, /return <LoginPageContent key=\{stage\} nextPath=\{nextPath\} stage=\{stage\} \/>/)
   assert.doesNotMatch(source, /LoginForm/)
 })
 
@@ -787,7 +787,7 @@ test("login content and form use the locale catalog without fixed Chinese UI cop
   assert.match(content, /^"use client"/)
   assert.match(content, /useI18n\(\)/)
   assert.match(content, /<LanguageSwitcher \/>/)
-  assert.match(content, /<LoginForm nextPath=\{nextPath\} \/>/)
+  assert.match(content, /<LoginForm nextPath=\{nextPath\} stage=\{stage\} \/>/)
   assert.match(form, /const \{ locale, messages \} = useI18n\(\)/)
   assert.match(form, /apiLogin\(locale, \{ username, password \}\)/)
 

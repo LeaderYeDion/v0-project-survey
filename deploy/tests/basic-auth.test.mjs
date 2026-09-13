@@ -155,7 +155,7 @@ test("localizes invalid login credentials from the exact request locale", async 
 
     assert.equal(response.status, 401)
     assert.equal(response.headers.get("content-language"), locale)
-    assert.deepEqual(await response.json(), { error: expectedError })
+    assert.deepEqual(await response.json(), { code: "DEPLOY_AUTH_INVALID_CREDENTIALS", message: expectedError, details: null })
   }
 })
 
@@ -178,7 +178,7 @@ test("localizes unavailable login service and defaults unsupported locales to Ch
 
     assert.equal(response.status, 503)
     assert.equal(response.headers.get("content-language"), expectedLocale)
-    assert.deepEqual(await response.json(), { error: expectedError })
+    assert.deepEqual(await response.json(), { code: "DEPLOY_AUTH_UNAVAILABLE", message: expectedError, details: null })
   }
 })
 

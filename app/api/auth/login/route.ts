@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     !expectedPassword
   ) {
     return NextResponse.json(
-      { error: loginErrors[locale].serviceUnavailable },
+      { code: "DEPLOY_AUTH_UNAVAILABLE", message: loginErrors[locale].serviceUnavailable, details: null },
       { status: 503, headers: responseHeaders },
     )
   }
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     )
   ) {
     return NextResponse.json(
-      { error: loginErrors[locale].invalidCredentials },
+      { code: "DEPLOY_AUTH_INVALID_CREDENTIALS", message: loginErrors[locale].invalidCredentials, details: null },
       { status: 401, headers: responseHeaders },
     )
   }

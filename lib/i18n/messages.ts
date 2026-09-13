@@ -42,6 +42,9 @@ const zhCN = {
     description: "AI驱动的虚拟调研代理模拟平台，实时生成多角色对话与情感分析",
   },
   auth: {
+    deploymentAccess: "部署访问验证",
+    deploymentInstructions: "第一步：使用部署者提供的共享访问凭据验证。下一步将使用你的个人研究账号登录。",
+    continueToResearchAccount: "继续登录研究账号",
     welcomeBack: "欢迎回来",
     instructions: "使用部署者分配给你的研究账号登录。你的项目、问卷和轮次仅对你可见。",
     sessionNotice: "会话通过安全 Cookie 保存；请在共享设备上使用完毕后退出登录。",
@@ -371,6 +374,7 @@ const zhCN = {
     historySave: "调研保存失败",
   },
   apiErrors: {
+    CSRF_INVALID: "安全验证失败，请刷新页面后重试",
     INVALID_RUN_TRANSITION: "当前状态不允许此操作",
     RUN_INTERRUPTED_BY_RESTART: "服务重启中断了轮次，请手动继续",
     NO_RETRYABLE_RESPONDENTS: "没有可重试的受访者",
@@ -417,6 +421,9 @@ const enUS = {
     description: "An AI-powered platform for multi-persona survey conversations and sentiment analysis",
   },
   auth: {
+    deploymentAccess: "Deployment access",
+    deploymentInstructions: "Step 1: Enter the shared access credentials from the deployment owner. Next, sign in with your personal research account.",
+    continueToResearchAccount: "Continue to research account",
     welcomeBack: "Welcome back",
     instructions: "Sign in with the research account assigned to you. Your projects, questionnaires, and rounds are visible only to you.",
     sessionNotice: "Your session uses a secure cookie. Sign out when you finish on a shared device.",
@@ -748,6 +755,7 @@ const enUS = {
     historySave: "Unable to save the survey",
   },
   apiErrors: {
+    CSRF_INVALID: "Security verification failed. Refresh the page and try again.",
     INVALID_RUN_TRANSITION: "This action is not available in the current state",
     RUN_INTERRUPTED_BY_RESTART: "A service restart interrupted this round; resume it manually",
     NO_RETRYABLE_RESPONDENTS: "There are no respondents to retry",

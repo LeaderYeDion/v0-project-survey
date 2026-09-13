@@ -102,5 +102,11 @@ export function proxy(request: NextRequest) {
     return response
   }
 
+  if (request.nextUrl.pathname.startsWith("/survey-api/")) {
+    return NextResponse.json(
+      { code: "DEPLOY_AUTH_REQUIRED", message: "Deployment access is required.", details: null },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    )
+  }
   return rejectCredentials()
 }

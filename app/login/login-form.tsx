@@ -7,7 +7,7 @@ import { useI18n } from "@/components/locale-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { apiLogin, SurveyApiError } from "@/lib/survey-api"
+import { apiDeploymentLogin, apiLogin, SurveyApiError } from "@/lib/survey-api"
 import {
   getVisibleLoginError,
   isCurrentLoginRequest,
@@ -17,9 +17,10 @@ import {
 
 interface LoginFormProps {
   nextPath: string
+  stage: "deployment" | "application"
 }
 
-export function LoginForm({ nextPath }: LoginFormProps) {
+export function LoginForm({ nextPath, stage }: LoginFormProps) {
   const router = useRouter()
   const { locale, messages } = useI18n()
   const [username, setUsername] = useState("")
@@ -54,7 +55,11 @@ export function LoginForm({ nextPath }: LoginFormProps) {
     }
 
     try {
-      await apiLogin(locale, { username, password })
+      if (stage === "deployment") {
+        await apiDeploymentLogin(locale, { username, password })
+      } else {
+        await apiLogin(locale, { username, password })
+      }
 
       if (
         !isCurrentLoginRequest(
@@ -66,7 +71,11 @@ export function LoginForm({ nextPath }: LoginFormProps) {
         return
       }
 
-      router.replace(nextPath)
+      if (stage === "deployment") {
+        router.replace(`/login?next=${encodeURIComponent(nextPath)}`)
+      } else {
+        router.replace(nextPath)
+      }
       router.refresh()
     } catch (error) {
       if (
@@ -80,7 +89,7 @@ export function LoginForm({ nextPath }: LoginFormProps) {
           locale: request.locale,
           message:
             error instanceof SurveyApiError &&
-            error.code === "AUTH_INVALID_CREDENTIALS"
+            (error.code === "AUTH_INVALID_CREDENTIALS" || error.code === "DEPLOY_AUTH_INVALID_CREDENTIALS")
               ? messages.auth.invalidCredentials
               : error instanceof SurveyApiError
                 ? error.message
@@ -152,7 +161,8 @@ export function LoginForm({ nextPath }: LoginFormProps) {
         ) : (
           <LogIn className="size-4" />
         )}
-        {isSubmitting ? messages.auth.signingIn : messages.auth.signIn}
+        {isSubmitting ? messages.auth.signingIn : stage === "deployment"
+          ? messages.auth.continueToResearchAccount : messages.auth.signIn}
       </Button>
     </form>
   )

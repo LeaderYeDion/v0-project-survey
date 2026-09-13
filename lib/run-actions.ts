@@ -46,6 +46,20 @@ export function shouldPollRound(status: RunStatus): boolean {
   return status === "queued" || status === "running" || status === "pausing"
 }
 
+export function getRoundDisplayState<T extends { status: RunStatus; activeRespondentId: string | null }>(
+  current: T | null,
+  history: T | null,
+) {
+  const round = history ?? current
+  const isRunning = round ? shouldPollRound(round.status) : false
+  return {
+    round,
+    isRunning,
+    activeRespondentId: round?.activeRespondentId ?? null,
+    status: history ? "history" as const : isRunning ? "running" as const : "idle" as const,
+  }
+}
+
 export function mergePolledRoundSnapshot<T extends { id: string; rowVersion: number }>(
   current: T | null,
   incoming: T,

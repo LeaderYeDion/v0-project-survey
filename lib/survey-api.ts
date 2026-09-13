@@ -112,9 +112,11 @@ async function request<T>(
       headers,
       signal: controller.signal,
     })
+    controller.signal.throwIfAborted()
     if (!response.ok) {
       const error = await parseError(response)
-      if (error.code === "AUTH_SESSION_EXPIRED") {
+      controller.signal.throwIfAborted()
+      if (error.code === "AUTH_SESSION_EXPIRED" || error.code === "DEPLOY_AUTH_REQUIRED") {
         for (const listener of sessionExpiredListeners) listener()
       }
       throw error
@@ -145,6 +147,20 @@ export function apiLogin(
     body: JSON.stringify(input),
     csrf: false,
   })
+}
+
+// The outer gate grants deployment access only; it cannot establish CurrentUser.
+export async function apiDeploymentLogin(
+  locale: Locale,
+  input: { username: string; password: string },
+): Promise<void> {
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "Accept-Language": locale },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) throw await parseError(response)
 }
 
 export function apiLogout(locale: Locale): Promise<void> {
