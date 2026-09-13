@@ -656,6 +656,7 @@ class ExportRecordRow(Base):
             name="ck_export_records_status",
         ),
         Index("ix_export_records_round_created", "round_id", "created_at"),
+        Index("ix_export_records_status_created", "status", "created_at"),
         Index(
             "ix_export_records_requester_created",
             "requested_by_user_id",

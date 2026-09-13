@@ -58,7 +58,7 @@ async def test_database_health_reports_the_applied_migration(
     )
     monkeypatch.setattr(
         "app.main.create_session_factory",
-        lambda _url: FakeHealthSessionFactory("20260905_0001"),
+        lambda _url: FakeHealthSessionFactory("20260912_0002"),
     )
     application = create_app()
     transport = httpx.ASGITransport(app=application)
@@ -70,7 +70,7 @@ async def test_database_health_reports_the_applied_migration(
 
     assert response.status_code == 200
     assert response.json()["database"] == "ready"
-    assert response.json()["migrationRevision"] == "20260905_0001"
+    assert response.json()["migrationRevision"] == "20260912_0002"
 
 
 @pytest.mark.asyncio
@@ -109,7 +109,7 @@ async def test_database_health_rejects_an_outdated_migration(
     )
     monkeypatch.setattr(
         "app.main.create_session_factory",
-        lambda _url: FakeHealthSessionFactory("outdated_revision"),
+        lambda _url: FakeHealthSessionFactory("20260905_0001"),
     )
     application = create_app()
     transport = httpx.ASGITransport(app=application)
@@ -122,4 +122,4 @@ async def test_database_health_rejects_an_outdated_migration(
     assert response.status_code == 503
     assert response.json()["status"] == "error"
     assert response.json()["database"] == "migration_pending"
-    assert response.json()["migrationRevision"] == "outdated_revision"
+    assert response.json()["migrationRevision"] == "20260905_0001"

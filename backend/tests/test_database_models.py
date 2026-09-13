@@ -250,6 +250,13 @@ def test_indexes_do_not_duplicate_unique_constraint_paths() -> None:
             assert tuple(column.name for column in index.columns) not in unique_paths, index.name
 
 
+def test_export_stale_processing_scan_has_a_status_created_index() -> None:
+    table = Base.metadata.tables["export_records"]
+    assert ("status", "created_at") in {
+        tuple(column.name for column in index.columns) for index in table.indexes
+    }
+
+
 def _unique_column_sets(table) -> set[frozenset[str]]:
     return {
         frozenset(column.name for column in constraint.columns)

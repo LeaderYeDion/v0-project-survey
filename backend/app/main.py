@@ -41,7 +41,7 @@ from app.services.research_service import ResearchService
 from app.services.recovery_service import RecoveryService
 
 
-HEAD_MIGRATION_REVISION = "20260905_0001"
+HEAD_MIGRATION_REVISION = "20260912_0002"
 
 
 def simulation_termination_enabled() -> bool:
