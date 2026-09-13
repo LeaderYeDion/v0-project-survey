@@ -56,3 +56,45 @@ The full backend suite passed on the first final full-suite run; no failed full-
 - Removing indexes from the initial migration affects fresh databases. A database that already applied the older initial migration retains those redundant indexes until a forward maintenance migration removes them; unique constraints and behavior remain correct.
 - The frontend owner was notified to update the frontend error catalog to `CSRF_INVALID`, including same-origin rejection handling. Frontend/i18n edits were outside this backend task. `EXPORT_GENERATION_INTERRUPTED` is now a durable export-record error code and can use the existing export-failure UI treatment.
 - Default sandbox git writes were denied; the precise authorized git staging/commit commands succeeded after tool escalation. No work remained blocked by approval review.
+
+## Review remediation round 2 — 2026-09-12
+
+The follow-up review identified remaining metadata, CSV stability, and existing-database migration gaps. This section supersedes the earlier statement that existing installations need a future maintenance migration: that forward migration is now included.
+
+### Commits and contract
+
+- `e7dc230` — `fix: define stable export metadata and configured inference columns`
+  - Added explicit `ExportDocument`, `ExportRoundMetadata`, project/questionnaire reference, and inference-result DTOs. The export DTO rejects undeclared top-level fields and fixes serialized field order; the JSON export no longer assembles its contract through an arbitrary dictionary.
+  - Round metadata now includes IDs/references, status/version, parent/retry lineage, all lifecycle timestamps including `updatedAt`, separate stable `errorCode`/`errorMessage`, and the complete round progress counts. `RoundSnapshot` preserves the corresponding durable row fields so export uses the same snapshot as the answers.
+  - Requested filters remain available verbatim, while `appliedFilters` contains only non-empty filters actually executed for filtered scope.
+  - CSV inference columns follow the frozen configuration's `profileTasks` order followed by `attitudeTasks` order, independent of result presence/order. Every configured task gets value/reason/status/errorCode/errorMessage columns, including blank columns when no result exists. Column names use inference kind and task ID, with percent-escaped IDs (including dots) to prevent collisions with field suffixes. Same-name tasks remain distinct.
+  - Inference failures retain their persisted provider error code/message through snapshot loading. JSON inference entries and CSV columns expose those separately; older in-memory failed results with only an error message receive the existing `INFERENCE_FAILED` fallback code.
+- `c5d8c3c` — `fix: migrate stale export index and legacy duplicate indexes`
+  - Added Alembic revision `20260912_0002`, based on `20260905_0001`, to drop the three redundant legacy explicit indexes with `IF EXISTS` and create `ix_export_records_status_created(status, created_at)` with `IF NOT EXISTS`.
+  - Fresh databases and databases that already applied the older initial migration both upgrade safely. Downgrade removes the stale-scan index and restores the legacy explicit indexes without changing rows or unique constraints.
+  - ORM metadata declares the stale-scan index. Readiness now requires revision `20260912_0002` and correctly rejects an installation still at `20260905_0001`.
+  - Alembic declares the current path-separator option, eliminating the configuration deprecation warning encountered while loading the revision graph in tests.
+
+### RED/GREEN evidence
+
+1. Export main RED: **5 failed, 20 passed**, proving missing DTO, inaccurate empty applied filters, lost configured inference columns, same-name collisions, and missing durable failed-round metadata. Focused GREEN across export service/API, run service, and executor: **38 passed**.
+2. Additional boundary RED: **2 failed, 20 passed**, proving task IDs ending in `.reason` could collide with columns and stored provider error codes were not restored by snapshot loading. Focused export/run/executor/storage GREEN: **53 passed**.
+3. Schema/readiness RED: **6 failed, 14 passed**, proving no stale-scan index or forward revision and stale readiness expectations. The first graph-loading run also reported three Alembic configuration deprecation warnings; the explicit path-separator configuration removed them. Focused schema/migration/health/recovery GREEN: **23 passed**, without warnings.
+4. Migration tests execute upgrade and downgrade against real SQLite table/index state for both fresh and legacy-index layouts, verifying data and uniqueness constraints survive. Separate PostgreSQL dialect compilation validates `DROP INDEX IF EXISTS` and `CREATE INDEX IF NOT EXISTS` output.
+
+### Final round-2 verification
+
+After all production and test changes:
+
+```text
+backend/.venv/bin/python -m pytest backend/tests -q
+167 passed in 3.53s
+
+backend/.venv/bin/python -m compileall -q backend/app backend/tests backend/alembic
+exit 0
+
+git diff --check
+exit 0
+```
+
+The final full backend suite passed on its first round-2 run. Both implementation commits were followed by a clean checkout before this report append. Self-review checked exact JSON key order, frozen question/task order, empty results, task-name and suffix collisions, independent inference errors, round metadata lineage/counts, actual filter semantics, migration head readiness, and preservation of data/unique constraints. No frontend or deployment changes were made. Live PostgreSQL upgrade/outage execution remains outside these local verification results; PostgreSQL migration SQL was compiled and the migration operations were executed against SQLite.
