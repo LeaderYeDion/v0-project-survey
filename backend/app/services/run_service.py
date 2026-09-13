@@ -399,6 +399,8 @@ class RunService:
                 ],
                 status=row.status,
                 error=row.error_message,
+                errorCode=row.error_code,
+                errorMessage=row.error_message,
             )
             for row in rows.inference_results
         ]
@@ -459,6 +461,9 @@ class RunService:
             ),
             configVersionId=str(rows.round.config_version_id),
             rowVersion=rows.round.row_version,
+            updatedAt=rows.round.updated_at,
+            errorCode=rows.round.error_code,
+            parentRoundId=(str(rows.round.parent_round_id) if rows.round.parent_round_id else None),
             retryOfRoundId=(
                 str(rows.round.retry_of_round_id)
                 if rows.round.retry_of_round_id is not None

@@ -13,7 +13,11 @@ from app.api.errors import ApiError
 from app.db.errors import STORAGE_ERRORS, storage_unavailable
 from app.repositories.protocols import ExportRepositoryProtocol
 from app.schemas.analytics import DimensionKey
-from app.schemas.exports import ExportRecord, ExportRequest, GeneratedExport
+from app.schemas.exports import (
+    ExportDocument, ExportInferenceResult, ExportProjectReference,
+    ExportQuestionnaireReference, ExportRecord, ExportRequest,
+    ExportRoundMetadata, GeneratedExport,
+)
 from app.schemas.survey import RespondentProfile, RunSnapshot
 from app.services.exception_service import EXCEPTION_STATUSES, ExceptionService
 from app.services.inference_analysis_service import InferenceAnalysisService
@@ -62,22 +66,42 @@ class ExportService:
             config_version = await self.run_service.research.get_config_version(
                 owner_id, UUID(snapshot.configVersionId)
             )
-            metadata = {
-                "schemaVersion": 1,
-                "scope": request.scope,
-                "filters": request.filters,
-                "appliedFilters": request.filters if request.scope == "filtered" else {},
-                "populationCount": len(snapshot.respondents),
-                "round": snapshot.model_dump(mode="json", include={
-                    "id", "name", "mode", "locale", "status", "rowVersion",
-                    "createdAt", "startedAt", "finishedAt", "retryOfRoundId", "retryKind", "error",
-                }),
-                "project": {"id": snapshot.projectId},
-                "questionnaire": {"id": snapshot.questionnaireId, "versionId": snapshot.questionnaireVersionId},
-                "configVersion": config_version.model_dump(mode="json", by_alias=True),
-                "config": snapshot.config.model_dump(mode="json"),
-            }
-            content, media_type = self._render(selected, request.format, metadata=metadata)
+            document = ExportDocument(
+                scope=request.scope,
+                filters=request.filters,
+                appliedFilters={key: value for key, value in request.filters.items()
+                    if request.scope == "filtered" and value},
+                populationCount=len(snapshot.respondents),
+                round=ExportRoundMetadata(
+                    id=snapshot.id, name=snapshot.name, mode=snapshot.mode,
+                    locale=snapshot.locale, status=snapshot.status, rowVersion=snapshot.rowVersion,
+                    projectId=snapshot.projectId, questionnaireId=snapshot.questionnaireId,
+                    questionnaireVersionId=snapshot.questionnaireVersionId,
+                    configVersionId=snapshot.configVersionId, parentRoundId=snapshot.parentRoundId,
+                    retryOfRoundId=snapshot.retryOfRoundId, retryKind=snapshot.retryKind,
+                    createdAt=snapshot.createdAt, updatedAt=snapshot.updatedAt,
+                    startedAt=snapshot.startedAt, finishedAt=snapshot.finishedAt,
+                    errorCode=snapshot.errorCode, errorMessage=snapshot.error, progress=snapshot.progress,
+                ),
+                project=ExportProjectReference(id=snapshot.projectId),
+                questionnaire=ExportQuestionnaireReference(
+                    id=snapshot.questionnaireId, versionId=snapshot.questionnaireVersionId,
+                ),
+                configVersion=config_version, config=snapshot.config, exportedAt=datetime.now(UTC),
+                totalRespondents=len(selected.respondents),
+                completedInterviews=sum(session.status == "completed" for session in selected.sessions),
+                sessions=selected.sessions, respondents=selected.respondents, responses=selected.responses,
+                exceptions=ExceptionService().report(selected),
+                inferenceResults=[ExportInferenceResult(
+                    id=item.id, runId=item.runId, respondentId=item.respondentId,
+                    taskId=item.taskId, taskName=item.taskName, kind=item.kind,
+                    value=item.value, reason=item.reason, evidence=item.evidence, status=item.status,
+                    errorCode=item.errorCode or ("INFERENCE_FAILED" if item.status == "failed" else None),
+                    errorMessage=item.errorMessage or item.error,
+                ) for item in selected.inferenceResults],
+                inferenceSummary=selected.inferenceSummary,
+            )
+            content, media_type = self._render(document, request.format)
             content_disposition = self._content_disposition(
                 filename,
                 round_id,
@@ -249,47 +273,25 @@ class ExportService:
                 return False
         return True
 
-    def _render(self, snapshot: RunSnapshot, format: str, *, metadata: dict) -> tuple[bytes, str]:
+    def _render(self, document: ExportDocument, format: str) -> tuple[bytes, str]:
         if format == "json":
-            return self.json_bytes(snapshot, metadata), "application/json"
-        return self.csv_bytes(snapshot), "text/csv; charset=utf-8"
+            return self.json_bytes(document), "application/json"
+        return self.csv_bytes(document), "text/csv; charset=utf-8"
 
-    def json_bytes(self, snapshot: RunSnapshot, metadata: dict) -> bytes:
-        payload = {
-            **metadata,
-            "exportedAt": datetime.now(UTC).isoformat(),
-            "totalRespondents": len(snapshot.respondents),
-            "completedInterviews": sum(
-                session.status == "completed" for session in snapshot.sessions
-            ),
-            "sessions": [
-                session.model_dump(mode="json")
-                for session in snapshot.sessions
-            ],
-            "respondents": [
-                item.model_dump(mode="json") for item in snapshot.respondents
-            ],
-            "responses": [item.model_dump(mode="json") for item in snapshot.responses],
-            "exceptions": ExceptionService().report(snapshot).model_dump(mode="json"),
-            "inferenceResults": [
-                item.model_dump(mode="json") for item in snapshot.inferenceResults
-            ],
-            "inferenceSummary": [
-                item.model_dump(mode="json") for item in snapshot.inferenceSummary
-            ],
-        }
-        return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    def json_bytes(self, document: ExportDocument) -> bytes:
+        return document.model_dump_json(by_alias=True, indent=2).encode("utf-8")
 
-    def csv_bytes(self, snapshot: RunSnapshot) -> bytes:
+    def csv_bytes(self, snapshot: ExportDocument) -> bytes:
         output = io.StringIO(newline="")
         writer = csv.writer(output)
         inference_tasks = []
-        seen_task_ids: set[str] = set()
-        for result in snapshot.inferenceResults:
-            if result.taskId in seen_task_ids:
-                continue
-            seen_task_ids.add(result.taskId)
-            inference_tasks.append(result)
+        config = snapshot.config.inferenceConfig
+        if config is not None:
+            inference_tasks = [
+                (kind, task.id)
+                for kind, tasks in (("profile", config.profileTasks), ("attitude", config.attitudeTasks))
+                for task in tasks
+            ]
         base_headers = [
             "respondentId",
             "name",
@@ -303,27 +305,29 @@ class ExportService:
         ]
         answer_headers = [f"answer.{question.id}" for question in snapshot.config.questions]
         inference_headers: list[str] = []
-        for task in inference_tasks:
-            prefix = f"inference.{task.kind}.{task.taskName}"
+        for kind, task_id in inference_tasks:
+            # Escape dots too: an ID ending in '.reason' cannot shadow a field.
+            encoded_id = quote(task_id, safe="").replace(".", "%2E")
+            prefix = f"inference.{kind}.{encoded_id}"
             inference_headers.extend(
-                [prefix, f"{prefix}.reason", f"{prefix}.status"]
+                [prefix, f"{prefix}.reason", f"{prefix}.status", f"{prefix}.errorCode", f"{prefix}.errorMessage"]
             )
         writer.writerow(base_headers + answer_headers + inference_headers)
         respondents = {item.id: item for item in snapshot.respondents}
         answers_by_respondent = {item.respondentId: item.answers for item in snapshot.responses}
         inference_by_respondent_task = {
-            (item.respondentId, item.taskId): item
+            (item.respondentId, item.kind, item.taskId): item
             for item in snapshot.inferenceResults
         }
         for session in snapshot.sessions:
             respondent = respondents.get(session.respondentId)
             inference_cells: list[str] = []
-            for task in inference_tasks:
+            for kind, task_id in inference_tasks:
                 result = inference_by_respondent_task.get(
-                    (session.respondentId, task.taskId)
+                    (session.respondentId, kind, task_id)
                 )
                 if result is None:
-                    inference_cells.extend(["", "", ""])
+                    inference_cells.extend(["", "", "", "", ""])
                     continue
                 value = result.value
                 rendered_value = (
@@ -336,6 +340,8 @@ class ExportService:
                         rendered_value if result.status == "completed" else "",
                         result.reason or "" if result.status == "completed" else "",
                         result.status,
+                        result.errorCode or "",
+                        result.errorMessage or "",
                     ]
                 )
             writer.writerow(

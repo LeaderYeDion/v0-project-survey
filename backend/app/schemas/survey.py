@@ -257,6 +257,8 @@ class InferenceResult(ApiModel):
     evidence: list[InferenceEvidence] = Field(default_factory=list)
     status: InferenceTaskStatus
     error: str | None = None
+    errorCode: str | None = None
+    errorMessage: str | None = None
 
 
 class InferenceSummaryItem(ApiModel):

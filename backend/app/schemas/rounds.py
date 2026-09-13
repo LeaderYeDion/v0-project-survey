@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -23,5 +24,8 @@ class RoundSnapshot(RunSnapshot):
     questionnaireVersionId: str
     configVersionId: str
     rowVersion: int
+    updatedAt: datetime
+    errorCode: str | None = None
+    parentRoundId: str | None = None
     retryOfRoundId: str | None = None
     retryKind: RetryKind | None = None

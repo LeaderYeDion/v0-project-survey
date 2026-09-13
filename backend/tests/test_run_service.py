@@ -114,6 +114,14 @@ async def test_interview_inference_is_persisted_and_reloaded() -> None:
     assert completed.inferenceResults[0].kind == "profile"
     assert rows is not None
     assert len(rows.inference_results) == 1
+    # A stored provider failure must retain its own stable code when reloaded.
+    stored_inference = harness.repository._inference_results[rows.inference_results[0].id]
+    stored_inference.status = "failed"
+    stored_inference.error_code = "PROVIDER_RATE_LIMITED"
+    stored_inference.error_message = "Provider unavailable"
+    reloaded = await harness.service.get(harness.owner_id, created.id)
+    assert reloaded.inferenceResults[0].errorCode == "PROVIDER_RATE_LIMITED"
+    assert reloaded.inferenceResults[0].errorMessage == "Provider unavailable"
 
 
 @pytest.mark.asyncio

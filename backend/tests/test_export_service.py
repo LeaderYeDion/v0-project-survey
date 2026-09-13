@@ -23,6 +23,7 @@ from app.schemas.survey import (
     SurveyQuestion,
     SurveyResponse,
     InferenceResult,
+    InferenceConfig,
 )
 from app.services.export_service import ExportService
 
@@ -118,7 +119,8 @@ def _snapshot(round_id: UUID) -> RunSnapshot:
         SurveyResponse(id="answer-1", surveyId=str(round_id), respondentId="r1", answers={"q1": {"type": "choice", "value": "A"}}, status="completed"),
     ]})
     return RoundSnapshot(**base.model_dump(), name="Export scope", projectId=str(uuid4()),
-        questionnaireId=str(uuid4()), questionnaireVersionId=str(uuid4()), configVersionId=str(uuid4()), rowVersion=7)
+        questionnaireId=str(uuid4()), questionnaireVersionId=str(uuid4()), configVersionId=str(uuid4()), rowVersion=7,
+        updatedAt=base.createdAt)
 
 
 class OwnedRoundRepository:
@@ -442,3 +444,106 @@ async def test_stale_recovery_preserves_recent_processing_and_terminal_records(e
     records = {r.id: r for r in await repository.list_exports_for_owner(owner, round_id)}
     assert [records[r.id].status for r in (succeeded, failed, recent)] == ["succeeded", "failed", "failed"]
     assert records[failed.id].error_code == "EXPORT_GENERATION_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_json_export_has_explicit_schema_and_stable_key_order(export_harness):
+    import app.schemas.exports as export_schema
+    owner, round_id, _, service = export_harness
+    result = await service.generate(owner, round_id, ExportRequest(format="json", scope="full"))
+    payload = json.loads(result.content)
+    assert hasattr(export_schema, "ExportDocument"), "Exports need a declared DTO"
+    document = export_schema.ExportDocument.model_validate(payload)
+    assert list(document.model_dump(mode="json", by_alias=True)) == list(payload) == [
+        "schemaVersion", "scope", "filters", "appliedFilters", "populationCount",
+        "round", "project", "questionnaire", "configVersion", "config", "exportedAt",
+        "totalRespondents", "completedInterviews", "sessions", "respondents", "responses",
+        "exceptions", "inferenceResults", "inferenceSummary",
+    ]
+    assert list(payload["round"]) == [
+        "id", "name", "mode", "locale", "status", "rowVersion", "projectId",
+        "questionnaireId", "questionnaireVersionId", "configVersionId", "parentRoundId",
+        "retryOfRoundId", "retryKind", "createdAt", "updatedAt", "startedAt", "finishedAt",
+        "errorCode", "errorMessage", "progress",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_applied_filters_exclude_empty_values_but_retain_requested_filters(export_harness):
+    owner, round_id, _, service = export_harness
+    result = await service.generate(owner, round_id, ExportRequest(
+        format="json", scope="filtered", filters={"city": "Hangzhou", "gender": ""},
+    ))
+    payload = json.loads(result.content)
+    assert payload["filters"] == {"city": "Hangzhou", "gender": ""}
+    assert payload["appliedFilters"] == {"city": "Hangzhou"}
+    assert [r["id"] for r in payload["respondents"]] == ["r1", "r2"]
+
+
+def _configured_inference(snapshot):
+    snapshot.config.inferenceConfig = InferenceConfig(
+        enabled=True, profileEnabled=True, attitudeEnabled=True,
+        profileTasks=[
+            {"id": "p2", "name": "Same name", "options": ["A", "B"]},
+            {"id": "p1", "name": "Same name", "options": ["A", "B"]},
+        ],
+        attitudeTasks=[{"id": "a1", "name": "Opinion", "options": ["positive", "negative"]}],
+    )
+
+
+@pytest.mark.asyncio
+async def test_csv_inference_headers_follow_config_order_even_without_results(export_harness):
+    owner, round_id, _, service = export_harness
+    _configured_inference(service.run_service.snapshot)
+    result = await service.generate(owner, round_id, ExportRequest(format="csv", scope="full"))
+    reader = csv.DictReader(io.StringIO(result.content.decode("utf-8-sig")))
+    rows = list(reader)
+    assert reader.fieldnames == [
+        "respondentId", "name", "city", "status", "completedQuestions", "terminationCode",
+        "terminationReason", "errorCode", "errorMessage", "answer.q2", "answer.q1",
+        "inference.profile.p2", "inference.profile.p2.reason", "inference.profile.p2.status",
+        "inference.profile.p2.errorCode", "inference.profile.p2.errorMessage",
+        "inference.profile.p1", "inference.profile.p1.reason", "inference.profile.p1.status",
+        "inference.profile.p1.errorCode", "inference.profile.p1.errorMessage",
+        "inference.attitude.a1", "inference.attitude.a1.reason", "inference.attitude.a1.status",
+        "inference.attitude.a1.errorCode", "inference.attitude.a1.errorMessage",
+    ]
+    assert all(row[column] == "" for row in rows for column in reader.fieldnames if column.startswith("inference."))
+
+
+@pytest.mark.asyncio
+async def test_same_name_inference_tasks_keep_distinct_values_and_failure_fields(export_harness):
+    owner, round_id, _, service = export_harness
+    snapshot = service.run_service.snapshot
+    _configured_inference(snapshot)
+    # Deliberately reverse result order and supply a failed result with no value.
+    snapshot.inferenceResults = [
+        InferenceResult(id="result-p1", runId=str(round_id), respondentId="r1", taskId="p1",
+            taskName="Same name", kind="profile", status="failed", error="Provider unavailable"),
+        InferenceResult(id="result-p2", runId=str(round_id), respondentId="r1", taskId="p2",
+            taskName="Same name", kind="profile", status="completed", value="B", reason="Evidence"),
+    ]
+    result = await service.generate(owner, round_id, ExportRequest(format="csv", scope="full"))
+    reader = csv.DictReader(io.StringIO(result.content.decode("utf-8-sig")))
+    rows = list(reader)
+    assert len(reader.fieldnames) == len(set(reader.fieldnames))
+    assert rows[0]["inference.profile.p2"] == "B"
+    assert rows[0]["inference.profile.p2.reason"] == "Evidence"
+    assert rows[0]["inference.profile.p1"] == ""
+    assert rows[0]["inference.profile.p1.status"] == "failed"
+    assert rows[0]["inference.profile.p1.errorCode"] == "INFERENCE_FAILED"
+    assert rows[0]["inference.profile.p1.errorMessage"] == "Provider unavailable"
+
+
+@pytest.mark.asyncio
+async def test_task_ids_cannot_collide_with_inference_field_suffixes(export_harness):
+    owner, round_id, _, service = export_harness
+    snapshot = service.run_service.snapshot
+    snapshot.config.inferenceConfig = InferenceConfig(profileTasks=[
+        {"id": "p1", "name": "One", "options": ["A"]},
+        {"id": "p1.reason", "name": "Two", "options": ["A"]},
+    ])
+    result = await service.generate(owner, round_id, ExportRequest(format="csv", scope="full"))
+    headers = next(csv.reader(io.StringIO(result.content.decode("utf-8-sig"))))
+    assert len(headers) == len(set(headers))
+    assert "inference.profile.p1%2Ereason" in headers

@@ -235,3 +235,30 @@ async def test_finalize_storage_failure_is_safe_503_and_records_failure(export_a
     assert records[0]["errorCode"] == "STORAGE_UNAVAILABLE"
     assert "private-answer" not in response.text + str(records) + caplog.text
     assert "private-token" not in response.text + str(records) + caplog.text
+
+
+@pytest.mark.asyncio
+async def test_failed_round_export_preserves_durable_metadata_and_counts(export_api):
+    from datetime import UTC, datetime
+    from uuid import UUID, uuid4
+    application, alice, _, round_id = export_api
+    row = application.state.repository._rounds[UUID(round_id)]
+    parent_id = uuid4()
+    row.parent_round_id = parent_id
+    row.status = "failed"
+    row.error_code = "RUN_EXECUTION_FAILED"
+    row.error_message = "Execution failed"
+    row.updated_at = datetime(2026, 9, 12, 12, 30, tzinfo=UTC)
+    response = await alice.post(f"/api/rounds/{round_id}/exports",
+        headers={"X-CSRF-Token": alice.cookies["survey_csrf"]}, json={"format": "json", "scope": "full"})
+    assert response.status_code == 200
+    metadata = response.json()["round"]
+    assert metadata["errorCode"] == "RUN_EXECUTION_FAILED"
+    assert metadata["errorMessage"] == "Execution failed"
+    assert metadata["updatedAt"] == "2026-09-12T12:30:00Z"
+    assert metadata["parentRoundId"] == str(parent_id)
+    assert metadata["progress"] == {
+        "totalRespondents": 2, "completedRespondents": 2, "inProgressRespondents": 0,
+        "terminatedRespondents": 0, "currentRespondentIndex": 2, "failedRespondents": 0,
+        "incompleteRespondents": 0, "answeredQuestions": 2,
+    }
