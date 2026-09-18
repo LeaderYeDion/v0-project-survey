@@ -52,10 +52,12 @@ set -eu
 printf '%s\\n' "$*" >>"$DOCKER_COMMAND_LOG"
 if [[ "$*" == *"pg_dump"* ]]; then printf 'PGDMP-contract-backup'; fi
 if [[ "$*" == *"pg_restore"* ]]; then cat >/dev/null; fi
+if [[ "$*" == *"psql"* ]]; then printf 'survey\\n'; fi
 if [[ "\${FAKE_DOCKER_FAIL_UP:-0}" == "1" && "$*" == *" up "* ]]; then exit 42; fi
 `,
     { mode: 0o700 },
   )
+  await writeFile(join(binDir, "curl"), "#!/usr/bin/env bash\nexit 0\n", { mode: 0o700 })
   return {
     commandLog,
     env: {
@@ -541,6 +543,8 @@ test("confirmed restore targets only the configured application database", async
   const tempDir = await mkdtemp(join(tmpdir(), "survey-restore-contract-"))
   const envFile = await privateEnvironment(tempDir)
   const backup = join(tempDir, "valid.dump")
+  const seedFile = join(tempDir, "seed-users.json")
+  await writeFile(seedFile, "[]", { mode: 0o600 })
   const fake = await fakeDocker(tempDir)
   await writeFile(backup, "PGDMP-test", { mode: 0o600 })
 
@@ -549,7 +553,7 @@ test("confirmed restore targets only the configured application database", async
     ["deploy/scripts/restore-db.sh", backup, "--confirm"],
     {
       cwd: projectRoot,
-      env: { ...fake.env, DEPLOY_ENV_FILE: envFile },
+      env: { ...fake.env, DEPLOY_ENV_FILE: envFile, DEPLOY_SEED_USERS_FILE: seedFile },
     },
   )
 

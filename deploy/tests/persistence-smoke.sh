@@ -17,10 +17,15 @@ isolated_started=0
 isolated_env=""
 isolated_project=""
 isolated_db=""
+isolated_port="${RESTORE_SMOKE_PORT:-3001}"
+[[ "$isolated_port" =~ ^[0-9]+$ ]] &&
+  (( 10#$isolated_port >= 1024 && 10#$isolated_port <= 65535 )) &&
+  [ "$isolated_port" != "$LOCAL_PORT" ] ||
+  die "RESTORE_SMOKE_PORT must be a separate available port from 1024 through 65535"
 
 cleanup() {
   if [ "$isolated_started" -eq 1 ]; then
-    COMPOSE_PROJECT_NAME="$isolated_project" \
+    LOCAL_PORT="$isolated_port" COMPOSE_PROJECT_NAME="$isolated_project" \
       POSTGRES_DB="$isolated_db" \
       ENV_FILE="$isolated_env" \
       compose --profile public down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -260,28 +265,60 @@ while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
     COMPOSE_PROJECT_NAME=*) printf 'COMPOSE_PROJECT_NAME=%s\n' "$isolated_project" ;;
     POSTGRES_DB=*) printf 'POSTGRES_DB=%s\n' "$isolated_db" ;;
+    LOCAL_PORT=*) printf 'LOCAL_PORT=%s\n' "$isolated_port" ;;
     *) printf '%s\n' "$line" ;;
   esac
 done <"$ENV_FILE" >"$isolated_env"
 chmod 600 "$isolated_env"
 
 isolated_started=1
-COMPOSE_PROJECT_NAME="$isolated_project" \
+LOCAL_PORT="$isolated_port" COMPOSE_PROJECT_NAME="$isolated_project" \
   POSTGRES_DB="$isolated_db" \
   ENV_FILE="$isolated_env" \
   compose up \
   --detach \
   --wait \
   --wait-timeout "${STARTUP_TIMEOUT_SECONDS:-180}" \
-  db
+  frontend
 
+info "Restoring over a running isolated application, then checking migrated health and identity"
+LOCAL_PORT="$isolated_port" \
 COMPOSE_PROJECT_NAME="$isolated_project" \
   POSTGRES_DB="$isolated_db" \
   DEPLOY_ENV_FILE="$isolated_env" \
   "$SCRIPT_DIR/../scripts/restore-db.sh" "$backup_file" --confirm
 
+# Repeating the same production workflow must not add users or reset passwords.
+LOCAL_PORT="$isolated_port" \
+COMPOSE_PROJECT_NAME="$isolated_project" \
+  POSTGRES_DB="$isolated_db" \
+  DEPLOY_ENV_FILE="$isolated_env" \
+  "$SCRIPT_DIR/../scripts/restore-db.sh" "$backup_file" --confirm
+
+restored_revision="$(
+  LOCAL_PORT="$isolated_port" COMPOSE_PROJECT_NAME="$isolated_project" \
+    POSTGRES_DB="$isolated_db" ENV_FILE="$isolated_env" \
+    compose exec -T db psql --username="$POSTGRES_USER" --dbname="$isolated_db" \
+    --tuples-only --no-align --command 'SELECT version_num FROM alembic_version;'
+)"
+[ "$restored_revision" = "20260912_0002" ] || die "Restored database is not at migration head"
+restored_users="$(
+  LOCAL_PORT="$isolated_port" COMPOSE_PROJECT_NAME="$isolated_project" \
+    POSTGRES_DB="$isolated_db" ENV_FILE="$isolated_env" \
+    compose exec -T db psql --username="$POSTGRES_USER" --dbname="$isolated_db" \
+    --tuples-only --no-align \
+    --command "SELECT string_agg(username, ',' ORDER BY username) FROM users;"
+)"
+[ "$restored_users" = "researcher01,researcher02,researcher03,researcher04,researcher05" ] ||
+  die "Restored seed does not contain exactly the five application users"
+base_url="http://127.0.0.1:$isolated_port"
+api_login "$login_a" "$cookie_a" "$temporary_dir/restored-login.json"
+api_get "$cookie_a" "/rounds/$round_id" "$temporary_dir/restored-round.json"
+[ "$(json_field "$temporary_dir/restored-round.json" id)" = "$round_id" ] ||
+  die "Restored round could not be opened through the application"
+
 restored_project_count="$(
-  COMPOSE_PROJECT_NAME="$isolated_project" \
+  LOCAL_PORT="$isolated_port" COMPOSE_PROJECT_NAME="$isolated_project" \
     POSTGRES_DB="$isolated_db" \
     ENV_FILE="$isolated_env" \
     compose exec -T db psql \

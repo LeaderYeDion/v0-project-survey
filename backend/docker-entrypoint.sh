@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != "--prepare-only" ]; }; then
+  printf 'ERROR: Usage: %s [--prepare-only]\n' "$0" >&2
+  exit 1
+fi
+
 survey_uid=10001
 runtime_dir="${BACKEND_RUNTIME_DIR:-/app/runtime}"
 seed_users_file="${SEED_USERS_FILE:-/run/secrets/seed-users.json}"
@@ -32,4 +37,5 @@ fi
 
 alembic upgrade head
 python -m app.cli seed-users --file "$seed_users_file"
+[ "${1:-}" != "--prepare-only" ] || exit 0
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000
