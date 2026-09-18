@@ -19,6 +19,47 @@ info() {
   printf '[deploy] %s\n' "$*"
 }
 
+# All supported startup/restore wrappers share this per-user, per-project host
+# lock, even from different checkouts. Never auto-reclaim: PID reuse, a failed
+# metadata write, or detached Docker children make stale detection ambiguous.
+acquire_maintenance_lock() {
+  local operation="$1"
+  local lock_root="/tmp/survey-maintenance-$(id -u)"
+  local lock_path="$lock_root/$COMPOSE_PROJECT_NAME.lock"
+  [ ! -L "$lock_root" ] || die "Maintenance lock root must not be a symbolic link: $lock_root"
+  umask 077
+  mkdir -p "$lock_root"
+  local owner
+  if stat -f '%u' "$lock_root" >/dev/null 2>&1; then
+    owner="$(stat -f '%u' "$lock_root")"
+  else
+    owner="$(stat -c '%u' "$lock_root")"
+  fi
+  [ "$owner" = "$(id -u)" ] || die "Maintenance lock root belongs to another user: $lock_root"
+  chmod 700 "$lock_root"
+  if ! mkdir "$lock_path" 2>/dev/null; then
+    die "Maintenance lock is held or stale: $lock_path. Inspect owner metadata and its process/Docker children. Do not remove an active lock; after confirming all maintenance has ended, move the stale directory aside manually and retry."
+  fi
+  MAINTENANCE_LOCK_DIR="$lock_path"
+  MAINTENANCE_LOCK_TOKEN="$$-$RANDOM-$RANDOM"
+  printf '%s\n' "$MAINTENANCE_LOCK_TOKEN" >"$lock_path/token"
+  printf 'pid=%s\noperation=%s\nproject=%s\nstarted=%s\ncheckout=%s\n' \
+    "$$" "$operation" "$COMPOSE_PROJECT_NAME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT_ROOT" >"$lock_path/owner"
+}
+
+release_maintenance_lock() {
+  [ -n "${MAINTENANCE_LOCK_DIR:-}" ] || return 0
+  if [ ! -L "$MAINTENANCE_LOCK_DIR" ] &&
+    [ "$(<"$MAINTENANCE_LOCK_DIR/token")" = "$MAINTENANCE_LOCK_TOKEN" ]; then
+    rm -f "$MAINTENANCE_LOCK_DIR/owner" "$MAINTENANCE_LOCK_DIR/token"
+    rmdir "$MAINTENANCE_LOCK_DIR" || return 1
+  else
+    printf 'ERROR: Maintenance lock ownership changed; lock retained for inspection.\n' >&2
+    return 1
+  fi
+  MAINTENANCE_LOCK_DIR=""
+}
+
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"
 }

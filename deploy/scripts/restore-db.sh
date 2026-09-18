@@ -24,17 +24,11 @@ case "$POSTGRES_DB" in
 esac
 info "Restore target: database '$POSTGRES_DB' in Compose project '$COMPOSE_PROJECT_NAME'"
 
-# Read-only preflight requires the target db to be running. No writer is stopped
-# and no database object is changed until configuration, archive and target pass.
-compose config --quiet
-compose exec -T db pg_restore --list <"$backup_file" >/dev/null
-actual_db="$(compose exec -T db psql --username="$POSTGRES_USER" \
-  --dbname="$POSTGRES_DB" --no-psqlrc --tuples-only --no-align \
-  --set=ON_ERROR_STOP=1 --command 'SELECT current_database();')"
-[ "$actual_db" = "$POSTGRES_DB" ] || die "Restore target did not match configured database"
-
-stage="quiescing application services"
+stage="validating restore inputs"
 complete=0
+quiescing=0
+preflight_container=""
+preflight_output=""
 print_recovery_compose() {
   printf 'COMPOSE_PROJECT_NAME=%q POSTGRES_DB=%q POSTGRES_USER=%q LOCAL_PORT=%q DEPLOY_SEED_USERS_FILE=%q docker compose --env-file %q --project-directory %q --file %q ' \
     "$COMPOSE_PROJECT_NAME" "$POSTGRES_DB" "$POSTGRES_USER" "$LOCAL_PORT" \
@@ -45,7 +39,7 @@ print_recovery_compose() {
 cleanup() {
   exit_code=$?
   trap - EXIT HUP INT TERM
-  if [ "$complete" -eq 0 ]; then
+  if [ "$complete" -eq 0 ] && [ "$quiescing" -eq 1 ]; then
     printf 'ERROR: Restore failed while %s for project %s, database %s.\n' \
       "$stage" "$COMPOSE_PROJECT_NAME" "$POSTGRES_DB" >&2
     if compose --profile public stop cloudflared frontend backend; then
@@ -63,6 +57,9 @@ cleanup() {
     printf 'If the archive is unusable, substitute a verified mode-600 backup in that command. Never delete the volume to repair a failed restore.\n' >&2
     [ "$exit_code" -ne 0 ] || exit_code=1
   fi
+  [ -z "$preflight_container" ] || docker rm --force "$preflight_container" >/dev/null 2>&1 || true
+  [ -z "$preflight_output" ] || rm -f "$preflight_output"
+  release_maintenance_lock || exit_code=1
   exit "$exit_code"
 }
 trap cleanup EXIT
@@ -70,6 +67,36 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+acquire_maintenance_lock restore
+# Validate the installed image's explicit no-DB contract using the actual private
+# seed. No application service/container or DB object is changed by this step.
+compose config --quiet
+backend_image_id="$(docker image inspect --format '{{.Id}}' "$COMPOSE_PROJECT_NAME-backend")"
+[ -n "$backend_image_id" ] || die "Build the current backend image before restoring"
+seed_absolute="$(cd "$(dirname "$SEED_USERS_FILE")" && pwd)/$(basename "$SEED_USERS_FILE")"
+preflight_output="$(mktemp "${TMPDIR:-/tmp}/survey-restore-preflight.XXXXXX")"
+preflight_container="$(docker create --network none --read-only \
+  --tmpfs /app/runtime:rw,noexec,nosuid,size=1m \
+  --mount "type=bind,source=$seed_absolute,target=/run/secrets/seed-users.json,readonly" \
+  "$backend_image_id" --preflight-only)"
+docker start --attach "$preflight_container" >"$preflight_output" 2>/dev/null ||
+  die "Backend restore preflight failed; rebuild the current image and validate the private five-user seed"
+[ "$(<"$preflight_output")" = "SURVEY_RESTORE_PREFLIGHT_V1 prepare-only seed-valid" ] ||
+  die "Backend image lacks the restore preflight/prepare contract; rebuild before restoring"
+docker rm --force "$preflight_container" >/dev/null
+preflight_container=""
+rm -f "$preflight_output"
+preflight_output=""
+
+# These checks require an already-running target db and remain read-only.
+compose exec -T db pg_restore --list <"$backup_file" >/dev/null
+actual_db="$(compose exec -T db psql --username="$POSTGRES_USER" \
+  --dbname="$POSTGRES_DB" --no-psqlrc --tuples-only --no-align \
+  --set=ON_ERROR_STOP=1 --command 'SELECT current_database();')"
+[ "$actual_db" = "$POSTGRES_DB" ] || die "Restore target did not match configured database"
+
+stage="quiescing application services"
+quiescing=1
 info "Explicit --confirm received; stopping application services before restore"
 compose --profile public stop cloudflared frontend backend
 remove_public_url
@@ -78,6 +105,9 @@ compose up --detach --no-deps --wait \
   --wait-timeout "${STARTUP_TIMEOUT_SECONDS:-180}" db
 
 stage="restoring database"
+active_services="$(compose --profile public ps --status running --status restarting \
+  --status paused --services cloudflared frontend backend)"
+[ -z "$active_services" ] || die "Application services are not stopped; refusing database import"
 compose exec -T db \
   pg_restore \
   --username="$POSTGRES_USER" \

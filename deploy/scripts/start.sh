@@ -24,24 +24,29 @@ fi
 
 "$SCRIPT_DIR/check-prerequisites.sh"
 load_deploy_env
-ensure_runtime_dir
-remove_public_url
 
 started=0
 complete=0
 health_config=""
 cleanup() {
   exit_code=$?
-  trap - EXIT
+  trap - EXIT HUP INT TERM
   if [ "$complete" -eq 0 ] && [ "$started" -eq 1 ]; then
     info "Startup failed; stopping Compose services without deleting data"
     compose --profile public down --remove-orphans || true
     remove_public_url
   fi
   [ -z "$health_config" ] || rm -f "$health_config"
+  release_maintenance_lock || exit_code=1
   exit "$exit_code"
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+acquire_maintenance_lock start
+ensure_runtime_dir
+remove_public_url
 
 if [ "$build" -eq 1 ]; then
   info "Building independently deployable frontend and backend images"
@@ -112,5 +117,4 @@ fi
 
 rm -f "$health_config"
 complete=1
-trap - EXIT
 info "Core services are running; data volume was preserved"

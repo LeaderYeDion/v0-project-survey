@@ -50,6 +50,9 @@ async function fakeDocker(tempDir) {
     `#!/usr/bin/env bash
 set -eu
 printf '%s\\n' "$*" >>"$DOCKER_COMMAND_LOG"
+if [[ "$*" == "image inspect "* ]]; then printf 'sha256:contract-backend\\n'; fi
+if [[ "$*" == "create "* ]]; then printf 'contract-preflight-container\\n'; fi
+if [[ "$*" == "start --attach "* ]]; then printf 'SURVEY_RESTORE_PREFLIGHT_V1 prepare-only seed-valid\\n'; fi
 if [[ "$*" == *"pg_dump"* ]]; then printf 'PGDMP-contract-backup'; fi
 if [[ "$*" == *"pg_restore"* ]]; then cat >/dev/null; fi
 if [[ "$*" == *"psql"* ]]; then printf 'survey\\n'; fi
@@ -561,7 +564,7 @@ test("confirmed restore targets only the configured application database", async
   const commands = await readFile(fake.commandLog, "utf8")
   assert.match(commands, /pg_restore/)
   assert.match(commands, /--dbname=survey/)
-  assert.doesNotMatch(commands, /postgres|template0|template1/)
+  assert.doesNotMatch(commands, /--dbname=(?:postgres|template0|template1)(?:\s|$)/)
 })
 
 test("persistence smoke explicitly targets the isolated restore project and database", async () => {

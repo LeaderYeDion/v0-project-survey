@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != "--prepare-only" ]; }; then
-  printf 'ERROR: Usage: %s [--prepare-only]\n' "$0" >&2
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != "--prepare-only" ] && [ "$1" != "--preflight-only" ]; }; then
+  printf 'ERROR: Usage: %s [--preflight-only|--prepare-only]\n' "$0" >&2
   exit 1
 fi
 
@@ -34,6 +34,10 @@ fi
     "$seed_users_file" >&2
   exit 1
 }
+
+if [ "${1:-}" = "--preflight-only" ]; then
+  exec python -m app.restore_preflight --file "$seed_users_file"
+fi
 
 alembic upgrade head
 python -m app.cli seed-users --file "$seed_users_file"
