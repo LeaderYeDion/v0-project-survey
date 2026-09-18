@@ -5,10 +5,10 @@
 ## 当前状态
 
 - P0-A 响应式工作区已经完成并有历史浏览器证据。
-- P0-B/P0-C 的代码实现完成，已执行的非 Docker 自动化/静态检查通过；完整验证矩阵尚未完成。
+- P0-B/P0-C 的后端与前端整改已通过静态审查；恢复流程整改和最终静态交接仍待审查，完整验证矩阵尚未完成。
 - 完整 P0 验收仍待 Docker daemon 可用后执行：真实 PostgreSQL 迁移与持久化、五账号隔离、备份/隔离恢复、后端重启与普通 down/up、五视口浏览器流程及可选 Quick Tunnel。
 
-因此，本仓库当前状态是“实现完成，现场验收待补”，不是“完整 P0 已完成”。详细证据和待执行命令见 [P0 验证记录](./docs/verification/2026-09-05-p0-verification.md)。
+当前状态为“最终恢复整改待审查，现场验收待补”。只有恢复审查通过后才可标记静态实现交接获批；完整 P0 仍需现场证据。详细证据和待执行命令见 [P0 验证记录](./docs/verification/2026-09-05-p0-verification.md)。
 
 ## 已实现能力
 
@@ -18,6 +18,8 @@
 - 研究轮次支持暂停、继续、取消、重试失败样本、重试未完成样本，以及从历史复制为新草稿；原轮次和原版本保持不变。
 - 分析明确显示总体、当前筛选、有效回答、排除数量和分组人数；有效样本少于 30 时显示探索性提示；终止/失败可下钻到受访者证据。
 - JSON/CSV 导出支持 `full`、`filtered`、`exceptions` 三种范围、服务端安全文件名和可追溯的处理/成功/失败记录。
+- 导出 JSON 保存配置、口径、轮次和推断元数据；CSV 按冻结配置的题目/推断任务顺序展开。存储故障返回可识别错误，过期导出记录会转为失败。
+- 项目/问卷切换会取消旧请求并拒绝过时响应；历史轮次展示自己的状态；CSRF 错误提供双语反馈。
 - `zh-CN`/`en-US` 双语界面以及 390、768、1024、1280、1440 px 三段式响应式工作区。
 
 ## 架构
@@ -38,7 +40,7 @@ db（PostgreSQL 17）
 survey_postgres_data named volume
 ```
 
-可选 `cloudflared` 服务位于 `public` profile，只连接 frontend。可选的外围共享认证默认关闭；即使启用，也不能代替五个应用用户的业务身份。
+可选 `cloudflared` 服务位于 `public` profile，只连接 frontend。外围共享认证默认关闭；启用后 `/login` 先完成部署访问认证，再清空输入并进入研究账号登录。外围凭据不会创建应用身份。
 
 ## Docker 快速开始（推荐）
 
@@ -56,7 +58,7 @@ npm run docker:up
 - `deploy/config/deploy.env`：Compose、数据库和可选外围认证配置；
 - `deploy/config/seed-users.json`：五个预置应用账号的初始密码。
 
-浏览器访问 [http://127.0.0.1:3000](http://127.0.0.1:3000)，使用种子文件中的任一账号登录。后端启动时依次执行 Alembic 迁移和幂等种子同步；已存在用户的密码不会因重启而被重置。
+浏览器访问 [http://127.0.0.1:3000](http://127.0.0.1:3000)，使用种子文件中的任一账号登录。后端启动时依次迁移至 `20260912_0002` 和幂等同步五个用户；已存在用户的密码不会因重启而被重置。
 
 ```bash
 npm run docker:status
@@ -70,6 +72,8 @@ npm run docker:down
 ```bash
 npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 ```
+
+恢复前 db 必须运行、当前镜像必须已构建。脚本先验证私密文件、归档和目标，再停止外围入口与应用，事务恢复数据库，执行迁移/种子后重启并检查健康。失败会保持应用停止并打印精确重试命令；不要自行启动应用或清卷。恢复成功后公网入口仍需显式启用。
 
 完整操作、升级、备份恢复和公网入口见 [部署手册](./deploy/README.md)。
 
@@ -97,7 +101,7 @@ bash -n deploy/scripts/*.sh backend/docker-entrypoint.sh
 docker compose config --quiet
 ```
 
-2026-09-09 实际执行并于 2026-09-12 复验的非 Docker 自动化/静态子矩阵为后端 127/127、前端 114/114、部署契约 44/44，类型检查、Next.js 生产构建、shell 语法和 Compose 配置模型检查均通过。`docker compose build`、live Compose/PostgreSQL 和 Playwright 五视口验收因本机 daemon 无法在有界检查内就绪而未执行；因此完整验证矩阵仍是 pending，不能由这些结果替代。
+2026-09-18 复验：后端 167/167、前端 138/138、部署契约 60/60；类型检查、shell 语法与 Compose 静态模型通过。生产构建与环境结果见验证记录。2026-09-13 的独立浏览器修复验证为 4/4，使用 HTTP backend fixture，并非真实 PostgreSQL。Docker 镜像、live Compose/PostgreSQL、五账号/五视口及真实恢复验收仍为 pending。
 
 ## 明确边界
 

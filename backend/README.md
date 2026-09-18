@@ -12,7 +12,9 @@ Compose 中 backend 等待健康的 PostgreSQL，然后入口脚本依次执行�
 4. `python -m app.cli seed-users --file ...`；
 5. `uvicorn app.main:app --host 0.0.0.0 --port 8000`。
 
-数据库 schema 的唯一生产变更入口是 Alembic。当前迁移 head 为 `20260905_0001`，包含 13 张 P0 表。`/api/health` 在配置数据库后同时检查数据库可达性和迁移 head；不可用返回 503，不返回伪健康。
+数据库 schema 的唯一生产变更入口是 Alembic。当前迁移 head 为 `20260912_0002`；初始 `20260905_0001` 创建 13 张 P0 表，0002 删除三个旧重复索引并增加 `ix_export_records_status_created(status, created_at)`，兼容已应用旧初始迁移的数据库。`/api/health` 要求数据库可达且恰为 0002；停留在 0001 会返回 503。
+
+入口支持 `--prepare-only`：完成同样的私密 secret 引导、降权、迁移和五用户幂等同步后退出，不启动 Uvicorn。生产恢复在应用停止期间通过 `compose run --rm --no-deps -T backend --prepare-only` 执行它；只有准备成功才重启服务。任一迁移/种子失败都会阻止启动。
 
 推荐从仓库根目录使用：
 
@@ -73,6 +75,9 @@ cd backend
 - 启动轮次时在事务内创建或复用内容哈希一致的不可变问卷/配置版本。
 - 回答、响应、消息、推断、进度和租约 heartbeat 按完整检查点提交。
 - 优雅停止会把本执行器持有的活动轮次转为 paused；失租的 queued/running/pausing 在启动对账时变为 paused，并记录 `RUN_INTERRUPTED_BY_RESTART`。
+- 存储故障规范化为 `STORAGE_UNAVAILABLE`，检查点失败回滚；执行器失败释放本地任务，过期租约可定期恢复，关闭会等待活动任务。
+- JSON 导出包含完整冻结配置、轮次进度/时间/来源、口径、session 异常与推断；CSV 按冻结题目和任务 ID 稳定展开，缺失推断保留空列。同名任务和特殊 task ID 不会覆盖列。
+- 导出记录超过处理时限会收敛为失败；终态不会被旧任务覆盖。0002 的索引支持该扫描。
 - PostgreSQL volume 的实际跨重启/down-up 行为仍需在 daemon 可用环境执行验证记录中的 live smoke；静态实现不能替代该证据。
 
 ## 测试与检查
@@ -83,7 +88,7 @@ backend/.venv/bin/python -m pip check
 backend/.venv/bin/python -m compileall -q backend/app backend/tests
 ```
 
-2026-09-09 完整 suite 为 127/127 通过。数据库 ORM、PostgreSQL SQL 编译、迁移结构和业务协议有自动化覆盖，但当前工作站 Docker daemon 不可用，所以本轮没有执行 live PostgreSQL upgrade/downgrade、事务/租约或 mounted seed 验证。
+2026-09-18 完整 suite 为 167/167 通过（4.43 s）。包括存储错误、租约、关闭、导出稳定元数据与 0002 迁移的回归；PostgreSQL SQL 编译和 SQLite 迁移执行不能替代 live PostgreSQL。真实 upgrade/downgrade、事务/租约、mounted seed 与恢复仍待现场验收。
 
 ## Mock 边界
 

@@ -46,6 +46,8 @@
 
 `DEPLOY_AUTH_ENABLED=true` 时，Next.js proxy 可额外要求共享外围凭据。它默认关闭，仅作为公网演示的附加门。外围 Cookie/Basic Authorization 不会变成 `CurrentUser`，不能读取任何用户的研究资源；通过外围门后仍必须使用一个应用用户登录。
 
+`/login` 根据服务端验证后的外围 Cookie 分为部署访问和研究账号两步，切换步骤清空凭据；外围会话过期使用 `DEPLOY_AUTH_REQUIRED` 返回登录边界。默认关闭时只有研究账号步骤。
+
 ## 启动依赖与健康
 
 ```text
@@ -65,6 +67,8 @@ Compose `depends_on` 使用 health 条件。backend `/api/health` 在数据库�
 
 PostgreSQL 包含用户、会话、项目、问卷、不可变问卷版本、不可变完整配置版本、研究轮次、受访者、session、message、response、推断和导出记录。Alembic 是 schema 的唯一生产变更入口。
 
+当前 head 是 `20260912_0002`，从 0001 删除冗余索引并增加导出状态/创建时间索引。导出保存完整冻结配置、稳定轮次元数据和筛选口径；CSV 的题目与推断列由冻结配置顺序确定。旧处理记录超时后转为失败，终态保护避免迟到任务覆盖。
+
 每次运行先从 owner-scoped 问卷草稿固化版本，然后创建轮次。历史轮次通过版本 ID 指向原始完整配置；修改当前草稿或复制历史不会更新原版本。分析和导出从持久化 normalized rows 重建，不以浏览器或进程内对象作为权威数据。
 
 ## 执行与恢复
@@ -79,6 +83,10 @@ FastAPI 内置执行器使用 row-version compare-and-swap、数据库租约和�
 - 异常终止后，下一次启动把失租的 queued/running/pausing 轮次对账为 paused，并记录 `RUN_INTERRUPTED_BY_RESTART`。
 
 本轮没有 Redis、Celery 或独立 Worker；这些语义适用于 P0 的单 backend 服务，而不是多 worker 调度 SLA。
+
+执行器清理失败任务，周期恢复失租轮次，关闭时等待活动任务；存储失败回滚并映射为 `STORAGE_UNAVAILABLE`。前端资源 effect 使用取消、generation 和当前用户/语言/资源身份校验，过时成功/失败均不能覆盖新选择；历史状态由显示的轮次决定。
+
+生产数据库恢复先只读验证归档/目标，再停止外围入口和两个应用服务，仅保留 db；事务导入后用一次性 backend `--prepare-only` 完成迁移/五用户种子，再启动应用并检查健康。停止后的任一步失败都会再次停止应用，保留数据库卷并输出恢复指导。可选公网入口在成功后也保持停止，需显式重新启用。该流程的实际容器/数据库验收仍待执行。
 
 ## Volume 生命周期
 
@@ -96,10 +104,10 @@ FastAPI 内置执行器使用 row-version compare-and-swap、数据库租约和�
 
 ## 备份与恢复边界
 
-备份在 db 容器内用 `pg_dump --format=custom --no-owner --no-privileges` 生成，最终文件位于 Git 忽略的 `deploy/backups/` 且权限为 600。恢复要求显式 `--confirm`，仅针对当前私密配置指定的 Compose project/database，使用 `pg_restore --clean --if-exists --exit-on-error`。
+备份在 db 容器内用 `pg_dump --format=custom --no-owner --no-privileges` 生成，最终文件位于 Git 忽略的 `deploy/backups/` 且权限为 600。恢复要求显式 `--confirm`，仅针对当前私密配置指定的 Compose project/database，停止应用后使用 `pg_restore --single-transaction --clean --if-exists --exit-on-error`。
 
 持久化 smoke 的隔离恢复使用随机 Compose project/database，并只对该隔离项目执行 `down --volumes`。主部署的普通停止、失败回滚和日常升级都不删除 volume。
 
 ## 已验证与待验证
 
-自动化契约检查已经验证服务拆分、网络、健康依赖、secret、非 root runtime、volume、备份/恢复保护和 public profile 的配置结构。由于 2026-09-09 本机 Docker daemon 没有在有界探测内返回，本轮尚未实际构建镜像、启动容器或验证 PostgreSQL/volume；架构设计和 live 运行证据必须区分。
+2026-09-18 的 60 项部署契约验证服务拆分、网络、健康依赖、secret、非 root runtime、volume、恢复调用顺序/失败清理和 public profile。恢复仍待最终静态审查；本轮 Docker 探测因本地 socket 不存在失败，尚未实际构建镜像、启动容器或验证 PostgreSQL/volume；架构设计和 live 运行证据必须区分。

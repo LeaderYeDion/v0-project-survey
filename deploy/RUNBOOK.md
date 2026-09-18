@@ -80,6 +80,8 @@ npm run docker:up -- --public
 
 用安全编辑器查看 `deploy/config/seed-users.json`，选择 `researcher01`–`researcher05` 任一账号登录。不要把完整文件粘贴到终端输出或共享记录。
 
+若启用 `DEPLOY_AUTH_ENABLED=true`，先在部署访问步骤输入 `deploy.env` 中的外围凭据；成功后表单清空，再输入研究账号。默认关闭时直接显示研究账号登录。第一步只建立外围 Cookie，不创建应用用户。
+
 backend 每次启动都会执行幂等种子同步：
 
 - 缺少的固定用户会创建；
@@ -146,7 +148,7 @@ npm run docker:down
 docker compose --env-file deploy/config/deploy.env restart backend
 ```
 
-升级前先备份，然后构建并重新启动；backend 启动时自动执行 Alembic upgrade：
+升级前先备份，然后构建并重新启动；backend 启动时自动执行 Alembic upgrade 至 `20260912_0002`。0002 为已存在的 0001 数据库删除三个冗余索引并增加过期导出扫描索引，不删除数据：
 
 ```bash
 npm run docker:backup
@@ -180,17 +182,30 @@ deploy/backups/survey-survey-YYYYMMDDTHHMMSSZ-<pid>.dump
 
 ## 8. 恢复
 
-恢复会清理并改写当前 `deploy.env` 指向的应用数据库。先检查目标项目、数据库和备份权限：
+恢复会清理并改写当前 `deploy.env` 指向的应用数据库，并暂停所有应用访问。先构建包含 `--prepare-only` 的当前镜像，保证目标 db 正在运行，再检查目标项目、数据库和备份权限：
 
 ```bash
 chmod 600 deploy/backups/<backup>.dump
+npm run docker:build
+# 若 db 尚未运行，仅启动数据库，勿提前启动应用：
+docker compose --env-file deploy/config/deploy.env up --detach --no-deps --wait db
 npm run docker:status
 npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 ```
 
 执行恢复前，用可信的本地编辑器打开 mode-600 `deploy/config/deploy.env`，人工核对 `COMPOSE_PROJECT_NAME` 和 `POSTGRES_DB`。不要把包含密码的整个文件打印到共享终端或日志。`docker:status` 不打印这两个目标字段，不能代替该配置核对。
 
-脚本拒绝缺少 `--confirm`、缺失、空或非 mode-600 文件；实际使用 `pg_restore --clean --if-exists --exit-on-error --no-owner --no-privileges`。恢复后再次检查 health、迁移 revision、用户和项目数据。
+脚本按以下顺序执行：
+
+1. 校验 `--confirm`、普通非符号链接的 mode-600 非空 custom-format 备份、env/seed 文件、Compose 模型；拒绝 `postgres/template0/template1`。在运行中的 db 只读列出归档目录，并查询实际数据库名与配置匹配。此阶段失败不会停止应用或改写数据库。
+2. 停止 cloudflared、frontend、backend，清除保存的公网 URL，仅保持 db 运行。后端停止后不再有本应用的任务/连接池写入；维护期间勿从其他终端重新启动服务或运行数据库写入工具。
+3. 使用 `pg_restore --single-transaction --clean --if-exists --exit-on-error --no-owner --no-privileges` 恢复配置的应用库。导入失败会回滚该事务；后续迁移/种子是独立步骤，不能据此假定整个流程自动回滚。
+4. 一次性 backend 容器执行 `--prepare-only`：私密 secret 引导、降权、`alembic upgrade head` 和严格五用户幂等同步，不启动 Uvicorn。
+5. 准备成功后启动 backend/frontend、等待 Compose health，再执行带外围认证配置的同源 health。成功后人工确认项目、轮次与账号数据。cloudflared 保持停止；需要公网时显式执行 `npm run docker:up -- --public --no-build`。
+
+从停止阶段开始的任何失败（含迁移、seed、启动或 health）都会再次停止应用并保留 db/volume，返回非零退出码，打印失败阶段及带当前目标、配置/seed/备份路径的 shell 转义重试命令。如果 Docker 本身拒绝停止，脚本会明确提示无法确认服务已停止，此时先人工确认停止状态。
+
+失败恢复：保持应用停止，查看 db/backend 日志并修复报告的原因，按脚本打印的精确命令确认应用停止、仅启动 db（如有需要）、重跑恢复；归档不可用时仅替换成已验证的私密备份路径。沿用同一私密配置和已有的凭据环境覆盖。不要用 `docker:up` 跳过失败的恢复/迁移，也不要清卷修复。若使用自定义环境文件，启动 db 和检查日志时也必须使用同一个 `DEPLOY_ENV_FILE`/Compose project。
 
 ## 9. 持久化验收
 
@@ -201,7 +216,7 @@ npm run docker:up
 bash deploy/tests/persistence-smoke.sh
 ```
 
-脚本覆盖两个用户、跨用户列表/直接访问、项目/问卷/轮次、backend restart、普通 down/up、非空备份和随机隔离 Compose 项目中的恢复。它仅对生成的隔离项目使用 `down --volumes`；不会删除主部署 volume。
+脚本覆盖两个用户、跨用户直接访问、项目/问卷/轮次、backend restart、普通 down/up 和非空备份。它启动随机隔离 Compose 项目中的完整应用，再调用生产恢复脚本两次，检查 0002、严格五个用户名、重新登录、原轮次 ID 与项目数量。隔离 frontend 默认使用空闲端口 3001；可用 `RESTORE_SMOKE_PORT=3002 bash deploy/tests/persistence-smoke.sh` 调整，必须不同于主应用端口。主项目创建的 smoke 数据和备份保留；仅自动生成的隔离项目在退出时使用 `down --volumes` 清理，不删除主部署 volume。该 hook 已提供，当前尚未实际执行。
 
 ## 10. 明确清库（破坏性）
 

@@ -2,15 +2,43 @@
 
 > 设计基线：2026-09-05
 >
-> 执行日期：2026-09-09（文档收束：2026-09-11，review-fix：2026-09-12）
+> 最近复验：2026-09-18（历史执行：2026-09-09/11/12；前端浏览器整改：2026-09-13）
 >
 > 分支：`real-backend-v1`
 >
-> 代码基线：`99522df`（Task 10 文档提交之前）
+> 当前整改基线：`6c16ec9`；历史 Task 10 基线：`99522df`
 >
-> 结论：**实现完成，已执行的非 Docker 自动化/静态检查通过；要求的完整矩阵未完成，live Docker/PostgreSQL/浏览器验收待补。完整 P0 未标记完成。**
+> 结论：**后端/前端整改静态审查通过；恢复整改待最终审查。已执行自动化/静态检查通过，完整 P0/live Docker/PostgreSQL/五账号/五视口验收仍待补。恢复审查通过前不宣称静态实现交接获批。**
 
-## 1. 结论边界
+## 0. 2026-09-18 最新整改验证（取代历史当前状态）
+
+本节是当前事实。第 1–12 节保留早期执行证据和待补矩阵；其中旧测试计数、环境与“实现完成”推断不是当前审批结论。
+
+| 检查 | 实测结果 | 边界 |
+| --- | --- | --- |
+| `backend/.venv/bin/python -m pytest backend/tests -q` | PASS，167 passed in 4.43 s | 含存储/导出/租约/迁移回归；非 live PostgreSQL |
+| `npm run test:frontend` | PASS，138/138，485.385 ms | 含外围登录、CSRF、取消/代际/历史状态 |
+| `node --test deploy/tests/*.test.mjs` | PASS，60/60，最终 8.003 s | 执行真实脚本，Docker/curl 等外部边界使用受控替身 |
+| `npm run typecheck` | PASS，exit 0 | 独立 TypeScript 校验 |
+| `npm run build` | PASS，exit 0；compile 2.9 s；5/5 pages | 批准的 helper-process 环境；仍有 Babel 警告与 Next 内置类型跳过提示 |
+| 逐文件 `bash -n`（deploy scripts/tests 与 backend entrypoint） | PASS，exit 0 | 包含 live smoke 语法，不代表已执行 |
+| 完整显式示例环境下 Compose public profile `config --quiet` | PASS，exit 0 | 无 daemon，使用 `.example` env/seed；不读取生产 secret |
+| 8 秒上限的 `docker info --format '{{.ServerVersion}}'` | FAIL，exit 1；约 0.37 s | `/Users/mymac/.docker/run/docker.sock` 不存在 |
+| image build/up、live PostgreSQL/volume/restore、五账号/五视口/autosave/Quick Tunnel | NOT RUN / PENDING | 不以静态或 fixture 测试替代 |
+
+恢复 TDD：新增 16 项生命周期/entrypoint 契约，首次 RED 为 13 failed、3 passed；缺失预检、停止、失败清理、独立准备模式的行为均复现。实现后 16/16 GREEN。完整部署首轮 59/60 暴露旧测试未提供新必需 seed 文件，更新 fixture 后 60/60。追加“精确停应用/仅启 db”恢复指导断言后 RED 为 6 failed、10 passed，补齐指导后再次 16/16、完整 60/60 GREEN。迁移/seed-only 模式和普通启动的顺序、迁移/seed 失败不启动 server 均有行为覆盖。
+
+当前恢复先只读验证确认/私密文件/custom archive/配置/实际目标，拒绝系统库，然后停止 cloudflared/frontend/backend、保持 db，事务导入后执行 `--prepare-only` 的迁移和五用户幂等 seed，最后启动并检查健康。停止后的任意失败会再次停止应用并给出目标与路径准确的重试命令；停止无法确认时明确报错。它保留普通 volume，且成功后不自动开启公网入口。完整操作与故障指导见 [RUNBOOK 第 8 节](../../deploy/RUNBOOK.md#8-恢复)。
+
+Live hook `deploy/tests/persistence-smoke.sh` 现会启动运行中的随机隔离应用（默认空闲端口 3001，可用 `RESTORE_SMOKE_PORT` 调整），连续两次调用生产恢复，再检查 0002、精确五用户名、重新登录、原轮次 ID 和项目数量。它只删除自己创建的隔离 volume；主项目 smoke 数据/备份保留。该 hook 本轮仅语法/连接契约验证，尚未执行。
+
+后端最新 head 为 `20260912_0002`：兼容旧 0001，删除三个冗余索引并增加过期导出扫描索引。readiness 要求新 head。存储错误规范化、导出终态/超时收敛、租约恢复/关闭等待、完整 JSON 元数据、冻结配置顺序的 CSV task ID 列已通过回归和静态审查；live PostgreSQL 语义仍待验收。
+
+前端截至 `6c16ec9` 的静态审查已通过。2026-09-13 独立浏览器 suite 4/4 覆盖两步登录/凭据清空/安全 redirect 和迟到项目响应，使用真实 Next/Chrome 与 HTTP backend fixture；不是 Docker/PostgreSQL/五视口证据。当前 138 测试涵盖 CSRF_INVALID、本地化和请求取消/身份代际守卫、历史状态隔离。
+
+恢复整改最终审查结论尚待记录；只有通过后才可把当前静态交接改为获批。无论静态结论如何，完整 P0 持续为现场验收 pending。
+
+## 1. 历史 Task 10 结论边界
 
 Task 1–9 已实现 PostgreSQL schema、五用户认证、owner-scoped 研究资源、不可变版本、可恢复轮次、明确分析、异常下钻、范围导出、前端工作流和三服务 Compose 部署。Task 10 从干净 Git 状态重新运行 daemon 不可用时仍能完成的非 Docker 自动化/静态子矩阵，并更新存活文档。
 

@@ -23,6 +23,8 @@
 
 外围门禁不是应用身份：通过它之后仍要使用 `researcher0N` 登录。外围 Cookie 或 Basic Authorization 不会创建 `CurrentUser`，也不能绕过 FastAPI 所有权。共享凭据没有个人审计能力，只应作为临时公网演示的附加限制。
 
+启用时 `/login` 先验证外围账号，成功后重置表单，再请求独立的应用登录。服务端只接受经过签名校验的外围 Cookie。过期外围会话与 `CSRF_INVALID` 分别处理：前者回到登录边界，后者显示可操作的双语错误而不清空应用身份。
+
 ## 网络暴露
 
 - 仅 frontend 发布到 `127.0.0.1:${LOCAL_PORT}`；
@@ -51,7 +53,7 @@ Compose 通过只读 secret 挂载宿主种子文件。backend 仅在 root boots
 
 普通 restart、build/up、失败回滚和 `npm run docker:down` 都保留 PostgreSQL named volume。只有显式 `down --volumes` 删除数据库数据；该命令必须和日常操作分开，并在执行前完成可恢复备份。
 
-恢复使用 `--clean --if-exists`，会改写目标数据库。恢复脚本要求非空、mode-600 备份和显式 `--confirm`，但操作者仍必须先核对 `COMPOSE_PROJECT_NAME` 与 `POSTGRES_DB`。
+恢复会改写目标数据库。脚本在只读预检中要求非空 mode-600 custom-format 备份、私密配置/seed 和显式 `--confirm`，拒绝系统库；操作者仍需核对 `COMPOSE_PROJECT_NAME` 与 `POSTGRES_DB`。随后停止 cloudflared/frontend/backend，再以单事务导入，执行迁移/种子，最后启动应用并检查健康。失败不自动恢复服务，输出当前目标的精确重试命令；无法确认停止时明确报警。成功后公网入口仍停止。迁移/种子不与导入共享事务，因此任何后续失败都必须在停止应用的状态下处理，不能假定数据库已整体回滚。
 
 ## 日志与敏感内容
 

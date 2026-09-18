@@ -2,7 +2,7 @@
 
 当前部署由 Docker Compose 管理三个核心服务：`frontend`（Next.js）、`backend`（FastAPI）和 `db`（PostgreSQL 17）。可选 `cloudflared` 位于 `public` profile。宿主机只发布 `127.0.0.1:${LOCAL_PORT}:3000`；backend 和 db 不发布宿主端口。
 
-> 验证状态：Compose/Dockerfile/脚本契约与配置渲染已通过；2026-09-09 本机 Docker daemon 未能在有界检查内返回，因此 image build、live PostgreSQL、volume 持久化、备份恢复和公网入口仍待现场验收。不要把静态检查写成 live 通过。
+> 验证状态：2026-09-18 部署契约 60/60、shell 语法和 Compose 模型通过；恢复整改仍待最终静态审查。image build、live PostgreSQL、volume 持久化、真实备份恢复和公网入口仍待现场验收。
 
 ## 快速开始
 
@@ -26,6 +26,8 @@ npm run docker:up
 
 `DEPLOY_AUTH_ENABLED=true` 可增加一个外围共享门禁，默认关闭。外围门禁只能阻止未授权请求进入 frontend；它不会创建应用 `CurrentUser`，也不能代替五个应用用户登录或绕过所有权。
 
+启用后 `/login` 先显示部署访问表单，验证签名 Cookie 后清空凭据并显示研究账号表单。应用身份只由第二步的 FastAPI 会话建立；外围会话失效会返回该登录边界。
+
 ## 数据生命周期
 
 - `docker compose restart`：保留 PostgreSQL named volume；
@@ -46,7 +48,7 @@ npm run docker:backup
 npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 ```
 
-备份是 PostgreSQL custom-format、无 owner/privilege 的 mode-600 文件。恢复使用 `--clean --if-exists --exit-on-error`，会改写目标应用数据库，因此必须先确认目标并保留可用备份。
+备份是 PostgreSQL custom-format、无 owner/privilege 的 mode-600 文件。恢复要求运行中的 db 和已构建的当前镜像；先验证归档/目标，再停止 cloudflared/frontend/backend，以 `--single-transaction --clean --if-exists --exit-on-error` 恢复。随后独立执行迁移至 `20260912_0002` 和五用户幂等 seed，再重启应用并检查健康。失败保持应用停止，按输出的精确命令修复重试；成功后公网入口仍保持停止。详见 RUNBOOK 第 8 节。
 
 ## 日常命令
 

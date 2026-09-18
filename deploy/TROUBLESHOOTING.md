@@ -103,6 +103,8 @@ docker compose --env-file deploy/config/deploy.env exec backend alembic current
 
 backend 只有在数据库可达并且 revision 等于应用期望 head 时才健康。重点检查 Alembic 错误、seed 文件读取/格式、数据库权限和网络。种子文件必须恰好包含 `researcher01`–`researcher05`，每项 locale 为 `zh-CN`。
 
+当前 head 为 `20260912_0002`；0001 数据库需要应用第二个索引迁移。恢复后的迁移或 seed 失败会让应用保持停止，应按恢复脚本输出修复并重跑完整恢复，不能直接启动服务。
+
 如果日志显示 bootstrap UID/secret 错误，不要修改镜像为长期 root 或放宽宿主 secret；重新构建当前 backend image 并检查 Compose secret source：
 
 ```bash
@@ -121,6 +123,8 @@ curl --fail http://127.0.0.1:3000/survey-api/health
 启用外围认证时，使用[RUNBOOK 中基于私密配置的 curl config](./RUNBOOK.md#5-状态健康与日志)，不要把外围密码写进命令行。
 
 应用登录必须使用 `deploy/config/seed-users.json` 中的 `researcher0N`，不是可选的外围 `DEPLOY_USERNAME`。如果用户已存在，修改 seed 文件不会覆盖数据库密码；使用 backend CLI 显式 reset-password。
+
+外围认证启用时，先完成“部署访问”，表单清空后再完成“研究账号”登录。第一步不能证明业务登录成功。外围凭据失效会返回第一步；`CSRF_INVALID` 应显示独立错误而不是被当作应用会话过期。
 
 登录成功后又返回登录页时，检查浏览器是否允许 Cookie、主机名/协议是否变化、会话是否过期/撤销，以及代理是否正确转发 Host/Proto。状态变更 403 `CSRF_INVALID` 通常表示 CSRF Cookie/header 或 Origin/forwarded Host 不一致。
 
@@ -160,6 +164,10 @@ npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 ```
 
 执行前，用可信的本地编辑器打开 mode-600 `deploy/config/deploy.env`，人工核对 `COMPOSE_PROJECT_NAME` 和 `POSTGRES_DB`；不要为了核对而把包含密码的整个文件打印到共享终端或日志。`docker:status` 不打印这两个字段，不能代替该核对。`pg_restore --clean` 会改写目标；需要演练时使用隔离 Compose project/database，不要在主数据库试错。
+
+目标 db 必须已运行，镜像需为包含 `--prepare-only` 的当前构建。归档目录/目标查询预检失败不会停止应用；从停止阶段起的失败会保持应用停止并打印阶段和精确重试命令。只读预检成功后脚本自动停止 cloudflared/frontend/backend，恢复、迁移到 0002、同步五用户，再重启/检查健康。
+
+如果输出“Could not confirm application services stopped”，先恢复 Docker 控制能力并人工停止这些服务。其余失败保持 db 与 volume，检查日志并修复具体错误，然后使用输出的完整重试命令；不要运行 `docker:up` 绕过错误或执行 `down -v`。归档失效时替换为已验证备份。公网入口不会自动重启，只有恢复成功后才显式开启。隔离 smoke 的 3001 端口被占用时，指定不同空闲的 `RESTORE_SMOKE_PORT`。
 
 ## Quick Tunnel 没有 URL 或返回 502
 
