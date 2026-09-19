@@ -4,7 +4,7 @@
 >
 > 当前阶段：静态交接获批，现场验收待补
 >
-> 当前焦点：恢复可用 Docker daemon，完成真实 PostgreSQL、持久化、五账号与五视口验收
+> 当前焦点：Docker Engine 已恢复，执行真实三服务、PostgreSQL 持久化、五账号与五视口验收
 
 ## 文档定位与状态规则
 
@@ -20,7 +20,7 @@
 
 生产部署模型由 Next.js frontend、FastAPI backend 和 PostgreSQL db 三个独立 Compose 服务组成。PostgreSQL 使用 named volume；普通 restart、容器重建和普通 `docker compose down` 设计为保留数据，只有显式 `down --volumes` 删除数据。
 
-后端、前端与生产恢复整改均已通过独立静态审查，静态实现交接获批；这不能替代现场验收。2026-09-18 初始 Docker 探测因本地 socket 不存在失败；启动 Docker Desktop 后 socket 出现，但状态持续为 `starting` 且服务端 API 返回 500。`docker compose build`、真实容器/volume、迁移/种子、恢复、五账号和五视口完整浏览器验收仍未执行。
+后端、前端与生产恢复整改均已通过独立静态审查，静态实现交接获批；这不能替代现场验收。2026-09-18 初始 Docker 探测曾因 socket 缺失和 Engine API 500 受阻，后续复查已确认 Docker Engine 29.5.3/overlayfs 正常响应。当前仍是 0 镜像、0 容器、无 Compose 项目，因此 `docker compose build`、真实容器/volume、迁移/种子、恢复、五账号和五视口完整浏览器验收仍未执行。
 
 ### 当前实现能力
 
@@ -48,7 +48,7 @@
 - 构建仍提示已有自定义 Babel 配置可移除，并明确跳过 Next 内置类型检查；独立 `tsc --noEmit` 已通过；
 - 生产构建在获准的 helper-process 环境最终复验，compile 2.6 s、5/5 页面，exit 0；
 - 2026-09-13 独立浏览器修复验证 4/4：真实 Next/Chrome + HTTP backend fixture，覆盖两步认证和过时项目响应；该证据不包含 live PostgreSQL 或五视口完整流程；
-- Docker 初始探测在约 0.06 s 后报本地 `docker.sock` 不存在；随后已启动 Docker Desktop，但 `docker desktop status` 持续为 `starting`，`docker version` 的服务端请求返回 API 500，live 验收未执行；本清单只是完整矩阵的已执行子集。
+- Docker 初始探测曾报 `docker.sock` 不存在，启动阶段又出现 Engine API 500；后续复查已得到 `ServerVersion=29.5.3 Driver=overlayfs Containers=0 Images=0`，`docker compose ls` 为空。环境阻塞已解除，但 live 验收尚未开始；本清单只是完整矩阵的已执行子集。
 
 迁移 head 现为 `20260912_0002`，已有 0001 数据库须升级冗余索引/导出扫描索引；readiness 严格要求新 head。存储故障、执行器租约与关闭、导出元数据/列稳定性、前端认证/竞态整改分别有回归证据。
 
@@ -97,9 +97,9 @@
 
 ## 当前最迫切动作
 
-1. 启动或修复 Docker Desktop，直至 `docker info` 返回 Server 信息；
-2. 生成/校验私密 Compose 与五账号配置；
-3. 构建启动三服务并运行 `deploy/tests/persistence-smoke.sh`；
+1. 生成并校验私密 Compose 与五账号配置；
+2. 构建并启动 frontend、backend、db，确认健康和迁移 head；
+3. 运行 `deploy/tests/persistence-smoke.sh`，验证隔离、restart/recreate/down-up、备份和双恢复；
 4. 完成五账号显式登出/401 与五视口 Playwright 全流程；
 5. 网络允许时验证 `public` profile；
 6. 把真实结果追加到验证记录；全部通过后再把 P0-B/P0-C/P0 改为 `已完成`。
@@ -120,15 +120,20 @@
 
 ## 迭代记录
 
-### 2026-09-18：最终整改、恢复维护流程与证据校正
+### 2026-09-18：P0 全链路实现、最终整改与会话收束
 
-- 后端修复存储错误映射、过期导出、租约与任务关闭；导出补齐配置/轮次/口径和稳定任务列，新增 `20260912_0002` 前向索引迁移。
-- 前端分离外围与研究账号登录，修复 CSRF 双语错误、资源请求竞态及历史状态；独立浏览器验证见 2026-09-13 报告。
-- 恢复整改先由 `963de15` 实现停应用/事务导入/迁移/seed/health；`b6e08cd` 补齐无数据库的已构建镜像/严格五用户 seed 预检、与 start/up 共用的原子维护锁和导入前服务重查。锁争用/遗留直接拒绝，确认 owner/进程/Docker 工作结束后才能人工隔离锁；直接 Docker/DB 写入或不同 OS 用户不受锁约束。
-- live smoke 对运行中的隔离应用恢复两次，检查 0002/五用户/登录/原轮次，仍待实际执行。
-- 验证：最终复验后端 173、前端 138、部署 70 全通过；类型、生产构建、shell、Compose、文档状态与 diff 检查通过。Docker Desktop 停留在 `starting` 且服务端 API 500，现场验收 pending。
-- 审查：恢复第二轮独立静态复审为 Critical/Important/Minor 0/0/0，关闭镜像/seed 预检与共享维护锁两项重要问题，静态实现交接获批。
-- 状态：完整 P0 继续等待 Docker/PostgreSQL/五账号/五视口现场证据，不把静态批准表述为完整验收完成。
+- **目标**：把最初的 P0 响应式体验扩展为具有真实用户边界、持久化、可恢复运行、可信分析/导出和独立 Docker 部署的完整研究工作流，并以事实证据区分静态完成与现场验收。
+- **数据层**：引入 SQLAlchemy/asyncpg/Alembic，建立用户、会话、项目、问卷、不可变问卷/配置版本、研究轮次、受访者、回答/推断、消息和导出记录；迁移 head 为 `20260912_0002`，修正冗余索引并增加过期导出扫描索引。
+- **用户与所有权**：部署时严格初始化 `researcher01`–`researcher05` 五个用户，无注册；数据库保存 Argon2id 密码哈希和会话令牌哈希。项目是所有权根，问卷、版本、轮次、分析、异常和导出均按服务端会话隔离，跨用户访问统一按不存在处理。
+- **研究工作流**：实现项目/问卷创建与选择、500 ms 草稿自动保存、revision 冲突、内容哈希冻结版本、回答级检查点、row-version CAS、执行租约、暂停/继续/取消、失败与未完成重试以及历史复制。
+- **分析与导出**：固定总体/筛选/有效/排除/分组口径和小样本提示，提供异常码聚合与证据下钻；JSON/CSV 支持三种范围、稳定列和完整冻结配置/轮次/推断元数据，导出 processing/成功/失败终态可追踪。
+- **前端**：接入应用用户会话和 owner-scoped API，分离可选外围门禁与研究账号登录；修复 CSRF 双语反馈、项目/问卷请求竞态、迟到成功/失败覆盖、历史轮次状态污染和草稿队列问题，保留中英文及三段响应式工作区。
+- **Docker 与持久化**：建立独立 frontend、backend、PostgreSQL db 三服务、内部网络、loopback 暴露、健康依赖、只读 seed secret 和 `survey_postgres_data` named volume；普通 restart/recreate/down 保留数据，只有显式 `down --volumes` 清库。
+- **备份恢复与安全整改**：实现私密配置生成、custom-format 备份和显式恢复。恢复流程先做已构建镜像/严格五用户 seed 的无数据库预检，再在共享维护锁内停写入端、重查服务、单事务导入、迁移/seed/health；失败保持应用停止并保留卷。
+- **后端最终整改**：统一认证/CSRF/schema 契约，存储故障映射为 `STORAGE_UNAVAILABLE` 并回滚；周期恢复过期租约/导出，清理执行任务；补齐导出完整元数据、准确 filters、稳定推断任务列和终态保护。
+- **验证与审查**：后端 173/173、前端 138/138、部署契约 70/70，类型、生产构建、shell、Compose 模型和文档检查通过；最终独立静态审查 Critical/Important/Minor 为 0/0/0，静态实现交接获批。
+- **环境现状**：Docker 最初因 socket 缺失/Engine API 500 阻塞；会话末复查已恢复为 Engine 29.5.3/overlayfs，但仍为 0 镜像、0 容器、无 Compose 项目。环境门已解除，现场验证尚未执行。
+- **待办**：构建启动三服务，执行真实 PostgreSQL 迁移/五用户 seed、owner 隔离、restart/recreate/down-up 持久性、非空备份和两次隔离恢复；完成五账号登录/登出/401、五视口完整业务流程及可选 Quick Tunnel，再据实更新 P0 状态。
 
 ### 2026-09-11：P0 实现闭环与现场验收交接
 

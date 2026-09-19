@@ -6,9 +6,21 @@
 
 - P0-A 响应式工作区已经完成并有历史浏览器证据。
 - P0-B/P0-C 的后端、前端与恢复流程整改均已通过独立静态审查，静态实现交接获批；完整验证矩阵尚未完成。
-- 完整 P0 验收仍待 Docker daemon 可用后执行：真实 PostgreSQL 迁移与持久化、五账号隔离、备份/隔离恢复、后端重启与普通 down/up、五视口浏览器流程及可选 Quick Tunnel。
+- Docker Engine 已恢复可用（Server 29.5.3、overlayfs），但当前仍是 0 镜像、0 容器且没有 Compose 项目；真实部署尚未启动。
+- 完整 P0 验收仍待执行：真实 PostgreSQL 迁移与持久化、五账号隔离、备份/隔离恢复、后端重启与普通 down/up、五视口浏览器流程及可选 Quick Tunnel。
 
 当前状态为“静态交接获批，现场验收待补”。完整 P0 仍需现场证据，不能仅凭自动化和静态审查标记为已完成。详细证据和待执行命令见 [P0 验证记录](./docs/verification/2026-09-05-p0-verification.md)。
+
+## 本次 P0 调整总结
+
+- **数据与迁移**：引入 SQLAlchemy/asyncpg/Alembic 持久化层，建立用户、会话、项目、问卷、不可变版本、研究轮次、回答/推断、消息与导出记录；当前迁移 head 为 `20260912_0002`。
+- **身份与隔离**：建立应用用户模型、数据库会话和 CSRF；部署时严格初始化 `researcher01`–`researcher05` 五个用户，无注册入口。项目作为所有权根，所有研究数据按当前用户隔离。
+- **可信研究流程**：问卷草稿支持 revision 冲突保护和自动保存；运行时固化不可变问卷/配置版本；研究轮次支持检查点、租约、暂停、继续、取消、失败/未完成重试与历史复制。
+- **分析与导出**：统一总体、筛选、有效、排除和分组口径，提供异常证据下钻；JSON/CSV 支持 `full`、`filtered`、`exceptions` 三种范围，并保存稳定的配置、轮次、推断和处理状态元数据。
+- **前端可靠性**：接入真实应用登录与 owner-scoped API，分离可选外围门禁和研究账号；补齐双语 CSRF 错误、资源切换取消/代际保护、历史轮次独立状态和持久化工作区。
+- **Docker 与运维**：建立 frontend、backend、db 三服务 Compose，PostgreSQL 使用 named volume；补齐私密配置生成、健康检查、普通启停、备份、显式恢复和可选 Quick Tunnel。
+- **恢复安全与最终整改**：恢复流程加入镜像/严格五用户 seed 的无数据库预检、共享维护锁、写入端停机重查、事务导入、迁移/seed/health 和失败后保持停止；后端存储错误、执行租约、导出终态及前端竞态问题均已关闭。
+- **验证与审查**：非 live 自动化、类型、构建、shell 和 Compose 静态门通过；最终独立审查 Critical/Important/Minor 为 0/0/0。真实 Docker/PostgreSQL/browser 证据仍单独列为待办。
 
 ## 已实现能力
 
@@ -101,7 +113,16 @@ for script in deploy/scripts/*.sh deploy/tests/*.sh backend/docker-entrypoint.sh
 docker compose config --quiet
 ```
 
-2026-09-18 最终复验：后端 173/173、前端 138/138、部署契约 70/70；类型检查、生产构建、shell 语法、Compose 静态模型及文档状态扫描通过。当前恢复实现为 `b6e08cd`（前轮实现 `963de15`、文档 `d81fe61`，共同整改基础 `6c16ec9`）；独立静态复审为 Critical/Important/Minor 0/0/0，静态实现交接获批。生产构建与环境结果见验证记录。2026-09-13 的独立浏览器修复验证为 4/4，使用 HTTP backend fixture，并非真实 PostgreSQL。最终尝试启动 Docker Desktop 后状态仍为 `starting`，服务端 API 返回 500；镜像、live Compose/PostgreSQL、五账号/五视口及真实恢复验收仍为 pending。
+2026-09-18 最终复验：后端 173/173、前端 138/138、部署契约 70/70；类型检查、生产构建、shell 语法、Compose 静态模型及文档状态扫描通过。当前恢复实现为 `b6e08cd`（前轮实现 `963de15`、文档 `d81fe61`，共同整改基础 `6c16ec9`）；独立静态复审为 Critical/Important/Minor 0/0/0，静态实现交接获批。生产构建与先前 Docker 启动阻塞见验证记录。2026-09-13 的独立浏览器修复验证为 4/4，使用 HTTP backend fixture，并非真实 PostgreSQL。后续复查确认 Docker Engine 已恢复运行，但尚无镜像、容器或 Compose 项目；live Compose/PostgreSQL、五账号/五视口及真实恢复验收仍为 pending。
+
+## 待办与验收门
+
+1. 运行 `npm run docker:init`，检查生成的私密部署配置和严格五用户 seed；不得提交这些文件。
+2. 执行镜像构建和三核心服务启动，确认 frontend、backend、db 健康以及迁移 head `20260912_0002`。
+3. 运行 `deploy/tests/persistence-smoke.sh`，验证跨用户 404、backend restart、容器重建、普通 down/up、非空备份和两次隔离恢复后的 ID/数据保持。
+4. 使用五个账号完成登录、`/me`、显式登出及后续 401；在 390、768、1024、1280、1440 px 完成自动保存、运行控制、历史复制、分析、异常和三种导出流程，并检查溢出与控制台。
+5. 网络允许时验证 `public` profile/Quick Tunnel；它是可选演示入口，不提供固定地址或正式 SLA。
+6. 把 live 结果写入验证记录和迭代台账；只有全部必需门通过后，才能把 P0-B/P0-C/P0 总阶段改为“已完成”。
 
 ## 明确边界
 
