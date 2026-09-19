@@ -86,7 +86,9 @@ FastAPI 内置执行器使用 row-version compare-and-swap、数据库租约和�
 
 执行器清理失败任务，周期恢复失租轮次，关闭时等待活动任务；存储失败回滚并映射为 `STORAGE_UNAVAILABLE`。前端资源 effect 使用取消、generation 和当前用户/语言/资源身份校验，过时成功/失败均不能覆盖新选择；历史状态由显示的轮次决定。
 
-生产数据库恢复先只读验证归档/目标，再停止外围入口和两个应用服务，仅保留 db；事务导入后用一次性 backend `--prepare-only` 完成迁移/五用户种子，再启动应用并检查健康。停止后的任一步失败都会再次停止应用，保留数据库卷并输出恢复指导。可选公网入口在成功后也保持停止，需显式重新启用。该流程的实际容器/数据库验收仍待执行。
+生产数据库恢复在共享维护锁内先用已构建镜像的 immutable ID 执行 network-none `--preflight-only`，验证镜像契约和 Pydantic 五用户 seed，不连接数据库；随后只读验证归档/目标。全部通过才停止外围入口和应用，保持 db，并在导入前确认应用无 running/restarting/paused 服务。事务导入后一次性 backend `--prepare-only` 迁移/seed，再启动应用并检查健康。停止后的失败保持应用停止并保留卷；成功后公网也需显式启用。该流程的实际容器/数据库验收仍待执行。
+
+同一 OS 用户/Compose project 的 restore 与受支持 start/up 脚本共享 `/tmp/survey-maintenance-<UID>/<project>.lock`。原子 mkdir 提供互斥；token 防止错误释放他人锁；遗留/不完整锁不自动抢占，须核对进程与 Docker 工作后人工隔离。直接 Docker/DB 命令或其他 OS 用户不受此锁约束。
 
 ## Volume 生命周期
 
@@ -110,4 +112,4 @@ FastAPI 内置执行器使用 row-version compare-and-swap、数据库租约和�
 
 ## 已验证与待验证
 
-2026-09-18 的 60 项部署契约验证服务拆分、网络、健康依赖、secret、非 root runtime、volume、恢复调用顺序/失败清理和 public profile。恢复仍待最终静态审查；本轮 Docker 探测因本地 socket 不存在失败，尚未实际构建镜像、启动容器或验证 PostgreSQL/volume；架构设计和 live 运行证据必须区分。
+2026-09-18 的 70 项部署契约验证服务拆分、网络、健康依赖、secret、非 root runtime、volume、恢复顺序/失败清理、镜像/seed 预检、维护锁争用和 public profile。恢复仍待最终静态审查；本轮 Docker 探测因本地 socket 不存在失败，尚未实际构建镜像、启动容器或验证 PostgreSQL/volume；架构设计和 live 运行证据必须区分。

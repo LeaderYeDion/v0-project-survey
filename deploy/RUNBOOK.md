@@ -182,7 +182,7 @@ deploy/backups/survey-survey-YYYYMMDDTHHMMSSZ-<pid>.dump
 
 ## 8. 恢复
 
-恢复会清理并改写当前 `deploy.env` 指向的应用数据库，并暂停所有应用访问。先构建包含 `--prepare-only` 的当前镜像，保证目标 db 正在运行，再检查目标项目、数据库和备份权限：
+恢复会清理并改写当前 `deploy.env` 指向的应用数据库，并暂停所有应用访问。先构建同时包含 `--preflight-only` / `--prepare-only` 契约的当前镜像，保证目标 db 正在运行，再检查目标项目、数据库和备份权限：
 
 ```bash
 chmod 600 deploy/backups/<backup>.dump
@@ -197,8 +197,8 @@ npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 
 脚本按以下顺序执行：
 
-1. 校验 `--confirm`、普通非符号链接的 mode-600 非空 custom-format 备份、env/seed 文件、Compose 模型；拒绝 `postgres/template0/template1`。在运行中的 db 只读列出归档目录，并查询实际数据库名与配置匹配。此阶段失败不会停止应用或改写数据库。
-2. 停止 cloudflared、frontend、backend，清除保存的公网 URL，仅保持 db 运行。后端停止后不再有本应用的任务/连接池写入；维护期间勿从其他终端重新启动服务或运行数据库写入工具。
+1. 校验 `--confirm`、普通非符号链接的 mode-600 非空 custom-format 备份、env/seed 文件，拒绝系统库；获得与支持的启动脚本共享的维护锁后验证 Compose 模型。检查本地 `${COMPOSE_PROJECT_NAME}-backend` 镜像 ID，以 `docker create/start` 启动 network-none、只读根文件系统的临时预检容器，将原 seed 只读挂载并保持宿主 mode 600。`--preflight-only` 不连接数据库，使用 Pydantic 校验严格五用户及字段并输出版本化恢复契约标记；旧/缺失镜像、无效 seed 或标记不匹配都在任何 service stop/up、Compose run 或破坏性导入前失败。临时容器及输出随后清理。
+2. 在运行中的 db 只读验证归档目录和实际数据库名；成功后停止 cloudflared/frontend/backend，清除保存的公网 URL，仅保持 db 运行。导入前再次查询应用服务，存在 running/restarting/paused 容器则拒绝导入。维护期间禁止绕过脚本从其他终端启动服务或运行数据库写入工具。
 3. 使用 `pg_restore --single-transaction --clean --if-exists --exit-on-error --no-owner --no-privileges` 恢复配置的应用库。导入失败会回滚该事务；后续迁移/种子是独立步骤，不能据此假定整个流程自动回滚。
 4. 一次性 backend 容器执行 `--prepare-only`：私密 secret 引导、降权、`alembic upgrade head` 和严格五用户幂等同步，不启动 Uvicorn。
 5. 准备成功后启动 backend/frontend、等待 Compose health，再执行带外围认证配置的同源 health。成功后人工确认项目、轮次与账号数据。cloudflared 保持停止；需要公网时显式执行 `npm run docker:up -- --public --no-build`。
@@ -206,6 +206,10 @@ npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 从停止阶段开始的任何失败（含迁移、seed、启动或 health）都会再次停止应用并保留 db/volume，返回非零退出码，打印失败阶段及带当前目标、配置/seed/备份路径的 shell 转义重试命令。如果 Docker 本身拒绝停止，脚本会明确提示无法确认服务已停止，此时先人工确认停止状态。
 
 失败恢复：保持应用停止，查看 db/backend 日志并修复报告的原因，按脚本打印的精确命令确认应用停止、仅启动 db（如有需要）、重跑恢复；归档不可用时仅替换成已验证的私密备份路径。沿用同一私密配置和已有的凭据环境覆盖。不要用 `docker:up` 跳过失败的恢复/迁移，也不要清卷修复。若使用自定义环境文件，启动 db 和检查日志时也必须使用同一个 `DEPLOY_ENV_FILE`/Compose project。
+
+维护锁位于 `/tmp/survey-maintenance-<OS UID>/<COMPOSE_PROJECT_NAME>.lock`，以原子 `mkdir` 获得；同一 OS 用户即使从不同 checkout 调用 `docker:up`、`deploy:start` 或恢复，也共享该锁。启动脚本持锁覆盖 build/up/health/可选公网，恢复持锁覆盖镜像/seed 预检到最终健康及清理。目录 mode 700，owner/token 文件私密；退出或可处理信号仅释放自己的 token 对应锁。争用时直接失败，不排队、不自动重启应用。
+
+崩溃、SIGKILL 或 Docker 子进程遗留可能留下锁。错误会给出精确路径；先查看 `owner` 中 PID、操作、启动时间与 checkout，核对进程和相关 Docker 容器已完全结束，再把该单个锁目录移动到一个新的隔离路径后重试。不要仅凭 PID 不存在就自动删锁，避免 PID 重用或仍在运行的 Docker 工作；metadata 缺失/异常也应保守处理。脚本不自动抢占遗留锁。直接 `docker compose up/restart/build`、外部数据库写入或不同 OS 用户可绕过锁，必须在维护窗口协调停止这些操作；锁并非数据库级写入屏障。
 
 ## 9. 持久化验收
 

@@ -6,7 +6,7 @@
 >
 > 分支：`real-backend-v1`
 >
-> 当前整改基线：`6c16ec9`；历史 Task 10 基线：`99522df`
+> 当前恢复实现：`b6e08cd`；第一轮恢复实现：`963de15`；第一轮文档：`d81fe61`。`6c16ec9` 为恢复整改前基础，历史 Task 10 基线为 `99522df`。
 >
 > 结论：**后端/前端整改静态审查通过；恢复整改待最终审查。已执行自动化/静态检查通过，完整 P0/live Docker/PostgreSQL/五账号/五视口验收仍待补。恢复审查通过前不宣称静态实现交接获批。**
 
@@ -16,9 +16,9 @@
 
 | 检查 | 实测结果 | 边界 |
 | --- | --- | --- |
-| `backend/.venv/bin/python -m pytest backend/tests -q` | PASS，167 passed in 4.43 s | 含存储/导出/租约/迁移回归；非 live PostgreSQL |
+| `backend/.venv/bin/python -m pytest backend/tests -q` | PASS，173 passed in 4.79 s | 当前 `b6e08cd`；含 6 项无数据库 seed 预检；非 live PostgreSQL |
 | `npm run test:frontend` | PASS，138/138，485.385 ms | 含外围登录、CSRF、取消/代际/历史状态 |
-| `node --test deploy/tests/*.test.mjs` | PASS，60/60，最终 8.003 s | 执行真实脚本，Docker/curl 等外部边界使用受控替身 |
+| `node --test deploy/tests/*.test.mjs` | PASS，70/70，第二轮 14.453 s；文档收束复验 12.830 s | 当前 `b6e08cd`；真实脚本/Pydantic，Docker/curl 等外部边界为替身 |
 | `npm run typecheck` | PASS，exit 0 | 独立 TypeScript 校验 |
 | `npm run build` | PASS，exit 0；compile 2.9 s；5/5 pages | 批准的 helper-process 环境；仍有 Babel 警告与 Next 内置类型跳过提示 |
 | 逐文件 `bash -n`（deploy scripts/tests 与 backend entrypoint） | PASS，exit 0 | 包含 live smoke 语法，不代表已执行 |
@@ -26,9 +26,17 @@
 | 8 秒上限的 `docker info --format '{{.ServerVersion}}'` | FAIL，exit 1；约 0.37 s | `/Users/mymac/.docker/run/docker.sock` 不存在 |
 | image build/up、live PostgreSQL/volume/restore、五账号/五视口/autosave/Quick Tunnel | NOT RUN / PENDING | 不以静态或 fixture 测试替代 |
 
-恢复 TDD：新增 16 项生命周期/entrypoint 契约，首次 RED 为 13 failed、3 passed；缺失预检、停止、失败清理、独立准备模式的行为均复现。实现后 16/16 GREEN。完整部署首轮 59/60 暴露旧测试未提供新必需 seed 文件，更新 fixture 后 60/60。追加“精确停应用/仅启 db”恢复指导断言后 RED 为 6 failed、10 passed，补齐指导后再次 16/16、完整 60/60 GREEN。迁移/seed-only 模式和普通启动的顺序、迁移/seed 失败不启动 server 均有行为覆盖。
+第一轮历史恢复 TDD：新增 16 项生命周期/entrypoint 契约，首次 RED 为 13 failed、3 passed；实现后 16/16 GREEN。旧测试缺少新增 seed 要求曾为完整 59/60，更新 fixture 后 60/60；补精确恢复命令时另有 6 failed、10 passed 的 RED。以上对应 `963de15`，不代表当前计数。
 
-当前恢复先只读验证确认/私密文件/custom archive/配置/实际目标，拒绝系统库，然后停止 cloudflared/frontend/backend、保持 db，事务导入后执行 `--prepare-only` 的迁移和五用户幂等 seed，最后启动并检查健康。停止后的任意失败会再次停止应用并给出目标与路径准确的重试命令；停止无法确认时明确报错。它保留普通 volume，且成功后不自动开启公网入口。完整操作与故障指导见 [RUNBOOK 第 8 节](../../deploy/RUNBOOK.md#8-恢复)。
+第二轮 `b6e08cd`：无数据库/Pydantic 预检 RED 6 failed，GREEN 6 passed；restore 生命周期新增 7 个失败覆盖缺失/旧镜像、无效 seed、停止重查与 restore/restore、restore/start 重叠，最小实现后 22/22 GREEN；遗留锁、owner token、失败释放和 preflight-only entrypoint 的 4 个覆盖补充用例首次即通过，最终 focused 26/26。旧部署 fixture 缺少镜像响应曾为 19/20，更新边界 fixture 后完整部署 70/70。
+
+当前恢复先获得同一 OS 用户/Compose project 的共享维护锁，校验私密文件/配置并对已构建 backend image ID 创建 network-none、只读根文件系统的临时容器。`--preflight-only` 仅执行现有 Pydantic SeedUsers 校验和版本化恢复契约标记，不导入 DB 配置、不迁移/seed；无效 seed 或缺失/旧镜像在任何 service stop/up、Compose run 或破坏性导入前被拒绝。随后只读验证归档/目标，停止应用，仅保留 db，导入前重查 running/restarting/paused 服务。事务导入后执行迁移/seed、启动及 health。停止后的失败再次停止应用并给出精确恢复命令；普通 volume 保留，成功后公网仍需显式启用。
+
+锁位于 `/tmp/survey-maintenance-<UID>/<project>.lock`，原子 mkdir 争用失败，元数据私密，退出只释放自己的 token。restore 全生命周期和支持的 start/up/build/health 流程持锁；遗留锁不自动抢占，确认进程/Docker 工作结束后人工移动隔离。直接 Docker/DB 命令、独立 `docker:build`、其他 OS 用户可绕过锁；维护窗口仍需协调。完整操作见 [RUNBOOK 第 8 节](../../deploy/RUNBOOK.md#8-恢复)。
+
+前端 138、类型检查、生产构建和 Docker socket 失败为本日第一轮证据；第二轮未改前端，重点复验 backend/deploy/shell/Compose 与文档。真实镜像内预检和维护锁配合 live 恢复均未执行，不把命令替身结果写成 Docker 通过。
+
+文档收束复验：部署 70/70；逐文件 shell 与示例环境 Compose config exit 0；九份存活文档与整改报告 fenced code/本地链接检查通过；旧计数和旧完成断言只在明确历史记录中保留；`git diff --check` 通过。
 
 Live hook `deploy/tests/persistence-smoke.sh` 现会启动运行中的随机隔离应用（默认空闲端口 3001，可用 `RESTORE_SMOKE_PORT` 调整），连续两次调用生产恢复，再检查 0002、精确五用户名、重新登录、原轮次 ID 和项目数量。它只删除自己创建的隔离 volume；主项目 smoke 数据/备份保留。该 hook 本轮仅语法/连接契约验证，尚未执行。
 

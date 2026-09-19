@@ -2,7 +2,7 @@
 
 当前部署由 Docker Compose 管理三个核心服务：`frontend`（Next.js）、`backend`（FastAPI）和 `db`（PostgreSQL 17）。可选 `cloudflared` 位于 `public` profile。宿主机只发布 `127.0.0.1:${LOCAL_PORT}:3000`；backend 和 db 不发布宿主端口。
 
-> 验证状态：2026-09-18 部署契约 60/60、shell 语法和 Compose 模型通过；恢复整改仍待最终静态审查。image build、live PostgreSQL、volume 持久化、真实备份恢复和公网入口仍待现场验收。
+> 验证状态：2026-09-18 部署契约 70/70、shell 语法和 Compose 模型通过，当前恢复实现为 `b6e08cd`；恢复整改仍待最终静态审查。image build、live PostgreSQL、volume 持久化、真实备份恢复和公网入口仍待现场验收。
 
 ## 快速开始
 
@@ -49,6 +49,8 @@ npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 ```
 
 备份是 PostgreSQL custom-format、无 owner/privilege 的 mode-600 文件。恢复要求运行中的 db 和已构建的当前镜像；先验证归档/目标，再停止 cloudflared/frontend/backend，以 `--single-transaction --clean --if-exists --exit-on-error` 恢复。随后独立执行迁移至 `20260912_0002` 和五用户幂等 seed，再重启应用并检查健康。失败保持应用停止，按输出的精确命令修复重试；成功后公网入口仍保持停止。详见 RUNBOOK 第 8 节。
+
+恢复首先获得与 `docker:up`/`deploy:start` 共用的维护锁，并在 network-none 临时容器中执行已构建 backend 的 `--preflight-only`，验证恢复契约及 Pydantic 五用户 seed。预检失败不停止/启动应用、不导入数据库。导入前再次确认应用没有 running/restarting/paused 容器。锁争用或遗留锁均直接拒绝操作，不自动抢锁；直接 Docker/数据库写入与不同 OS 用户不受锁约束，详见 RUNBOOK 的维护锁处理。
 
 ## 日常命令
 

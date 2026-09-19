@@ -73,7 +73,7 @@ npm run docker:down
 npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 ```
 
-恢复前 db 必须运行、当前镜像必须已构建。脚本先验证私密文件、归档和目标，再停止外围入口与应用，事务恢复数据库，执行迁移/种子后重启并检查健康。失败会保持应用停止并打印精确重试命令；不要自行启动应用或清卷。恢复成功后公网入口仍需显式启用。
+恢复前 db 必须运行、当前镜像必须已构建。恢复与 `docker:up`/`deploy:start` 共用维护锁，争用时直接拒绝操作。脚本先在无数据库网络的临时容器中验证已构建镜像的恢复契约与严格五用户 seed，再检查归档/目标；全部通过才停止应用，确认服务已停，事务恢复、迁移/种子并重启检查健康。停止后的失败会保持应用停止并打印精确重试命令；不要自行启动应用或清卷。恢复成功后公网入口仍需显式启用。直接 Docker 命令、其他 OS 用户或外部数据库写入不受该锁约束，维护期间必须停止这些操作。
 
 完整操作、升级、备份恢复和公网入口见 [部署手册](./deploy/README.md)。
 
@@ -97,11 +97,11 @@ npm run test:frontend
 npm run typecheck
 npm run build
 node --test deploy/tests/*.test.mjs
-bash -n deploy/scripts/*.sh backend/docker-entrypoint.sh
+for script in deploy/scripts/*.sh deploy/tests/*.sh backend/docker-entrypoint.sh; do bash -n "$script" || exit; done
 docker compose config --quiet
 ```
 
-2026-09-18 复验：后端 167/167、前端 138/138、部署契约 60/60；类型检查、shell 语法与 Compose 静态模型通过。生产构建与环境结果见验证记录。2026-09-13 的独立浏览器修复验证为 4/4，使用 HTTP backend fixture，并非真实 PostgreSQL。Docker 镜像、live Compose/PostgreSQL、五账号/五视口及真实恢复验收仍为 pending。
+2026-09-18 复验：后端 173/173、前端 138/138、部署契约 70/70；类型检查、shell 语法与 Compose 静态模型通过。当前恢复实现为 `b6e08cd`（前轮实现 `963de15`、文档 `d81fe61`，共同整改基础 `6c16ec9`）。生产构建与环境结果见验证记录。2026-09-13 的独立浏览器修复验证为 4/4，使用 HTTP backend fixture，并非真实 PostgreSQL。Docker 镜像、live Compose/PostgreSQL、五账号/五视口及真实恢复验收仍为 pending。
 
 ## 明确边界
 

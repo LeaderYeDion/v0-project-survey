@@ -53,7 +53,9 @@ Compose 通过只读 secret 挂载宿主种子文件。backend 仅在 root boots
 
 普通 restart、build/up、失败回滚和 `npm run docker:down` 都保留 PostgreSQL named volume。只有显式 `down --volumes` 删除数据库数据；该命令必须和日常操作分开，并在执行前完成可恢复备份。
 
-恢复会改写目标数据库。脚本在只读预检中要求非空 mode-600 custom-format 备份、私密配置/seed 和显式 `--confirm`，拒绝系统库；操作者仍需核对 `COMPOSE_PROJECT_NAME` 与 `POSTGRES_DB`。随后停止 cloudflared/frontend/backend，再以单事务导入，执行迁移/种子，最后启动应用并检查健康。失败不自动恢复服务，输出当前目标的精确重试命令；无法确认停止时明确报警。成功后公网入口仍停止。迁移/种子不与导入共享事务，因此任何后续失败都必须在停止应用的状态下处理，不能假定数据库已整体回滚。
+恢复会改写目标数据库。脚本要求非空 mode-600 custom-format 备份、私密配置/seed 和显式 `--confirm`，拒绝系统库；操作者仍需核对 `COMPOSE_PROJECT_NAME` 与 `POSTGRES_DB`。取得维护锁后，以已检查镜像 ID 创建无网络、只读根文件系统的临时容器，执行无数据库的 Pydantic seed/恢复契约验证，seed 仍只读挂载且宿主权限不变。只有镜像、seed、归档/目标均通过，才停止应用；导入前重查服务状态，然后事务导入、迁移/seed、启动/health。停止后的失败不自动恢复服务；成功后公网入口仍停止。迁移/seed 不与导入共享事务，不能假定后续失败会整体回滚。
+
+维护锁的 700 目录和私密 owner/token 位于 `/tmp/survey-maintenance-<UID>/<project>.lock`；同一 OS 用户的支持脚本在整个恢复/启动期间互斥，退出时核对 token 后才释放。遗留或异常锁 fail closed，须核对原进程与 Docker 子任务后人工隔离。它不能约束直接 Docker/DB 命令、镜像重标记或其他 OS 用户；这些操作须在维护窗口协调停止。
 
 ## 日志与敏感内容
 

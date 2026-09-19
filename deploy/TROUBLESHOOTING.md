@@ -165,9 +165,15 @@ npm run docker:restore -- deploy/backups/<backup>.dump --confirm
 
 执行前，用可信的本地编辑器打开 mode-600 `deploy/config/deploy.env`，人工核对 `COMPOSE_PROJECT_NAME` 和 `POSTGRES_DB`；不要为了核对而把包含密码的整个文件打印到共享终端或日志。`docker:status` 不打印这两个字段，不能代替该核对。`pg_restore --clean` 会改写目标；需要演练时使用隔离 Compose project/database，不要在主数据库试错。
 
-目标 db 必须已运行，镜像需为包含 `--prepare-only` 的当前构建。归档目录/目标查询预检失败不会停止应用；从停止阶段起的失败会保持应用停止并打印阶段和精确重试命令。只读预检成功后脚本自动停止 cloudflared/frontend/backend，恢复、迁移到 0002、同步五用户，再重启/检查健康。
+目标 db 必须已运行，镜像需为同时包含 `--preflight-only`/`--prepare-only` 的当前构建。脚本先在无网络临时容器验证已构建镜像契约和严格五用户 seed；缺失/旧镜像或不合法 JSON/用户名/密码/locale 会在应用停止前被拒绝。重新构建当前镜像或修正 mode-600 seed；不要放宽宿主权限。归档/目标预检失败同样不停止应用；停止后的失败保持应用停止并打印精确恢复命令。导入前如果仍检测到 running/restarting/paused 应用服务，会拒绝导入。
 
 如果输出“Could not confirm application services stopped”，先恢复 Docker 控制能力并人工停止这些服务。其余失败保持 db 与 volume，检查日志并修复具体错误，然后使用输出的完整重试命令；不要运行 `docker:up` 绕过错误或执行 `down -v`。归档失效时替换为已验证备份。公网入口不会自动重启，只有恢复成功后才显式开启。隔离 smoke 的 3001 端口被占用时，指定不同空闲的 `RESTORE_SMOKE_PORT`。
+
+## Maintenance lock is held or stale
+
+同一 OS 用户的 `docker:up`/`deploy:start` 和恢复脚本共享 `/tmp/survey-maintenance-<UID>/<COMPOSE_PROJECT_NAME>.lock`，重叠操作会直接失败。正在维护时等待原操作结束，不要删除锁或改用直接 Docker 命令绕过。
+
+若原进程已崩溃，先查看错误给出的锁目录 `owner` 文件，核对 PID、启动时间、操作和 checkout，并检查相关 Docker 容器/子任务。确认所有维护工作已结束后，将该单个目录移动到新的隔离路径再重试；不要仅按 PID 不存在自动清理。缺失/异常元数据和 token 改变均保守保留。不同 OS 用户、直接 Docker/DB 写入仍能绕过锁，应在维护窗口协调禁止。
 
 ## Quick Tunnel 没有 URL 或返回 502
 

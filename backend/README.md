@@ -16,6 +16,8 @@ Compose 中 backend 等待健康的 PostgreSQL，然后入口脚本依次执行�
 
 入口支持 `--prepare-only`：完成同样的私密 secret 引导、降权、迁移和五用户幂等同步后退出，不启动 Uvicorn。生产恢复在应用停止期间通过 `compose run --rm --no-deps -T backend --prepare-only` 执行它；只有准备成功才重启服务。任一迁移/种子失败都会阻止启动。
 
+入口也支持 `--preflight-only`：私密 secret 引导/降权后，使用现有 Pydantic `SeedUsers` 验证五个固定用户名、密码长度和 `zh-CN`，仅输出恢复契约标记；不导入数据库配置、不迁移、不 seed、不启动服务。恢复在停应用前，用已检查的镜像 ID 创建 network-none、只读根文件系统、临时 runtime 的容器执行该预检。缺失/旧镜像或无效 seed 会在任何服务停止/启动/导入前失败；宿主文件仍须 mode 600，预检错误不回显密码。
+
 推荐从仓库根目录使用：
 
 ```bash
@@ -88,7 +90,7 @@ backend/.venv/bin/python -m pip check
 backend/.venv/bin/python -m compileall -q backend/app backend/tests
 ```
 
-2026-09-18 完整 suite 为 167/167 通过（4.43 s）。包括存储错误、租约、关闭、导出稳定元数据与 0002 迁移的回归；PostgreSQL SQL 编译和 SQLite 迁移执行不能替代 live PostgreSQL。真实 upgrade/downgrade、事务/租约、mounted seed 与恢复仍待现场验收。
+2026-09-18 在 `b6e08cd` 完整 suite 为 173/173 通过（4.79 s），包含 6 个无数据库 seed 预检回归，以及存储错误、租约、关闭、导出稳定元数据与 0002 迁移的回归。PostgreSQL SQL 编译和 SQLite 迁移执行不能替代 live PostgreSQL；真实镜像内预检、upgrade/downgrade、事务/租约、mounted seed 与恢复仍待现场验收。
 
 ## Mock 边界
 
