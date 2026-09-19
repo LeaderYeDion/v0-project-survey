@@ -285,7 +285,7 @@ npm run docker:down
 
 - 自定义 Babel 配置仍产生警告，Next 构建跳过内置类型验证；独立 typecheck 通过。
 - `npm run lint` 所指向的 ESLint 依赖/可执行文件仍未安装；本轮未把不可用 lint 写成通过，也未将其列入 Task 10 强制矩阵。
-- `RoundExecutor._tasks` 对已完成 task 的进程期保留是既有 deferred minor，不影响本轮静态矩阵，但长期运行前应增加完成清理。
+- `RoundExecutor._tasks` 的既有 deferred minor 已关闭：identity-checked done callback 会清理已完成 task，同时不会误删 resume 创建的替代 task；对应回归包含在当前 173 项后端测试中。
 - live PostgreSQL 事务/竞态仍需真实数据库证据；当前自动化主要通过协议一致的 memory test double、SQL 编译和结构契约覆盖。
 
 ## 11. 文档更新后的关键复验
