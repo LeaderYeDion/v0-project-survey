@@ -8,7 +8,7 @@
 >
 > 当前恢复实现：`b6e08cd`；第一轮恢复实现：`963de15`；第一轮文档：`d81fe61`。`6c16ec9` 为恢复整改前基础，历史 Task 10 基线为 `99522df`。
 >
-> 结论：**后端/前端整改静态审查通过；恢复整改待最终审查。已执行自动化/静态检查通过，完整 P0/live Docker/PostgreSQL/五账号/五视口验收仍待补。恢复审查通过前不宣称静态实现交接获批。**
+> 结论：**后端、前端与恢复整改均通过独立静态审查，静态实现交接获批。已执行自动化/静态检查通过；完整 P0/live Docker/PostgreSQL/五账号/五视口验收仍待补。**
 
 ## 0. 2026-09-18 最新整改验证（取代历史当前状态）
 
@@ -16,14 +16,14 @@
 
 | 检查 | 实测结果 | 边界 |
 | --- | --- | --- |
-| `backend/.venv/bin/python -m pytest backend/tests -q` | PASS，173 passed in 4.79 s | 当前 `b6e08cd`；含 6 项无数据库 seed 预检；非 live PostgreSQL |
-| `npm run test:frontend` | PASS，138/138，485.385 ms | 含外围登录、CSRF、取消/代际/历史状态 |
-| `node --test deploy/tests/*.test.mjs` | PASS，70/70，第二轮 14.453 s；文档收束复验 12.830 s | 当前 `b6e08cd`；真实脚本/Pydantic，Docker/curl 等外部边界为替身 |
+| `backend/.venv/bin/python -m pytest backend/tests -q` | PASS，173 passed in 5.27 s | 当前最终复验；含 6 项无数据库 seed 预检；非 live PostgreSQL |
+| `npm run test:frontend` | PASS，138/138，795.960 ms | 当前最终复验；含外围登录、CSRF、取消/代际/历史状态 |
+| `node --test deploy/tests/*.test.mjs` | PASS，70/70，文档落盘后复验 9.488 s | 当前最终复验；真实脚本/Pydantic，Docker/curl 等外部边界为替身 |
 | `npm run typecheck` | PASS，exit 0 | 独立 TypeScript 校验 |
-| `npm run build` | PASS，exit 0；compile 2.9 s；5/5 pages | 批准的 helper-process 环境；仍有 Babel 警告与 Next 内置类型跳过提示 |
+| `npm run build` | PASS，exit 0；compile 2.6 s；5/5 pages | 最终复验在批准的 helper-process 环境；仍有 Babel 警告与 Next 内置类型跳过提示 |
 | 逐文件 `bash -n`（deploy scripts/tests 与 backend entrypoint） | PASS，exit 0 | 包含 live smoke 语法，不代表已执行 |
 | 完整显式示例环境下 Compose public profile `config --quiet` | PASS，exit 0 | 无 daemon，使用 `.example` env/seed；不读取生产 secret |
-| 8 秒上限的 `docker info --format '{{.ServerVersion}}'` | FAIL，exit 1；约 0.37 s | `/Users/mymac/.docker/run/docker.sock` 不存在 |
+| `docker info --format '{{.ServerVersion}}'` | FAIL，exit 1；约 0.06 s | `/Users/mymac/.docker/run/docker.sock` 不存在 |
 | image build/up、live PostgreSQL/volume/restore、五账号/五视口/autosave/Quick Tunnel | NOT RUN / PENDING | 不以静态或 fixture 测试替代 |
 
 第一轮历史恢复 TDD：新增 16 项生命周期/entrypoint 契约，首次 RED 为 13 failed、3 passed；实现后 16/16 GREEN。旧测试缺少新增 seed 要求曾为完整 59/60，更新 fixture 后 60/60；补精确恢复命令时另有 6 failed、10 passed 的 RED。以上对应 `963de15`，不代表当前计数。
@@ -34,9 +34,9 @@
 
 锁位于 `/tmp/survey-maintenance-<UID>/<project>.lock`，原子 mkdir 争用失败，元数据私密，退出只释放自己的 token。restore 全生命周期和支持的 start/up/build/health 流程持锁；遗留锁不自动抢占，确认进程/Docker 工作结束后人工移动隔离。直接 Docker/DB 命令、独立 `docker:build`、其他 OS 用户可绕过锁；维护窗口仍需协调。完整操作见 [RUNBOOK 第 8 节](../../deploy/RUNBOOK.md#8-恢复)。
 
-前端 138、类型检查、生产构建和 Docker socket 失败为本日第一轮证据；第二轮未改前端，重点复验 backend/deploy/shell/Compose 与文档。真实镜像内预检和维护锁配合 live 恢复均未执行，不把命令替身结果写成 Docker 通过。
+最终收束重新执行后端 173、前端 138、部署 70、类型检查、生产构建、shell、Compose、文档状态与 diff 检查。真实镜像内预检和维护锁配合 live 恢复均未执行，不把命令替身结果写成 Docker 通过。
 
-文档收束复验：部署 70/70；逐文件 shell 与示例环境 Compose config exit 0；九份存活文档与整改报告 fenced code/本地链接检查通过；旧计数和旧完成断言只在明确历史记录中保留；`git diff --check` 通过。
+文档收束复验：部署 70/70；逐文件 shell 与示例环境 Compose config exit 0；当前状态文档陈旧审批措辞扫描无命中；旧计数和旧完成断言只在明确历史记录中保留；`git diff --check` 通过。
 
 Live hook `deploy/tests/persistence-smoke.sh` 现会启动运行中的随机隔离应用（默认空闲端口 3001，可用 `RESTORE_SMOKE_PORT` 调整），连续两次调用生产恢复，再检查 0002、精确五用户名、重新登录、原轮次 ID 和项目数量。它只删除自己创建的隔离 volume；主项目 smoke 数据/备份保留。该 hook 本轮仅语法/连接契约验证，尚未执行。
 
@@ -44,7 +44,7 @@ Live hook `deploy/tests/persistence-smoke.sh` 现会启动运行中的随机隔�
 
 前端截至 `6c16ec9` 的静态审查已通过。2026-09-13 独立浏览器 suite 4/4 覆盖两步登录/凭据清空/安全 redirect 和迟到项目响应，使用真实 Next/Chrome 与 HTTP backend fixture；不是 Docker/PostgreSQL/五视口证据。当前 138 测试涵盖 CSRF_INVALID、本地化和请求取消/身份代际守卫、历史状态隔离。
 
-恢复整改最终审查结论尚待记录；只有通过后才可把当前静态交接改为获批。无论静态结论如何，完整 P0 持续为现场验收 pending。
+恢复整改第二轮独立静态复审结论为 Critical/Important/Minor 0/0/0：已构建镜像 immutable ID 下的无网络/只读预检、严格五用户 Pydantic seed 校验、共享维护锁、导入前服务状态重查及重叠操作回归均获批准。静态实现交接获批；完整 P0 仍为现场验收 pending。
 
 ## 1. 历史 Task 10 结论边界
 

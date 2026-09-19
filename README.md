@@ -5,10 +5,10 @@
 ## 当前状态
 
 - P0-A 响应式工作区已经完成并有历史浏览器证据。
-- P0-B/P0-C 的后端与前端整改已通过静态审查；恢复流程整改和最终静态交接仍待审查，完整验证矩阵尚未完成。
+- P0-B/P0-C 的后端、前端与恢复流程整改均已通过独立静态审查，静态实现交接获批；完整验证矩阵尚未完成。
 - 完整 P0 验收仍待 Docker daemon 可用后执行：真实 PostgreSQL 迁移与持久化、五账号隔离、备份/隔离恢复、后端重启与普通 down/up、五视口浏览器流程及可选 Quick Tunnel。
 
-当前状态为“最终恢复整改待审查，现场验收待补”。只有恢复审查通过后才可标记静态实现交接获批；完整 P0 仍需现场证据。详细证据和待执行命令见 [P0 验证记录](./docs/verification/2026-09-05-p0-verification.md)。
+当前状态为“静态交接获批，现场验收待补”。完整 P0 仍需现场证据，不能仅凭自动化和静态审查标记为已完成。详细证据和待执行命令见 [P0 验证记录](./docs/verification/2026-09-05-p0-verification.md)。
 
 ## 已实现能力
 
@@ -101,7 +101,7 @@ for script in deploy/scripts/*.sh deploy/tests/*.sh backend/docker-entrypoint.sh
 docker compose config --quiet
 ```
 
-2026-09-18 复验：后端 173/173、前端 138/138、部署契约 70/70；类型检查、shell 语法与 Compose 静态模型通过。当前恢复实现为 `b6e08cd`（前轮实现 `963de15`、文档 `d81fe61`，共同整改基础 `6c16ec9`）。生产构建与环境结果见验证记录。2026-09-13 的独立浏览器修复验证为 4/4，使用 HTTP backend fixture，并非真实 PostgreSQL。Docker 镜像、live Compose/PostgreSQL、五账号/五视口及真实恢复验收仍为 pending。
+2026-09-18 最终复验：后端 173/173、前端 138/138、部署契约 70/70；类型检查、生产构建、shell 语法、Compose 静态模型及文档状态扫描通过。当前恢复实现为 `b6e08cd`（前轮实现 `963de15`、文档 `d81fe61`，共同整改基础 `6c16ec9`）；独立静态复审为 Critical/Important/Minor 0/0/0，静态实现交接获批。生产构建与环境结果见验证记录。2026-09-13 的独立浏览器修复验证为 4/4，使用 HTTP backend fixture，并非真实 PostgreSQL。Docker socket 仍不存在，镜像、live Compose/PostgreSQL、五账号/五视口及真实恢复验收仍为 pending。
 
 ## 明确边界
 
