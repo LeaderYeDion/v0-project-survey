@@ -112,4 +112,4 @@ FastAPI 内置执行器使用 row-version compare-and-swap、数据库租约和�
 
 ## 已验证与待验证
 
-2026-09-18 的 70 项部署契约验证服务拆分、网络、健康依赖、secret、非 root runtime、volume、恢复顺序/失败清理、镜像/seed 预检、维护锁争用和 public profile。恢复整改独立静态复审为 Critical/Important/Minor 0/0/0，静态交接获批；本轮 Docker 探测因本地 socket 不存在失败，尚未实际构建镜像、启动容器或验证 PostgreSQL/volume；架构设计和 live 运行证据必须区分。
+2026-09-18 的 70 项部署契约验证服务拆分、网络、健康依赖、secret、非 root runtime、volume、恢复顺序/失败清理、镜像/seed 预检、维护锁争用和 public profile。恢复整改独立静态复审为 Critical/Important/Minor 0/0/0，静态交接获批；本轮启动 Docker Desktop 后引擎仍处于 `starting` 且服务端 API 返回 500，尚未实际构建镜像、启动容器或验证 PostgreSQL/volume；架构设计和 live 运行证据必须区分。

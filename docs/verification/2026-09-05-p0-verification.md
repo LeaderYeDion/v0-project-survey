@@ -24,6 +24,7 @@
 | 逐文件 `bash -n`（deploy scripts/tests 与 backend entrypoint） | PASS，exit 0 | 包含 live smoke 语法，不代表已执行 |
 | 完整显式示例环境下 Compose public profile `config --quiet` | PASS，exit 0 | 无 daemon，使用 `.example` env/seed；不读取生产 secret |
 | `docker info --format '{{.ServerVersion}}'` | FAIL，exit 1；约 0.06 s | `/Users/mymac/.docker/run/docker.sock` 不存在 |
+| 启动 Docker Desktop 后的 `docker desktop status` / `docker version` | BLOCKED | Desktop 持续为 `starting`；client 29.5.3 可用，server API `/v1.54/version` 返回 500 |
 | image build/up、live PostgreSQL/volume/restore、五账号/五视口/autosave/Quick Tunnel | NOT RUN / PENDING | 不以静态或 fixture 测试替代 |
 
 第一轮历史恢复 TDD：新增 16 项生命周期/entrypoint 契约，首次 RED 为 13 failed、3 passed；实现后 16/16 GREEN。旧测试缺少新增 seed 要求曾为完整 59/60，更新 fixture 后 60/60；补精确恢复命令时另有 6 failed、10 passed 的 RED。以上对应 `963de15`，不代表当前计数。
@@ -34,7 +35,7 @@
 
 锁位于 `/tmp/survey-maintenance-<UID>/<project>.lock`，原子 mkdir 争用失败，元数据私密，退出只释放自己的 token。restore 全生命周期和支持的 start/up/build/health 流程持锁；遗留锁不自动抢占，确认进程/Docker 工作结束后人工移动隔离。直接 Docker/DB 命令、独立 `docker:build`、其他 OS 用户可绕过锁；维护窗口仍需协调。完整操作见 [RUNBOOK 第 8 节](../../deploy/RUNBOOK.md#8-恢复)。
 
-最终收束重新执行后端 173、前端 138、部署 70、类型检查、生产构建、shell、Compose、文档状态与 diff 检查。真实镜像内预检和维护锁配合 live 恢复均未执行，不把命令替身结果写成 Docker 通过。
+最终收束重新执行后端 173、前端 138、部署 70、类型检查、生产构建、shell、Compose、文档状态与 diff 检查。之后尝试启动 Docker Desktop；socket 从缺失变为可连接，但引擎持续 `starting` 且 server API 500。真实镜像内预检和维护锁配合 live 恢复均未执行，不把命令替身结果写成 Docker 通过。
 
 文档收束复验：部署 70/70；逐文件 shell 与示例环境 Compose config exit 0；当前状态文档陈旧审批措辞扫描无命中；旧计数和旧完成断言只在明确历史记录中保留；`git diff --check` 通过。
 

@@ -101,7 +101,7 @@ for script in deploy/scripts/*.sh deploy/tests/*.sh backend/docker-entrypoint.sh
 docker compose config --quiet
 ```
 
-2026-09-18 最终复验：后端 173/173、前端 138/138、部署契约 70/70；类型检查、生产构建、shell 语法、Compose 静态模型及文档状态扫描通过。当前恢复实现为 `b6e08cd`（前轮实现 `963de15`、文档 `d81fe61`，共同整改基础 `6c16ec9`）；独立静态复审为 Critical/Important/Minor 0/0/0，静态实现交接获批。生产构建与环境结果见验证记录。2026-09-13 的独立浏览器修复验证为 4/4，使用 HTTP backend fixture，并非真实 PostgreSQL。Docker socket 仍不存在，镜像、live Compose/PostgreSQL、五账号/五视口及真实恢复验收仍为 pending。
+2026-09-18 最终复验：后端 173/173、前端 138/138、部署契约 70/70；类型检查、生产构建、shell 语法、Compose 静态模型及文档状态扫描通过。当前恢复实现为 `b6e08cd`（前轮实现 `963de15`、文档 `d81fe61`，共同整改基础 `6c16ec9`）；独立静态复审为 Critical/Important/Minor 0/0/0，静态实现交接获批。生产构建与环境结果见验证记录。2026-09-13 的独立浏览器修复验证为 4/4，使用 HTTP backend fixture，并非真实 PostgreSQL。最终尝试启动 Docker Desktop 后状态仍为 `starting`，服务端 API 返回 500；镜像、live Compose/PostgreSQL、五账号/五视口及真实恢复验收仍为 pending。
 
 ## 明确边界
 

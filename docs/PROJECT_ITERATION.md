@@ -20,7 +20,7 @@
 
 生产部署模型由 Next.js frontend、FastAPI backend 和 PostgreSQL db 三个独立 Compose 服务组成。PostgreSQL 使用 named volume；普通 restart、容器重建和普通 `docker compose down` 设计为保留数据，只有显式 `down --volumes` 删除数据。
 
-后端、前端与生产恢复整改均已通过独立静态审查，静态实现交接获批；这不能替代现场验收。2026-09-18 Docker 探测因本地 socket 不存在失败，`docker compose build`、真实容器/volume、迁移/种子、恢复、五账号和五视口完整浏览器验收仍未执行。
+后端、前端与生产恢复整改均已通过独立静态审查，静态实现交接获批；这不能替代现场验收。2026-09-18 初始 Docker 探测因本地 socket 不存在失败；启动 Docker Desktop 后 socket 出现，但状态持续为 `starting` 且服务端 API 返回 500。`docker compose build`、真实容器/volume、迁移/种子、恢复、五账号和五视口完整浏览器验收仍未执行。
 
 ### 当前实现能力
 
@@ -48,7 +48,7 @@
 - 构建仍提示已有自定义 Babel 配置可移除，并明确跳过 Next 内置类型检查；独立 `tsc --noEmit` 已通过；
 - 生产构建在获准的 helper-process 环境最终复验，compile 2.6 s、5/5 页面，exit 0；
 - 2026-09-13 独立浏览器修复验证 4/4：真实 Next/Chrome + HTTP backend fixture，覆盖两步认证和过时项目响应；该证据不包含 live PostgreSQL 或五视口完整流程；
-- Docker 最终探测在约 0.06 s 后报本地 `docker.sock` 不存在，live 验收未执行；本清单只是完整矩阵的已执行子集。
+- Docker 初始探测在约 0.06 s 后报本地 `docker.sock` 不存在；随后已启动 Docker Desktop，但 `docker desktop status` 持续为 `starting`，`docker version` 的服务端请求返回 API 500，live 验收未执行；本清单只是完整矩阵的已执行子集。
 
 迁移 head 现为 `20260912_0002`，已有 0001 数据库须升级冗余索引/导出扫描索引；readiness 严格要求新 head。存储故障、执行器租约与关闭、导出元数据/列稳定性、前端认证/竞态整改分别有回归证据。
 
@@ -126,7 +126,7 @@
 - 前端分离外围与研究账号登录，修复 CSRF 双语错误、资源请求竞态及历史状态；独立浏览器验证见 2026-09-13 报告。
 - 恢复整改先由 `963de15` 实现停应用/事务导入/迁移/seed/health；`b6e08cd` 补齐无数据库的已构建镜像/严格五用户 seed 预检、与 start/up 共用的原子维护锁和导入前服务重查。锁争用/遗留直接拒绝，确认 owner/进程/Docker 工作结束后才能人工隔离锁；直接 Docker/DB 写入或不同 OS 用户不受锁约束。
 - live smoke 对运行中的隔离应用恢复两次，检查 0002/五用户/登录/原轮次，仍待实际执行。
-- 验证：最终复验后端 173、前端 138、部署 70 全通过；类型、生产构建、shell、Compose、文档状态与 diff 检查通过。Docker socket 不存在，现场验收 pending。
+- 验证：最终复验后端 173、前端 138、部署 70 全通过；类型、生产构建、shell、Compose、文档状态与 diff 检查通过。Docker Desktop 停留在 `starting` 且服务端 API 500，现场验收 pending。
 - 审查：恢复第二轮独立静态复审为 Critical/Important/Minor 0/0/0，关闭镜像/seed 预检与共享维护锁两项重要问题，静态实现交接获批。
 - 状态：完整 P0 继续等待 Docker/PostgreSQL/五账号/五视口现场证据，不把静态批准表述为完整验收完成。
 
