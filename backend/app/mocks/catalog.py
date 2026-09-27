@@ -63,8 +63,7 @@ class ExampleTemplateData:
     answers_by_question: Mapping[str, tuple[str, ...]]
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-TASK_EXAMPLES_DIR = REPO_ROOT / "task_examples"
+TASK_EXAMPLES_DIR = Path(__file__).resolve().parent / "data"
 
 SURVEY_QUESTION_TRANSLATIONS = MappingProxyType({
     "您多大程度上认为您所在县（市、区）经济是快速发展的？": "To what extent do you think the economy in your county, city, or district is growing rapidly?",

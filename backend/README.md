@@ -80,7 +80,7 @@ cd backend
 - 存储故障规范化为 `STORAGE_UNAVAILABLE`，检查点失败回滚；执行器失败释放本地任务，过期租约可定期恢复，关闭会等待活动任务。
 - JSON 导出包含完整冻结配置、轮次进度/时间/来源、口径、session 异常与推断；CSV 按冻结题目和任务 ID 稳定展开，缺失推断保留空列。同名任务和特殊 task ID 不会覆盖列。
 - 导出记录超过处理时限会收敛为失败；终态不会被旧任务覆盖。0002 的索引支持该扫描。
-- PostgreSQL volume 的实际跨重启/down-up 行为仍需在 daemon 可用环境执行验证记录中的 live smoke；静态实现不能替代该证据。
+- 2026-09-19 PostgreSQL volume 跨 backend restart、普通 down/up（容器重建）及备份两次隔离恢复已通过真实 smoke。
 
 ## 测试与检查
 
@@ -90,10 +90,14 @@ backend/.venv/bin/python -m pip check
 backend/.venv/bin/python -m compileall -q backend/app backend/tests
 ```
 
-2026-09-18 在 `b6e08cd` 完整 suite 为 173/173 通过（4.79 s），包含 6 个无数据库 seed 预检回归，以及存储错误、租约、关闭、导出稳定元数据与 0002 迁移的回归。PostgreSQL SQL 编译和 SQLite 迁移执行不能替代 live PostgreSQL；真实镜像内预检、upgrade/downgrade、事务/租约、mounted seed 与恢复仍待现场验收。
+2026-09-18 在 `b6e08cd` 完整 suite 为 173/173 通过（4.79 s），包含 6 个无数据库 seed 预检回归，以及存储错误、租约、关闭、导出稳定元数据与 0002 迁移的回归。PostgreSQL SQL 编译和 SQLite 迁移执行不能替代 live PostgreSQL；该记录是历史基线。2026-09-19 修复镜像模板缺失后 suite 为 174/174；真实镜像预检、upgrade、mounted seed、持久化与两次恢复已通过。downgrade 和完整故障矩阵不在本轮通过声明中。
 
 ## Mock 边界
 
 Mock 专属模板、画像、回答、终止和标签位于 `app/mocks/`，通用服务依赖 `TemplateProvider`、`AnalysisLabels` 与 `SimulationEngine` 协议。替换为真实模型时应在组合根更换实现，并保留 API、所有权、版本、检查点和导出契约。
 
 当前 Mock 结果只适合演示、探索、预实验和假设生成，不是现实样本或正式研究结论。
+
+## 2026-09-19 LLM 接入准备度
+
+模板运行资源已自包含于 `app/mocks/data/`，不依赖仓库外的 `task_examples/`。真实 API/DB 底座可保留，但模型接口目前同步、无独立续租、无调用记录/模型提示词版本。已复现非法选项答案入库、推断失败仍标记轮次完成，以及缩短租约下长调用误暂停。接入真实 provider 前需整改，详见[现场检查报告](../docs/verification/2026-09-19-live-deployment-and-llm-readiness.md)。

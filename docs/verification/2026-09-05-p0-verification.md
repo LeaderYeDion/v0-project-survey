@@ -308,3 +308,8 @@ npm run docker:down
 - 不覆盖本次未执行记录；新证据应说明它关闭了哪个 PENDING 项；
 - 只有第 9 节 1–12 全部无 PENDING 时，才能同步把 README 和 `PROJECT_ITERATION.md` 的 P0-B/P0-C/P0 改为完成；
 - 历史 host-PID、进程内历史和共享账号方案只可存在于明确标记的历史记录，不能回到当前操作章节。
+
+
+## 2026-09-19 后续现场验证
+
+真实三服务、五账号 API、PostgreSQL 持久化、备份/两次隔离恢复及浏览器抽查已执行。首次部署模板缺失已修复；新增正确性与 LLM 执行缺口尚未关闭，P0 不标完成。详细证据以[本轮报告](./2026-09-19-live-deployment-and-llm-readiness.md)为准，上述早期未执行条目保留为历史事实。

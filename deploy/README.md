@@ -2,7 +2,7 @@
 
 当前部署由 Docker Compose 管理三个核心服务：`frontend`（Next.js）、`backend`（FastAPI）和 `db`（PostgreSQL 17）。可选 `cloudflared` 位于 `public` profile。宿主机只发布 `127.0.0.1:${LOCAL_PORT}:3000`；backend 和 db 不发布宿主端口。
 
-> 验证状态：2026-09-18 部署契约 70/70、shell 语法和 Compose 模型通过，当前恢复实现为 `b6e08cd`；恢复整改独立静态复审 Critical/Important/Minor 0/0/0，静态交接获批。image build、live PostgreSQL、volume 持久化、真实备份恢复和公网入口仍待现场验收。
+> 验证状态：2026-09-19 三服务真实构建/启动、迁移与五用户、volume 持久化、backend restart、普通 down/up、备份和两次隔离恢复已通过。首次启动发现的后端模板资源缺失已修复。Quick Tunnel 未启用，完整浏览器矩阵与新发现正确性问题尚未关闭。见[现场报告](../docs/verification/2026-09-19-live-deployment-and-llm-readiness.md)。
 
 ## 快速开始
 
