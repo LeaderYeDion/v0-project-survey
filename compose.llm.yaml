@@ -1,0 +1,17 @@
+# Opt-in HTTP model connection; never required for the default Mock Demo.
+# docker compose --env-file deploy/config/deploy.env -f compose.yaml -f compose.llm.yaml up --build -d
+services:
+  backend:
+    environment:
+      SIMULATION_ENGINE: http
+      LLM_ENDPOINT: ${LLM_ENDPOINT:?Set the full chat-completions URL}
+      LLM_MODEL: ${LLM_MODEL:?Set a model name}
+      LLM_SOURCE: ${LLM_SOURCE:?Set test, cloud, or local}
+      LLM_AUTH_REQUIRED: ${LLM_AUTH_REQUIRED:-true}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+    networks:
+      - app_internal
+      - model_egress
+networks:
+  model_egress:

@@ -19,6 +19,15 @@ from app.schemas.survey import (
 
 
 class MockEngine:
+    execution_source = {"source": "mock", "model": None}
+    supports_inference = True
+
+    async def answer(self, respondent, question, locale, mode, *, config, history, research_goal):
+        return self.generate_answer(respondent, question, locale, mode)
+
+    async def aclose(self):
+        pass
+
     def __init__(
         self,
         catalog: MockCatalog,
@@ -110,6 +119,14 @@ class MockEngine:
             mode,
             question.id,
         )
+        # Template IDs alone do not establish compatibility with an edited question.
+        if question.type == "choice":
+            example_answers = [content for content in example_answers
+                if re.sub(r"^[A-Z]\.\s*", "", content).strip() in (question.options or [])]
+        elif question.type == "scale":
+            example_answers = [content for content in example_answers
+                if (match := re.search(r"\d+(?:\.\d+)?", content))
+                and question.scale.min <= float(match.group(0)) <= question.scale.max]
         if example_answers:
             content = self._rng.choice(example_answers)
             answer = self._answer_value_from_example(question, content)

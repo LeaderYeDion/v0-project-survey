@@ -81,6 +81,9 @@ export function ChatSimulationPanel({
 
   const getStatusBadge = (status: InterviewSession["status"]) => {
     switch (status) {
+      case "failed":
+      case "cancelled":
+        return <Badge variant="destructive">{status === "failed" ? (messages.common.failed) : (messages.common.cancelled)}</Badge>
       case "completed":
         return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">{messages.common.completed}</Badge>
       case "in_progress":

@@ -79,6 +79,8 @@ import {
   type RunAction,
 } from "@/lib/run-actions"
 
+import { isSavedDraft, readSelection, writeSelection } from "@/lib/mainline-selection"
+
 type Workspace = "config" | "results" | "analytics"
 
 interface QuestionnaireDraftSaveJob extends DraftSaveJob {
@@ -144,6 +146,8 @@ export default function ResearcherDashboard() {
   const [resourceError, setResourceError] = useState(false)
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   const [questionnaireDialogOpen, setQuestionnaireDialogOpen] = useState(false)
+  const roundSelectionEpochRef = useRef(0)
+  const startingRoundRef = useRef(false)
   const persistedConfigRef = useRef("")
   const revisionByQuestionnaireRef = useRef(new Map<string, number>())
   const configRef = useRef(config)
@@ -203,6 +207,7 @@ export default function ResearcherDashboard() {
     !questionnaireId ||
     !isSurveyConfigValid(config) ||
     saveStatus !== "saved" ||
+    !isSavedDraft(config, persistedConfigRef.current, saveStatus) ||
     isRunning
 
   const applyQuestionnaire = useCallback((questionnaire: Questionnaire) => {
@@ -211,6 +216,13 @@ export default function ResearcherDashboard() {
       setHistoryLoading(false)
       setHistoryError(null)
       setCopyingRoundId(null)
+    }
+    if (user) {
+      const previous = readSelection(localStorage, user.id)
+      writeSelection(localStorage, user.id, {
+        projectId: questionnaire.projectId, questionnaireId: questionnaire.id,
+        roundId: previous?.questionnaireId === questionnaire.id ? previous.roundId : null,
+      })
     }
     questionnaireIdRef.current = questionnaire.id
     setQuestionnaireId(questionnaire.id)
@@ -227,7 +239,7 @@ export default function ResearcherDashboard() {
     setCurrentRun(null)
     setViewingHistoryRound(null)
     setFocusedRespondentId(null)
-  }, [])
+  }, [user?.id])
 
   useEffect(() => {
     if (authStatus !== "authenticated" || !user) return
@@ -242,11 +254,11 @@ export default function ResearcherDashboard() {
         }
         const ownedProjects = result.value
         setProjects(ownedProjects)
-        setProjectId(current =>
-          current && ownedProjects.some(project => project.id === current)
-            ? current
-            : ownedProjects[0]?.id ?? null,
-        )
+        const remembered = readSelection(localStorage, user.id)
+        setProjectId(current => {
+          const preferred = current ?? remembered?.projectId
+          return ownedProjects.some(project => project.id === preferred) ? preferred ?? null : ownedProjects[0]?.id ?? null
+        })
       })
     return request.abort
   }, [authStatus, locale, user?.id])
@@ -269,7 +281,9 @@ export default function ResearcherDashboard() {
         }
         const ownedQuestionnaires = result.value
         setQuestionnaires(ownedQuestionnaires)
-        const selected = ownedQuestionnaires.find(item => item.id === questionnaireIdRef.current)
+        const remembered = readSelection(localStorage, user.id)
+        const preferred = questionnaireIdRef.current ?? (remembered?.projectId === projectId ? remembered.questionnaireId : null)
+        const selected = ownedQuestionnaires.find(item => item.id === preferred)
         setQuestionnaireId(selected?.id ?? ownedQuestionnaires[0]?.id ?? null)
         if (ownedQuestionnaires.length === 0) {
           setConfig(EMPTY_CONFIG)
@@ -282,6 +296,7 @@ export default function ResearcherDashboard() {
   useEffect(() => {
     if (authStatus !== "authenticated" || !user || !questionnaireId) return
     const request = questionnaireLoadTrackerRef.current.begin()
+    const restorationEpoch = roundSelectionEpochRef.current
     setResourceError(false)
     void request.run(signal => apiGetQuestionnaire(locale, questionnaireId, signal))
       .then(result => {
@@ -292,6 +307,19 @@ export default function ResearcherDashboard() {
         }
         if (questionnaireIdRef.current === result.value.id) {
           applyQuestionnaire(result.value)
+          const saved = readSelection(localStorage, user.id)
+          if (saved?.questionnaireId === result.value.id && saved.roundId) {
+            void request.run(signal => apiFetchRound(locale, saved.roundId!, signal)).then(restored => {
+              if (restored.status === "stale" || restorationEpoch !== roundSelectionEpochRef.current) return
+              if (restored.status === "success" && restored.value.questionnaireId === questionnaireIdRef.current) {
+                if (shouldPollRound(restored.value.status)) setCurrentRun(restored.value)
+                else setViewingHistoryRound(restored.value)
+                setActiveWorkspace("results")
+              } else {
+                writeSelection(localStorage, user.id, { ...saved, roundId: null })
+              }
+            })
+          }
         }
       })
     return request.abort
@@ -376,7 +404,10 @@ export default function ResearcherDashboard() {
     if (!currentRun || !shouldPollRound(currentRun.status)) return
     const controller = new AbortController()
     const polledRoundId = currentRun.id
+    let polling = false
     const timer = window.setInterval(async () => {
+      if (polling) return
+      polling = true
       try {
         const next = await apiFetchRound(locale, currentRun.id, controller.signal)
         setCurrentRun(current =>
@@ -394,6 +425,7 @@ export default function ResearcherDashboard() {
           window.clearInterval(timer)
         }
       }
+      finally { polling = false }
     }, 250)
     return () => {
       controller.abort()
@@ -426,7 +458,10 @@ export default function ResearcherDashboard() {
   }, [messages.apiErrors])
 
   const runSimulation = useCallback(async () => {
-    if (runDisabled || !questionnaireId) return
+    if (runDisabled || !questionnaireId || startingRoundRef.current) return
+    startingRoundRef.current = true
+    const epoch = ++roundSelectionEpochRef.current
+    const identity = resourceIdentityRef.current
 
     setActiveWorkspace("results")
     setConfigSheetOpen(false)
@@ -434,16 +469,23 @@ export default function ResearcherDashboard() {
     setRunFeedback(null)
 
     try {
-      setCurrentRun(await apiCreateRound(locale, questionnaireId))
+      const created = await apiCreateRound(locale, questionnaireId)
+      if (epoch !== roundSelectionEpochRef.current || identity !== resourceIdentityRef.current) return
+      setCurrentRun(created)
+      if (user) writeSelection(localStorage, user.id, { projectId: created.projectId, questionnaireId: created.questionnaireId, roundId: created.id })
     } catch (error) {
-      setRunFeedback({ kind: "error", message: localizedApiError(error) })
+      if (epoch === roundSelectionEpochRef.current && identity === resourceIdentityRef.current) setRunFeedback({ kind: "error", message: localizedApiError(error) })
+    } finally {
+      startingRoundRef.current = false
     }
-  }, [locale, localizedApiError, questionnaireId, runDisabled])
+  }, [locale, localizedApiError, questionnaireId, runDisabled, user?.id])
 
   const handleProjectChange = useCallback((nextProjectId: string) => {
+    ++roundSelectionEpochRef.current
     abortOutstandingSurveyRequests()
     roundResourceRequestGuardRef.current.invalidate()
     draftSaveQueueRef.current?.discardPendingExcept("")
+    if (user) writeSelection(localStorage, user.id, { projectId: nextProjectId, questionnaireId: null, roundId: null })
     projectIdRef.current = nextProjectId
     questionnaireIdRef.current = null
     setProjectId(nextProjectId)
@@ -457,9 +499,10 @@ export default function ResearcherDashboard() {
     setHistoryLoading(false)
     setHistoryError(null)
     setCopyingRoundId(null)
-  }, [])
+  }, [user?.id])
 
   const handleQuestionnaireChange = useCallback((nextQuestionnaireId: string) => {
+    ++roundSelectionEpochRef.current
     abortOutstandingSurveyRequests()
     roundResourceRequestGuardRef.current.invalidate()
     draftSaveQueueRef.current?.discardPendingExcept(nextQuestionnaireId)
@@ -510,6 +553,7 @@ export default function ResearcherDashboard() {
   }, [locale, localizedApiError, projectId])
 
   const handleSelectRound = useCallback(async (roundId: string) => {
+    ++roundSelectionEpochRef.current
     setHistoryError(null)
     const result = await roundResourceRequestGuardRef.current.run("detail", () =>
       apiFetchRound(locale, roundId),
@@ -517,6 +561,8 @@ export default function ResearcherDashboard() {
     if (result.status === "stale") return
     if (result.status === "success") {
       const snapshot = result.value
+      if (user) writeSelection(localStorage, user.id, { projectId: snapshot.projectId, questionnaireId: snapshot.questionnaireId, roundId: snapshot.id })
+      setQuestionnaireId(snapshot.questionnaireId)
       setViewingHistoryRound(snapshot)
       setMode(snapshot.mode)
       setFocusedRespondentId(null)
@@ -524,7 +570,7 @@ export default function ResearcherDashboard() {
     } else if (!(result.error instanceof DOMException && result.error.name === "AbortError")) {
       setHistoryError(localizedApiError(result.error))
     }
-  }, [locale, localizedApiError])
+  }, [locale, localizedApiError, user?.id])
 
   const handleCopyRound = useCallback(async (roundId: string) => {
     if (copyingRoundId) return
@@ -562,6 +608,7 @@ export default function ResearcherDashboard() {
       })
       if (!next) return
       setCurrentRun(next)
+      if (user) writeSelection(localStorage, user.id, { projectId: next.projectId, questionnaireId: next.questionnaireId, roundId: next.id })
       setViewingHistoryRound(null)
       setMode(next.mode)
       setRoundHistory(current => [next, ...current.filter(item => item.id !== next.id)])
@@ -576,12 +623,12 @@ export default function ResearcherDashboard() {
   const configPanel = (
     <SurveyConfigPanel
       config={displayConfig}
-      onConfigChange={viewingHistoryRound ? () => {} : setConfig}
+      onConfigChange={viewingHistoryRound || displayIsRunning ? () => {} : next => { setCurrentRun(null); setConfig(next); setSaveStatus("dirty") }}
       onStartSimulation={runSimulation}
       isRunning={displayIsRunning}
       runDisabled={runDisabled || Boolean(viewingHistoryRound)}
       mode={mode}
-      readOnly={Boolean(viewingHistoryRound)}
+      readOnly={Boolean(viewingHistoryRound) || displayIsRunning}
     />
   )
 
@@ -816,6 +863,16 @@ export default function ResearcherDashboard() {
         )}
       </header>
 
+      {displayRound && (
+        <div data-testid="execution-source" data-round-id={displayRound.id} className="px-4 py-1 text-xs text-muted-foreground">
+          {messages.common.executionSource}: {displayRound.executionSource?.source ?? (messages.common.legacySource)}
+          {displayRound.executionSource?.model ? ` · ${displayRound.executionSource.model}` : ""}
+          {displayRound.executionSource && displayRound.executionSource.source !== "mock" && (
+            <span> · {messages.common.auxiliaryDisabled}</span>
+          )}
+          <span> · {displayRound.name} · {displayRound.createdAt} · {displayRound.status}</span>
+        </div>
+      )}
       <RunControlBar
         round={displayRound}
         pendingAction={pendingRunAction}

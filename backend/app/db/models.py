@@ -373,6 +373,7 @@ class ResearchRoundRow(Base):
         ForeignKey("config_versions.id", ondelete="RESTRICT"),
         nullable=False,
     )
+    execution_context: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     mode: Mapped[str] = mapped_column(String(16), nullable=False)
     locale: Mapped[str] = mapped_column(String(16), nullable=False)

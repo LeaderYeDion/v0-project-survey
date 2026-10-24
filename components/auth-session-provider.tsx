@@ -30,7 +30,7 @@ const AuthSessionContext = createContext<AuthSessionContextValue | null>(null)
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const { locale, setLocale } = useI18n()
+  const { locale } = useI18n()
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [status, setStatus] = useState<AuthSessionContextValue["status"]>("loading")
 
@@ -56,7 +56,6 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         if (controller.signal.aborted) return
         setUser(currentUser)
         setStatus("authenticated")
-        if (currentUser.locale !== locale) setLocale(currentUser.locale)
       })
       .catch(error => {
         if (controller.signal.aborted) return
@@ -66,7 +65,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         }
       })
     return () => controller.abort()
-  }, [locale, pathname, setLocale])
+  }, [locale, pathname])
 
   const logout = useCallback(async () => {
     try {

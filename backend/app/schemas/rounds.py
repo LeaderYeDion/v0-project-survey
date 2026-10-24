@@ -18,6 +18,7 @@ class RetryRoundRequest(BaseModel):
 
 
 class RoundSnapshot(RunSnapshot):
+    executionSource: dict[str, str | None] | None = None
     name: str
     projectId: str
     questionnaireId: str

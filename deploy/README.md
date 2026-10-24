@@ -91,3 +91,7 @@ npm run docker:up -- --no-build
 - 系统仍使用 Mock Engine，不提供真实 AI 或正式研究结论。
 - 本轮没有注册、项目共享、角色管理、审计后台或独立任务 Worker。
 - Docker Desktop/engine 是本地部署的必要前提；只有 CLI 配置渲染成功不能证明 daemon、volume 或数据库正常。
+
+## 可选 HTTP 模型模式
+
+默认部署继续运行 Mock，无模型凭据依赖。显式 HTTP 模式使用 `compose.llm.yaml` 增加后端模型配置和出网网络，协议、配置及切回 Mock 的命令见 [模型接入说明](../docs/LLM_CONNECTION.md)。迁移 head 为 `20260927_0003`，升级保留旧轮次。

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from app.locales import normalize_locale
 
 from app.api.dependencies import get_current_user, require_csrf, run_service
 from app.schemas.auth import CurrentUser
@@ -21,13 +22,16 @@ router = APIRouter(tags=["rounds"])
 )
 async def create_round(
     questionnaire_id: UUID,
+    request: Request,
     current_user: CurrentUser = Depends(require_csrf),
     service: RunService = Depends(run_service),
 ) -> RoundSnapshot:
+    locale = normalize_locale(request.headers.get("accept-language", current_user.locale))
+    request.state.locale = locale
     return await service.create(
         current_user.id,
         questionnaire_id,
-        current_user.locale,
+        locale,
     )
 
 

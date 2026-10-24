@@ -25,6 +25,7 @@ from app.schemas.survey import (
     SurveyConfig,
 )
 from app.services.inference_service import InferenceService
+from app.services.http_engine import ModelCallError, validate_answer
 from app.services.research_service import ResearchService
 from app.services.simulation_engine import SimulationEngine
 
@@ -46,7 +47,7 @@ class RoundExecutor:
         self._research = research
         self._engine = engine
         self._inference = inference or InferenceService()
-        self._lease_seconds = lease_seconds
+        self._lease_seconds = max(lease_seconds, getattr(engine, "request_timeout", 0) + 10) if hasattr(engine, "request_timeout") else lease_seconds
         self._lease_owner = f"round-executor-{uuid4()}"
         self._tasks: dict[UUID, asyncio.Task[None]] = {}
 
@@ -67,6 +68,11 @@ class RoundExecutor:
         current = await self._repository.get_for_owner(owner_id, normalized_id)
         if current is None:
             raise KeyError(normalized_id)
+        expected_source = (current.execution_context or {}).get("source", "mock")
+        expected_model = (current.execution_context or {}).get("model")
+        active_source = getattr(self._engine, "execution_source", {"source": "mock", "model": None})
+        if expected_source != active_source["source"] or expected_model != active_source.get("model"):
+            raise ApiError(409, "MODEL_SOURCE_CHANGED", "Restore the original model configuration to resume this round")
         leased = await self._repository.acquire_lease(
             owner_id,
             normalized_id,
@@ -320,12 +326,22 @@ class RoundExecutor:
                 return await self._commit(owner_id, rows.round, checkpoint)
 
             await self._engine.wait_before_answer()
-            answer = self._engine.generate_answer(
-                RespondentProfile.model_validate(respondent.profile_json),
-                question,
-                rows.round.locale,
-                rows.round.mode,
-            )
+            current = await self._repository.get_for_owner(owner_id, rows.round.id)
+            if current is None or current.status not in {"running", "pausing"}:
+                return False
+            try:
+                async with asyncio.timeout(min(config.maxResponseTime, getattr(self._engine, "request_timeout", config.maxResponseTime))):
+                    answer = await self._engine.answer(
+                        RespondentProfile.model_validate(respondent.profile_json),
+                        question, rows.round.locale, rows.round.mode,
+                        config=config, history=dialog,
+                        research_goal=(rows.round.execution_context or {}).get("researchGoal", ""),
+                    )
+            except TimeoutError:
+                raise ModelCallError("MODEL_TIMEOUT") from None
+            validate_answer(question, answer.answerValue)
+            if answer.questionId != question.id:
+                raise ModelCallError("MODEL_INVALID_ANSWER")
             respondent.completed_questions += 1
             session_dialog = [*candidate_dialog, answer]
             low_quality = self._engine.response_is_low_quality(session_dialog)
@@ -401,7 +417,8 @@ class RoundExecutor:
         session = _session_for(rows, respondent_id)
         inference_rows: tuple[InferenceResultRow, ...] = ()
         if (
-            rows.round.mode == "interview"
+            getattr(self._engine, "supports_inference", True)
+            and rows.round.mode == "interview"
             and config.inferenceConfig is not None
             and config.inferenceConfig.enabled
         ):

@@ -58,7 +58,7 @@ async def test_database_health_reports_the_applied_migration(
     )
     monkeypatch.setattr(
         "app.main.create_session_factory",
-        lambda _url: FakeHealthSessionFactory("20260912_0002"),
+        lambda _url: FakeHealthSessionFactory("20260927_0003"),
     )
     application = create_app()
     transport = httpx.ASGITransport(app=application)
@@ -70,7 +70,7 @@ async def test_database_health_reports_the_applied_migration(
 
     assert response.status_code == 200
     assert response.json()["database"] == "ready"
-    assert response.json()["migrationRevision"] == "20260912_0002"
+    assert response.json()["migrationRevision"] == "20260927_0003"
 
 
 @pytest.mark.asyncio

@@ -197,7 +197,11 @@ async def test_exception_report_links_reason_to_respondents(exceptions_api) -> N
         "startedAt",
         "finishedAt",
     }
-    assert respondent["lastValidAnswer"] == "B. 一般"
+    snapshot = (await alice.get(f"/api/rounds/{round_id}")).json()
+    session = next(item for item in snapshot["sessions"] if item["respondentId"] == respondent["respondentId"])
+    last = [item for item in session["dialog"] if item["role"] == "respondent"][-1]
+    assert respondent["lastValidAnswer"] == last["content"]
+    assert last["answerValue"]["value"] in ("A", "B")
     assert respondent["reason"]
 
 

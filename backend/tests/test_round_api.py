@@ -159,3 +159,13 @@ async def test_copy_round_is_owned_and_requires_csrf(round_api) -> None:
     assert missing_csrf.json()["code"] == "CSRF_INVALID"
     assert unauthenticated.status_code == 401
     assert unauthenticated.json()["code"] == "AUTH_SESSION_EXPIRED"
+
+@pytest.mark.asyncio
+async def test_new_round_uses_selected_language_not_seed_account_default(round_api):
+    alice, _, service = round_api
+    _, questionnaire_id = await create_questionnaire(alice)
+    response = await alice.post(f'/api/questionnaires/{questionnaire_id}/rounds', headers={'Accept-Language':'en-US'})
+    assert response.status_code == 201
+    assert response.json()['locale'] == 'en-US'
+    completed = await service.wait(response.json()['id'])
+    assert completed.locale == 'en-US'

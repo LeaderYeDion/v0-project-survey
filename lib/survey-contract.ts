@@ -333,6 +333,7 @@ export interface RunSnapshot {
 }
 
 export interface RoundSnapshot extends RunSnapshot {
+  executionSource?: { source: string; model: string | null } | null
   name: string
   projectId: string
   questionnaireId: string

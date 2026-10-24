@@ -301,7 +301,7 @@ restored_revision="$(
     compose exec -T db psql --username="$POSTGRES_USER" --dbname="$isolated_db" \
     --tuples-only --no-align --command 'SELECT version_num FROM alembic_version;'
 )"
-[ "$restored_revision" = "20260912_0002" ] || die "Restored database is not at migration head"
+[ "$restored_revision" = "20260927_0003" ] || die "Restored database is not at migration head"
 restored_users="$(
   LOCAL_PORT="$isolated_port" COMPOSE_PROJECT_NAME="$isolated_project" \
     POSTGRES_DB="$isolated_db" ENV_FILE="$isolated_env" \

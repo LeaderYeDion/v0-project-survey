@@ -41,7 +41,10 @@ from app.services.research_service import ResearchService
 from app.services.recovery_service import RecoveryService
 
 
-HEAD_MIGRATION_REVISION = "20260912_0002"
+from app.services.http_engine import HttpEngine, ModelSettings
+
+
+HEAD_MIGRATION_REVISION = "20260927_0003"
 
 
 def simulation_termination_enabled() -> bool:
@@ -62,6 +65,11 @@ def create_app(
     mock_catalog = MockCatalog()
     analytics_service = AnalyticsService(mock_catalog)
     inference_service = InferenceService()
+    model_settings = ModelSettings.from_env()
+    simulation_engine = (
+        HttpEngine(mock_catalog, model_settings) if model_settings.engine == "http"
+        else MockEngine(mock_catalog, termination_enabled=simulation_termination_enabled())
+    )
     inference_analysis_service = InferenceAnalysisService()
     database_url = os.environ.get("DATABASE_URL", "").strip()
     session_factory = None
@@ -83,10 +91,7 @@ def create_app(
         service = RunService(
             repository=store,
             research=configured_research,
-            engine=MockEngine(
-                mock_catalog,
-                termination_enabled=simulation_termination_enabled(),
-            ),
+            engine=simulation_engine,
             analytics=analytics_service,
             inference=inference_service,
             inference_analysis=inference_analysis_service,
@@ -104,6 +109,7 @@ def create_app(
                 await recovery.stop()
             if service is not None:
                 await service.executor.shutdown()
+            await simulation_engine.aclose()
 
     application = FastAPI(
         title="Survey Mock Backend",

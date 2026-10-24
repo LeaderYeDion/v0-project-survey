@@ -1,6 +1,6 @@
 # Survey Backend
 
-FastAPI 后端负责应用用户认证、所有权校验、项目/问卷/不可变版本、研究轮次、分析、异常下钻、导出和 Mock 执行。生产路径使用 PostgreSQL；`MemoryRepository` 仅保留为协议一致的纯业务测试替身或无数据库组合，不是当前部署的数据源。
+FastAPI 后端负责应用用户认证、所有权校验、项目/问卷/不可变版本、研究轮次、分析、异常下钻、导出和 Mock/HTTP 模型执行。生产路径使用 PostgreSQL；`MemoryRepository` 仅保留为协议一致的纯业务测试替身或无数据库组合，不是当前部署的数据源。
 
 ## 生产启动路径
 
@@ -12,7 +12,7 @@ Compose 中 backend 等待健康的 PostgreSQL，然后入口脚本依次执行�
 4. `python -m app.cli seed-users --file ...`；
 5. `uvicorn app.main:app --host 0.0.0.0 --port 8000`。
 
-数据库 schema 的唯一生产变更入口是 Alembic。当前迁移 head 为 `20260912_0002`；初始 `20260905_0001` 创建 13 张 P0 表，0002 删除三个旧重复索引并增加 `ix_export_records_status_created(status, created_at)`，兼容已应用旧初始迁移的数据库。`/api/health` 要求数据库可达且恰为 0002；停留在 0001 会返回 503。
+数据库 schema 的唯一生产变更入口是 Alembic。当前迁移 head 为 `20260927_0003`；初始 `20260905_0001` 创建 13 张 P0 表，0002 删除三个旧重复索引并增加 `ix_export_records_status_created(status, created_at)`，兼容已应用旧初始迁移的数据库。0003 增加可空轮次执行上下文，保留旧数据。`/api/health` 要求数据库可达且恰为 0003；旧 revision 返回 503。
 
 入口支持 `--prepare-only`：完成同样的私密 secret 引导、降权、迁移和五用户幂等同步后退出，不启动 Uvicorn。生产恢复在应用停止期间通过 `compose run --rm --no-deps -T backend --prepare-only` 执行它；只有准备成功才重启服务。任一迁移/种子失败都会阻止启动。
 
@@ -101,3 +101,7 @@ Mock 专属模板、画像、回答、终止和标签位于 `app/mocks/`，通�
 ## 2026-09-19 LLM 接入准备度
 
 模板运行资源已自包含于 `app/mocks/data/`，不依赖仓库外的 `task_examples/`。真实 API/DB 底座可保留，但模型接口目前同步、无独立续租、无调用记录/模型提示词版本。已复现非法选项答案入库、推断失败仍标记轮次完成，以及缩短租约下长调用误暂停。接入真实 provider 前需整改，详见[现场检查报告](../docs/verification/2026-09-19-live-deployment-and-llm-readiness.md)。
+
+## 模型模式
+
+默认 Mock 不需要模型配置。HTTP 配置、协议、开发端点和真实资源切换见 [模型接入说明](../docs/LLM_CONNECTION.md)。

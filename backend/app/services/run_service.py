@@ -76,6 +76,7 @@ class RunService:
             questionnaire_id,
         )
         frozen = await self.research.freeze_config(owner_id, questionnaire_id)
+        project = await self.research.get_project(owner_id, questionnaire.project_id)
         profiles = self.engine.generate_respondents(
             frozen.config.respondentConfigs,
             locale,
@@ -87,6 +88,7 @@ class RunService:
                 "questionnaire_id": questionnaire.id,
                 "config_version_id": frozen.config_version_id,
                 "name": frozen.config.title,
+                "execution_context": {**self.engine.execution_source, "researchGoal": project.research_goal},
                 "mode": questionnaire.mode,
                 "locale": locale,
                 "respondents": [
@@ -208,6 +210,7 @@ class RunService:
                 "locale": source.locale,
                 "retry_of_round_id": source.id,
                 "retry_kind": kind,
+                "execution_context": {**self.engine.execution_source, "researchGoal": (source.execution_context or {}).get("researchGoal", "")},
                 "respondents": [
                     {
                         "profile_json": row.profile_json,
@@ -423,6 +426,7 @@ class RunService:
         snapshot = RoundSnapshot(
             id=str(rows.round.id),
             name=rows.round.name,
+            executionSource=({key: rows.round.execution_context.get(key) for key in ("source", "model")} if rows.round.execution_context else None),
             mode=rows.round.mode,
             locale=rows.round.locale,
             status=rows.round.status,

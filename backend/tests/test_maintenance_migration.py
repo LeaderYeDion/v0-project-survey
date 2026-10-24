@@ -20,8 +20,8 @@ LEGACY_INDEXES = (
 def maintenance_migration():
     config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_current_head() == "20260912_0002"
-    revision = scripts.get_revision("head")
+    assert scripts.get_current_head() == "20260927_0003"
+    revision = scripts.get_revision("20260912_0002")
     assert revision.down_revision == "20260905_0001"
     return revision.module
 

@@ -45,6 +45,7 @@ class MemoryRepository:
                 questionnaire_id=payload["questionnaire_id"],
                 config_version_id=payload["config_version_id"],
                 name=payload["name"],
+                    execution_context=payload.get("execution_context"),
                 mode=payload["mode"],
                 locale=payload["locale"],
                 status="queued",
